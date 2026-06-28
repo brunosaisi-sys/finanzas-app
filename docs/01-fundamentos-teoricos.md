@@ -1,0 +1,246 @@
+# Fundamentos Teóricos — App de Finanzas Personales
+
+> Este documento es la **base conceptual y autoritativa** del proyecto. Toda fórmula,
+> default y lógica de cálculo de la app debe rastrearse hasta una fuente listada acá.
+> Está organizado por nivel de confiabilidad de la fuente.
+
+---
+
+## 0. Principio rector
+
+La app distingue **cuatro tipos de fondos** que la teoría financiera trata como
+conceptos separados. Confundirlos es el error más común en finanzas personales.
+
+| Fondo | Propósito | Cuándo se usa |
+|---|---|---|
+| **Sinking Fund (Amortización)** | Reemplazo planificado de un bien al fin de su vida útil | El bien "muere" o se decide cambiarlo |
+| **Maintenance Reserve (Mantenimiento)** | Reparaciones que mantienen el bien funcionando | Algo se rompe / requiere service antes del reemplazo |
+| **Savings Goal (Objetivo)** | Meta con monto y fecha, no ligada a un bien depreciable | Viaje, mudanza, entrada de algo |
+| **Emergency Fund (Emergencia)** | Colchón general para lo imprevisto (3-6 meses de gastos) | Pérdida de ingreso, evento inesperado |
+
+---
+
+## 1. NIVEL 1 — Máxima confiabilidad (normativa y peer-reviewed)
+
+### 1.1 Vida útil, valor residual y depreciación — IAS 16
+
+**Fuente:** Norma Internacional de Contabilidad 16 (Property, Plant and Equipment),
+IASB. Es la norma contable de referencia mundial.
+
+Definiciones operativas (las usamos textualmente en la app):
+
+- **Vida útil:** período durante el cual se espera que un activo esté disponible para uso.
+- **Valor residual:** monto estimado que se obtendría HOY por la disposición del activo,
+  deducidos los costos de disposición, si el activo ya tuviera la edad y condición
+  esperadas al final de su vida útil.
+- **Monto depreciable:** Costo − Valor residual.
+
+**Reglas críticas que la app debe respetar:**
+
+1. El valor residual se estima a **precios de hoy**, no proyectados al futuro (IAS 16.6).
+   → En la app, el "valor de reventa estimado" es lo que valdría hoy un equivalente usado.
+2. Vida útil y valor residual se **revisan periódicamente** y se ajustan (IAS 16.51).
+   → La app permite al usuario hacer override de cualquier default en cualquier momento.
+3. **Depreciación por componentes** (IAS 16): un bien y sus partes con vida distinta
+   pueden depreciarse por separado. Ej.: máquina 4%/año, su motor 8%/año.
+   → Esto fundamenta la separación heladera (Sinking Fund) vs. compresor (Maintenance).
+
+### 1.2 Sinking Fund Method — Ingeniería económica
+
+**Fuente:** NPTEL (National Programme on Technology Enhanced Learning, India) y
+literatura estándar de ingeniería económica.
+
+El método asume que se deposita un monto fijo cada período en un fondo que gana
+interés compuesto, de modo que el acumulado al final de la vida útil = monto a reponer.
+
+**Fórmula del aporte periódico (con interés):**
+
+```
+        (C0 − CL) · i
+d =  ─────────────────────
+       (1 + i)^L  −  1
+```
+
+Donde:
+- `d`  = aporte por período
+- `C0` = costo de reposición (precio del bien nuevo equivalente)
+- `CL` = valor de salvamento / reventa estimado del bien actual
+- `i`  = tasa de interés/rendimiento real por período
+- `L`  = número de períodos hasta el reemplazo
+
+**Caso especial `i = 0`** (sin rendimiento real, común en Argentina con ahorro en
+dólar billete): la fórmula colapsa a la versión simple:
+
+```
+d = (C0 − CL) / L
+```
+
+> ⚠️ Implementación: la app debe usar la fórmula con interés cuando `i > 0`, y la
+> división simple cuando `i = 0`, evitando división por cero en `(1+i)^L − 1`.
+
+### 1.3 Tasa de depreciación de bienes durables — Peer-reviewed
+
+**Fuente:** Cao et al., "Identifying the Depreciation Rate of Durables from Marginal
+Spending Responses", *Journal of Money, Credit and Banking* (2025).
+
+- Tasa de depreciación de durables del hogar (vehículos, electrodomésticos, muebles;
+  **excluye vivienda**): ≈ **0,16–0,17 anual** (~16% de pérdida de valor por año).
+- Resultado robusto: similar entre EE.UU. y China.
+
+→ Uso en la app: cuando no haya un default específico por categoría, usar 16%/año
+como tasa de depreciación de referencia para estimar valor residual.
+
+### 1.4 Vida útil por categoría — Fuente oficial
+
+**Fuente:** US Bureau of Economic Analysis (BEA), tablas de Fixed Assets and Consumer
+Durable Goods. Basadas en estudios del Tesoro de EE.UU. y encuestas de service-life.
+
+→ Uso: defaults de vida útil precargados por categoría (ver §4 tabla de defaults).
+
+---
+
+## 2. NIVEL 2 — Reglas prácticas establecidas (consenso, no normativa)
+
+### 2.1 Mantenimiento — Regla del 1%
+
+- Reservar **1% del valor del bien por año** para mantenimiento/reparaciones.
+- Escalable a **2–4%** según antigüedad y estado del bien.
+- Origen: regla de oro de real estate (home maintenance), extendida a durables.
+
+```
+Aporte mantenimiento mensual = Valor_actual_bien × (% anual) / 12
+```
+
+> Para vivienda: 1% del valor de la propiedad/año es el estándar (rango 1–4%).
+> Para electrodomésticos y auto: 1% es punto de partida razonable.
+
+### 2.2 Vida útil de electrodomésticos — Encuesta OCU (87.000 personas)
+
+- Grandes electrodomésticos: 11–12 años promedio.
+- Heladera: 10–15 | Lavarropas: 8–12 | Lavavajillas: 8–10 | Secarropas: 10–13
+- Microondas: 7–10 | Horno eléctrico: 10–15 | Aspiradora: 5–8
+
+### 2.3 Regla reparar vs. reemplazar — Regla del 50%
+
+- Si el costo de reparación supera el **50%** del precio de un bien nuevo equivalente,
+  conviene reemplazar.
+- → La app puede sugerir esto cuando el usuario registra una reparación.
+
+### 2.4 Reventa de tecnología
+
+- Smartphones flagship: pierden **25–35% por año** los primeros 2–3 años.
+- iPhones retienen ~40–50% del valor a 2 años; Android ~20–30%.
+- Origen: datos de mercado (SellCell, Decluttr) — confiables pero comerciales.
+
+### 2.5 Marco de presupuesto global — 50/30/20
+
+- 50% necesidades / 30% deseos / 20% ahorro e inversión.
+- Útil como vista de referencia, no como regla rígida.
+
+---
+
+## 3. NIVEL 3 — Ajuste por país (CRÍTICO para Argentina)
+
+> Toda la teoría de Sinking Fund asume **moneda estable** y que el ahorro **gana
+> interés real**. En Argentina esto NO se cumple. Sin estos ajustes, los cálculos
+> estándar dan resultados peligrosamente equivocados.
+
+**Fuentes:** INDEC, IAE Business School (informes económicos mensuales), BCRA.
+
+### 3.1 Reglas de ajuste para Argentina
+
+1. **Denominación en USD.** Todos los fondos de amortización y reservas se expresan y
+   (idealmente) se guardan en dólares. En pesos, el ahorro se licúa antes de llegar
+   al objetivo. (Inflación proyectada 2026 ≈ 10% anual en el escenario oficial
+   optimista; históricamente mucho mayor.)
+
+2. **Reposición en la moneda del bien:**
+   - Bienes importados (celular, notebook, TV): se mueven con el **dólar** → calcular `C0` en USD.
+   - Bienes con componente local (muebles, servicios): dinámica mixta → permitir al
+     usuario elegir la moneda de referencia del bien.
+
+3. **Tasa `i` realista.** El rendimiento real en dólares de un fondo conservador en
+   Argentina suele ser **≈ 0 o negativo** (dólar billete). No usar el 5–6% de los
+   ejemplos académicos por defecto. Default sugerido: `i = 0` salvo que el usuario
+   indique dónde invierte y a qué tasa.
+
+4. **Valor de reventa más alto.** El mercado de usados argentino es relativamente más
+   líquido y valioso (lo nuevo es caro en USD), así que el valor residual estimado
+   debería ser **mayor** que el 0–15% que IAS 16 asume para mercados desarrollados.
+   Default sugerido: ajustar al alza los residuales de tablas internacionales.
+
+### 3.2 Arquitectura de la capa de país
+
+La app separa: **(defaults teóricos universales) + (capa de ajuste por país)**.
+Argentina es la primera capa implementada; el diseño debe permitir agregar otros
+países sin tocar el motor de cálculo.
+
+---
+
+## 4. Tabla de defaults por categoría (editable por el usuario)
+
+| Categoría | Vida útil (años) | % Mantenimiento anual | Valor residual fin de vida | Fuente principal |
+|---|---|---|---|---|
+| Heladera/Freezer | 12 | 1% | 10% | OCU / BEA |
+| Lavarropas | 10 | 1,5% | 8% | OCU |
+| Lavavajillas | 9 | 1,5% | 8% | OCU |
+| Secarropas | 11 | 1,5% | 8% | OCU |
+| Microondas | 8 | 1% | 5% | OCU |
+| Horno/Cocina | 12 | 1% | 8% | OCU |
+| TV | 8 | 0,5% | 10% | Mercado |
+| Notebook/PC | 5 | 1% | 15% | Mercado |
+| Smartphone | 3 | 0,5% | 30% (AR ajustado) | Mercado/SellCell |
+| Auto | 12 | 3–5% | 35% (AR ajustado) | BEA / mercado AR |
+| Vivienda (propia) | n/a (no se reemplaza) | 1–2% | n/a | Regla 1% real estate |
+| Muebles | 15 | 0,5% | 10% | BEA |
+
+> Todos los valores son **puntos de partida editables**. La app SIEMPRE muestra el
+> default con su fuente y permite al usuario reemplazarlo. La preferencia del usuario
+> tiene prioridad absoluta sobre el default (principio IAS 16.51 de revisión).
+
+---
+
+## 5. Lógica de cálculo integrada (pseudocódigo de referencia)
+
+```
+Al registrar un BIEN:
+  1. Detectar categoría → cargar defaults (vida útil, %mant, %residual, fuente)
+  2. Mostrar defaults al usuario con su fuente → permitir override
+  3. Determinar moneda de referencia del bien (USD si importado)
+  4. C0 = costo de reposición (precio nuevo equivalente, en moneda del bien)
+  5. CL = C0 × %residual  (o valor manual del usuario)
+  6. L  = meses hasta reemplazo (vida útil − antigüedad actual)
+  7. i  = rendimiento real mensual del fondo (default 0 en AR)
+
+  Sinking Fund mensual:
+     si i > 0:  d = (C0 − CL) · i / ((1+i)^L − 1)
+     si i = 0:  d = (C0 − CL) / L
+
+  Maintenance mensual:
+     m = Valor_actual × (%mant_anual / 12)
+
+  Total mensual a reservar por el bien = d + m
+     (desglosado y etiquetado por tipo de fondo)
+```
+
+---
+
+## 6. Disclaimers obligatorios en la app
+
+- La app **no es asesoramiento financiero**; ofrece estimaciones basadas en teoría
+  general y defaults editables.
+- Los defaults son promedios estadísticos; la realidad de cada bien varía.
+- Las cifras de inflación/dólar son volátiles: la app debe permitir actualizarlas.
+
+---
+
+## 7. Bibliografía / fuentes a citar en la app
+
+1. IASB — IAS 16 Property, Plant and Equipment (vida útil, valor residual, depreciación).
+2. NPTEL — Module 3: Depreciation, Inflation and Taxes (Sinking Fund Method).
+3. Cao et al. (2025) — Journal of Money, Credit and Banking (tasa depreciación durables).
+4. US Bureau of Economic Analysis — Fixed Assets & Consumer Durable Goods tables.
+5. OCU — Encuesta de durabilidad de electrodomésticos (vida útil por categoría).
+6. INDEC — Índices de precios e inflación Argentina.
+7. IAE Business School — Informes económicos mensuales (contexto macro AR).
+8. Regla del 1% — consenso real estate (home maintenance reserve).
