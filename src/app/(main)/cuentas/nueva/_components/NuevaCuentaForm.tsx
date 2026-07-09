@@ -181,6 +181,8 @@ function InstitutionFlow() {
     { label: "", currency: "ARS", balance: "" },
   ]);
 
+  const [closingDay, setClosingDay] = useState("");
+  const [dueDay, setDueDay] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -239,6 +241,8 @@ function InstitutionFlow() {
       type,
       currency,
       balance: parseFloat(balance) || 0,
+      ...(type === "credito" && closingDay ? { closing_day: parseInt(closingDay) } : {}),
+      ...(type === "credito" && dueDay ? { due_day: parseInt(dueDay) } : {}),
     });
 
     setLoading(false);
@@ -508,6 +512,7 @@ function InstitutionFlow() {
                 <option value="efectivo">Efectivo</option>
                 <option value="inversion">Inversión</option>
                 <option value="usd_reserva">Reserva USD</option>
+                <option value="credito">Tarjeta de crédito</option>
               </select>
             </div>
           )}
@@ -548,6 +553,47 @@ function InstitutionFlow() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
           </div>
+
+          {type === "credito" && (
+            <div className="space-y-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
+              <p className="text-xs font-semibold text-blue-700">Datos del resumen de tarjeta</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Día de cierre
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="28"
+                    value={closingDay}
+                    onChange={(e) => setClosingDay(e.target.value)}
+                    placeholder="Ej: 20"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-center"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Día de vencimiento
+                  </label>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min="1"
+                    max="28"
+                    value={dueDay}
+                    onChange={(e) => setDueDay(e.target.value)}
+                    placeholder="Ej: 10"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-center"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-blue-600">
+                Si el gasto es antes del día de cierre, la cuota 1 vence el mes siguiente al cierre.
+              </p>
+            </div>
+          )}
 
           {error && (
             <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>

@@ -1,4 +1,4 @@
-export type AccountType = "banco" | "efectivo" | "inversion" | "usd_reserva";
+export type AccountType = "banco" | "efectivo" | "inversion" | "usd_reserva" | "credito";
 export type Currency = "ARS" | "USD";
 export type ExpenseSource = "app" | "whatsapp" | "ocr";
 export type AssetType = "accion" | "cedear" | "bono" | "fci" | "crypto" | "otro";
@@ -12,6 +12,8 @@ export interface Account {
   balance: number;
   expected_return_annual: number | null;
   parent_id: string | null;
+  closing_day: number | null;
+  due_day: number | null;
   created_at: string;
 }
 

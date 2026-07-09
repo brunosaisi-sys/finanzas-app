@@ -1,6 +1,6 @@
 import type { AccountType, Currency } from "@/types";
 
-export type InstitutionGroup = "banco" | "billetera" | "broker" | "efectivo" | "usd_reserva";
+export type InstitutionGroup = "banco" | "billetera" | "broker" | "efectivo" | "usd_reserva" | "credito";
 
 export interface Institution {
   id: string;
@@ -52,6 +52,11 @@ export const INSTITUTIONS: Institution[] = [
   { id: "efectivo_ars", name: "Efectivo ARS", group: "efectivo", dbType: "efectivo", defaultCurrency: "ARS" },
   // Reservas USD
   { id: "dolares_billete", name: "Dólares billete", group: "usd_reserva", dbType: "usd_reserva", defaultCurrency: "USD" },
+  // Tarjetas de crédito
+  { id: "visa", name: "Visa", group: "credito", dbType: "credito", defaultCurrency: "ARS" },
+  { id: "mastercard", name: "Mastercard", group: "credito", dbType: "credito", defaultCurrency: "ARS" },
+  { id: "amex", name: "American Express", group: "credito", dbType: "credito", defaultCurrency: "ARS" },
+  { id: "naranja", name: "Tarjeta Naranja", group: "credito", dbType: "credito", defaultCurrency: "ARS" },
 ];
 
 export const INSTITUTION_GROUPS: { key: InstitutionGroup; label: string }[] = [
@@ -60,4 +65,5 @@ export const INSTITUTION_GROUPS: { key: InstitutionGroup; label: string }[] = [
   { key: "broker", label: "Brokers / Inversiones" },
   { key: "efectivo", label: "Efectivo" },
   { key: "usd_reserva", label: "Dólares / Reservas" },
+  { key: "credito", label: "Tarjetas de crédito" },
 ];

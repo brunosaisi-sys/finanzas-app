@@ -13,15 +13,9 @@ realidad económica argentina.
 ## Estado actual del proyecto
 
 Phase 2 completada. Motor financiero testeado, pantallas principales implementadas.
-Commit `5544d5f` incluye: editar/eliminar bienes con `replacement_horizon_months`,
-editar saldo y eliminar cuentas inline, transferencias entre cuentas (migration 008
-ejecutada en Supabase), `formatInputAmount` en formularios, autocomplete de comercios.
-
-**Pendiente próxima sesión:**
-- Rediseño `/ingresos/distribuir` (3 capas: obligaciones fijas / fondo de emergencia
-  con target 3×promedio / 50-30-20 del remanente).
-- Eliminar ruta `/ingresos/regla` y referencias (link en distribuir, `saveDistributionRule`
-  en `ingresos/actions.ts`).
+Commit `67748e4` incluye: rediseño `/ingresos/distribuir` 3 capas (obligaciones del mes /
+fondo de emergencia ARS target 3×promedio / 50-30-20 del remanente); eliminación completa
+de `/ingresos/regla`; nueva action `updateEmergencyFund` en ingresos/actions.ts.
 
 ## Qué existe hoy
 
@@ -72,8 +66,7 @@ Migraciones ejecutadas:
 | `/bienes/nuevo` | Formulario con defaults precargados por categoría, preview en tiempo real |
 | `/bienes/[id]/editar` | Editar bien: todos los campos + `replacement_horizon_months` (override L) |
 | `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
-| `/ingresos/distribuir` | Distribución de sueldo: obligaciones / disponible / líneas editables → RPC |
-| `/ingresos/regla` | CRUD de regla de distribución activa — **pendiente eliminar** |
+| `/ingresos/distribuir` | 3 capas: obligaciones del mes (otras monedas = informativo) / fondo emergencia ARS (target 3×promedio, barra progreso, aporte editable) / 50-30-20 del remanente (líneas editables con cuenta y monto) → RPC |
 
 ### Componentes y libs
 - `BottomNav` — Inicio · Gastos · [+] · Cuentas · Bienes
@@ -93,6 +86,11 @@ Migraciones ejecutadas:
 - `src/lib/format.ts` — `formatARS`, `formatUSD`, `formatCurrency`, `formatInputAmount`
   (preview es-AR para inputs numéricos de formularios)
 - `src/lib/categories-defaults.ts` — Categorías de gasto por defecto
+- `ingresos/distribuir/_components/DistribuirForm.tsx` — Capa 1 obligaciones (otras
+  monedas opacity-55 "informativo"), Capa 2 fondo emergencia ARS (barra progreso, aporte
+  editable que recalcula Capa 3), Capa 3 50/30/20 (flag "editado" por línea, "Restablecer")
+- `ingresos/actions.ts` — `createIncome`, `confirmDistribution`, `updateEmergencyFund`
+  (read-then-write seguro single-user sobre tabla `funds`), `redirectToDistribute`
 
 ### Testing
 - 27 tests unitarios en `src/lib/finance/sinkingFund.test.ts` (Jest + ts-jest)

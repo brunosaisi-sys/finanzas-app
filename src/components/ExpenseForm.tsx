@@ -5,7 +5,47 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
 import { formatInputAmount } from "@/lib/format";
+import AmountInput from "@/components/AmountInput";
 import type { Account, Category, Currency, PaymentMethod } from "@/types";
+
+// Calcula las fechas de vencimiento de cada cuota.
+// Si la cuenta tiene closing_day/due_day configurados (tarjeta de crédito),
+// usa el ciclo real de facturación. Si no, fallback: +30 días por cuota.
+function getInstallmentDueDates(
+  expenseDateStr: string,
+  count: number,
+  closingDay?: number | null,
+  dueDay?: number | null
+): string[] {
+  if (!closingDay || !dueDay) {
+    const base = new Date(expenseDateStr + "T12:00:00");
+    return Array.from({ length: count }, (_, i) => {
+      const d = new Date(base);
+      d.setDate(d.getDate() + 30 * (i + 1));
+      return d.toISOString().split("T")[0];
+    });
+  }
+
+  const expDate = new Date(expenseDateStr + "T12:00:00");
+  const expDay = expDate.getDate();
+  // Si el gasto es DESPUÉS del cierre, cae en el próximo ciclo
+  let closingMonth = expDate.getMonth();
+  let closingYear = expDate.getFullYear();
+  if (expDay > closingDay) {
+    closingMonth++;
+    if (closingMonth > 11) { closingMonth = 0; closingYear++; }
+  }
+
+  return Array.from({ length: count }, (_, i) => {
+    let dueMonth = closingMonth + 1 + i;
+    let dueYear = closingYear;
+    while (dueMonth > 11) { dueMonth -= 12; dueYear++; }
+    const maxDay = new Date(dueYear, dueMonth + 1, 0).getDate();
+    return new Date(dueYear, dueMonth, Math.min(dueDay, maxDay))
+      .toISOString()
+      .split("T")[0];
+  });
+}
 
 interface Props {
   accounts: Account[];
@@ -100,18 +140,20 @@ export default function ExpenseForm({
     }
 
     if (isCredito) {
-      const baseDate = new Date(date + "T12:00:00");
-      const installmentRows = Array.from({ length: cuotas }, (_, i) => {
-        const dueDate = new Date(baseDate);
-        dueDate.setDate(dueDate.getDate() + 30 * (i + 1));
-        return {
-          expense_id: expenseData.id,
-          installment_number: i + 1,
-          amount: installmentAmount!,
-          due_date: dueDate.toISOString().split("T")[0],
-          paid: false,
-        };
-      });
+      const selectedAccount = accounts.find((a) => a.id === accountId);
+      const dueDates = getInstallmentDueDates(
+        date,
+        cuotas,
+        selectedAccount?.closing_day,
+        selectedAccount?.due_day
+      );
+      const installmentRows = Array.from({ length: cuotas }, (_, i) => ({
+        expense_id: expenseData.id,
+        installment_number: i + 1,
+        amount: installmentAmount!,
+        due_date: dueDates[i],
+        paid: false,
+      }));
 
       const { error: installmentsError } = await supabase
         .from("installments")
@@ -171,17 +213,27 @@ export default function ExpenseForm({
             ))}
           </div>
           <div className="flex-1">
-            <input
-              type="number"
-              inputMode="decimal"
-              required
-              min="0.01"
-              step="any"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              placeholder="0"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
-            />
+            {currency === "ARS" ? (
+              <AmountInput
+                required
+                value={amount}
+                onChange={setAmount}
+                placeholder="0"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
+              />
+            ) : (
+              <input
+                type="number"
+                inputMode="decimal"
+                required
+                min="0.01"
+                step="any"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
+              />
+            )}
             {amount && currency === "ARS" && (
               <p className="text-[11px] text-gray-400 text-right mt-0.5">
                 {formatInputAmount(amount, "ARS")}
@@ -317,6 +369,16 @@ export default function ExpenseForm({
             </option>
           ))}
         </select>
+        {(() => {
+          if (paymentMethod !== "credito" || !accountId) return null;
+          const acc = accounts.find((a) => a.id === accountId);
+          if (!acc?.closing_day || !acc?.due_day) return null;
+          return (
+            <p className="text-[11px] text-indigo-600 mt-0.5">
+              Cierre día {acc.closing_day} · Vencimiento día {acc.due_day} — fechas de cuotas calculadas automáticamente
+            </p>
+          );
+        })()}
       </div>
 
       {/* Fecha */}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { confirmDistribution, updateEmergencyFund } from "../../actions";
 import { formatCurrency, formatInputAmount } from "@/lib/format";
+import AmountInput from "@/components/AmountInput";
 import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
 import type { Currency, Account } from "@/types";
 import type { ObligationBreakdownItem } from "@/lib/finance/monthlyObligations";
@@ -294,12 +295,9 @@ export default function DistribuirForm({
                 </span>
               )}
             </label>
-            <input
-              type="number"
-              min="0"
-              step="1"
+            <AmountInput
               value={emergencyContrib}
-              onChange={(e) => handleEmergencyChange(e.target.value)}
+              onChange={(raw) => handleEmergencyChange(raw)}
               className={INPUT}
             />
             {emergencyContrib && parseFloat(emergencyContrib) > 0 && (
@@ -376,14 +374,22 @@ export default function DistribuirForm({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <p className="text-[10px] text-gray-400 mb-1">Monto ({incomeCurrency})</p>
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={line.amount}
-                    onChange={(e) => handleAmount(line.key, e.target.value)}
-                    className={INPUT}
-                  />
+                  {incomeCurrency === "ARS" ? (
+                    <AmountInput
+                      value={line.amount}
+                      onChange={(raw) => handleAmount(line.key, raw)}
+                      className={INPUT}
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={line.amount}
+                      onChange={(e) => handleAmount(line.key, e.target.value)}
+                      className={INPUT}
+                    />
+                  )}
                   {line.amount && incomeCurrency === "ARS" && parseFloat(line.amount) > 0 && (
                     <p className="text-[11px] text-gray-400 mt-0.5 text-right">
                       {formatInputAmount(line.amount, "ARS")}

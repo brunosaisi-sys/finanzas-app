@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
+import HoldingPriceEdit from "./_components/HoldingPriceEdit";
 import type { Holding } from "@/types";
 
 const ASSET_LABELS: Record<string, string> = {
@@ -17,19 +18,48 @@ type HoldingRow = Holding & { accounts: { name: string } | null };
 
 type FciFondo = { fondo: string; tna: number; fecha: string };
 
-async function fetchCocosTNA(): Promise<number | null> {
-  try {
-    const res = await fetch(
-      "https://api.argentinadatos.com/v1/finanzas/fci/mercadoDinero/ultimo",
-      { next: { revalidate: 21600 } }
-    );
-    if (!res.ok) return null;
-    const data: FciFondo[] = await res.json();
-    const cocos = data.find((f) => f.fondo.toLowerCase().includes("cocos"));
-    return cocos?.tna ?? null;
-  } catch {
-    return null;
+// ArgentinaDatos solo provee TNA de FCI (no cotizaciones de acciones/CEDEARs).
+// Para acciones y CEDEARs se usa precio manual via HoldingPriceEdit.
+async function fetchAllFCIRates(): Promise<Map<string, { tna: number; fecha: string }>> {
+  const cats = ["mercadoDinero", "rentaFija", "rentaVariable", "rentaMixta"];
+  const map = new Map<string, { tna: number; fecha: string }>();
+
+  await Promise.allSettled(
+    cats.map(async (cat) => {
+      try {
+        const res = await fetch(
+          `https://api.argentinadatos.com/v1/finanzas/fci/${cat}/ultimo`,
+          { next: { revalidate: 21600 } }
+        );
+        if (!res.ok) return;
+        const data: FciFondo[] = await res.json();
+        for (const f of data) {
+          map.set(f.fondo.toLowerCase(), { tna: f.tna, fecha: f.fecha });
+        }
+      } catch {
+        // silent fail per category — API is best-effort
+      }
+    })
+  );
+
+  return map;
+}
+
+function matchFCIRate(
+  holding: HoldingRow,
+  rates: Map<string, { tna: number; fecha: string }>
+): { tna: number; fecha: string } | null {
+  if (holding.asset_type !== "fci") return null;
+  const needle = (holding.ticker ?? holding.name).toLowerCase();
+
+  if (rates.has(needle)) return rates.get(needle)!;
+
+  // Match by significant words (length > 3) from holding name against fund name
+  const words = needle.split(/\s+/).filter((w) => w.length > 3);
+  for (const [key, val] of rates) {
+    if (words.length > 0 && words.some((w) => key.includes(w))) return val;
   }
+  return null;
 }
 
 export default async function InversionesPage() {
@@ -39,12 +69,12 @@ export default async function InversionesPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data }, cocosTNA] = await Promise.all([
+  const [{ data }, fciRates] = await Promise.all([
     supabase
       .from("holdings")
       .select("*, accounts(name)")
       .order("created_at", { ascending: false }),
-    fetchCocosTNA(),
+    fetchAllFCIRates(),
   ]);
 
   const holdings = (data ?? []) as HoldingRow[];
@@ -65,8 +95,7 @@ export default async function InversionesPage() {
           <p className="text-4xl">📈</p>
           <p className="text-sm font-medium text-gray-900">Sin posiciones cargadas</p>
           <p className="text-sm text-gray-400">
-            Cargá tus acciones, CEDEARs, bonos o FCI para ver tu portafolio y
-            rendimiento.
+            Cargá tus acciones, CEDEARs, bonos o FCI para ver tu portafolio y rendimiento.
           </p>
           <Link
             href="/inversiones/nueva"
@@ -108,20 +137,13 @@ export default async function InversionesPage() {
         </Link>
       </div>
 
-      {/* Cocos Ahorro FCI — TNA */}
-      {cocosTNA != null && (
-        <section className="bg-indigo-50 rounded-2xl px-4 py-3 flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-indigo-700 uppercase tracking-wide">
-              Cocos Ahorro FCI
-            </p>
-            <p className="text-xs text-indigo-500">Mercado de dinero · actualizado hoy</p>
-          </div>
-          <p className="text-xl font-bold text-indigo-900 tabular-nums">
-            {cocosTNA.toFixed(1)}% TNA
-          </p>
-        </section>
-      )}
+      {/* Aviso sobre cotizaciones */}
+      <section className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+        <p className="text-xs text-gray-500">
+          <span className="font-medium text-gray-700">FCI:</span> TNA actualizada desde ArgentinaDatos (cada 6 h).
+          <span className="ml-2 font-medium text-gray-700">Acciones / CEDEARs:</span> sin feed automático — actualizá el precio manualmente.
+        </p>
+      </section>
 
       {/* Resumen portafolio */}
       {(totalValueARS > 0 || totalValueUSD > 0) && (
@@ -164,8 +186,8 @@ export default async function InversionesPage() {
 
       {/* Lista de posiciones */}
       <section>
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          {holdings.map((holding, i) => {
+        <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-100">
+          {holdings.map((holding) => {
             const cost = holding.quantity * holding.avg_buy_price;
             const currentValue =
               holding.current_price != null
@@ -175,13 +197,12 @@ export default async function InversionesPage() {
             const pnlPct =
               pnl != null && cost > 0 ? (pnl / cost) * 100 : null;
 
+            const fciRate = matchFCIRate(holding, fciRates);
+
             return (
-              <div
-                key={holding.id}
-                className={`px-4 py-3 ${i > 0 ? "border-t border-gray-100" : ""}`}
-              >
+              <div key={holding.id} className="px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       {holding.ticker && (
                         <span className="text-xs font-mono font-bold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">
@@ -201,7 +222,34 @@ export default async function InversionesPage() {
                         {holding.accounts.name}
                       </p>
                     )}
+
+                    {/* FCI: mostrar TNA si hay match */}
+                    {fciRate && (
+                      <p className="text-xs font-medium text-indigo-700 mt-0.5">
+                        {fciRate.tna.toFixed(1)}% TNA
+                        <span className="text-gray-400 font-normal ml-1">
+                          · {new Date(fciRate.fecha).toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}
+                        </span>
+                      </p>
+                    )}
+
+                    {/* Acciones/CEDEARs/bonos: edición manual de precio */}
+                    {holding.asset_type !== "fci" && (
+                      <HoldingPriceEdit
+                        holdingId={holding.id}
+                        currentPrice={holding.current_price}
+                        currency={holding.currency}
+                      />
+                    )}
+                    {holding.asset_type === "fci" && !fciRate && (
+                      <HoldingPriceEdit
+                        holdingId={holding.id}
+                        currentPrice={holding.current_price}
+                        currency={holding.currency}
+                      />
+                    )}
                   </div>
+
                   <div className="text-right shrink-0">
                     {currentValue != null ? (
                       <>
@@ -216,6 +264,16 @@ export default async function InversionesPage() {
                           >
                             {pnl! >= 0 ? "+" : ""}
                             {pnlPct.toFixed(1)}%
+                          </p>
+                        )}
+                        {pnl != null && (
+                          <p
+                            className={`text-[11px] tabular-nums ${
+                              pnl >= 0 ? "text-green-500" : "text-red-500"
+                            }`}
+                          >
+                            {pnl >= 0 ? "+" : ""}
+                            {formatCurrency(pnl, holding.currency)}
                           </p>
                         )}
                       </>
