@@ -12,8 +12,16 @@ realidad económica argentina.
 
 ## Estado actual del proyecto
 
-Phase 2 completada. El motor financiero está testeado y las pantallas
-principales están implementadas y compilando sin errores.
+Phase 2 completada. Motor financiero testeado, pantallas principales implementadas.
+Commit `5544d5f` incluye: editar/eliminar bienes con `replacement_horizon_months`,
+editar saldo y eliminar cuentas inline, transferencias entre cuentas (migration 008
+ejecutada en Supabase), `formatInputAmount` en formularios, autocomplete de comercios.
+
+**Pendiente próxima sesión:**
+- Rediseño `/ingresos/distribuir` (3 capas: obligaciones fijas / fondo de emergencia
+  con target 3×promedio / 50-30-20 del remanente).
+- Eliminar ruta `/ingresos/regla` y referencias (link en distribuir, `saveDistributionRule`
+  en `ingresos/actions.ts`).
 
 ## Qué existe hoy
 
@@ -21,10 +29,11 @@ principales están implementadas y compilando sin errores.
 - `sinkingFund.ts` — Motor puro de cálculo: `calcSinkingFund`, `calcMaintenance`,
   `calcCurrentValue` (depreciación 16%/año §1.3), `calcAssetFunds`, tabla
   `ASSET_DEFAULTS` con 12 categorías y fuentes. **27 tests unitarios** en
-  `sinkingFund.test.ts`, todos verdes.
+  `sinkingFund.test.ts`, todos verdes. `calcAssetFunds` acepta parámetro opcional
+  `replacement_horizon_months` que sobreescribe L (meses restantes), principio IAS 16.51.
 - `monthlyObligations.ts` — `calculateMonthlyObligations(assets, installments)`
   agrega sinking + maintenance + cuotas del mes; alimenta la pantalla de
-  distribución de sueldo.
+  distribución de sueldo. Pasa `replacement_horizon_months` al motor.
 
 ### Base de datos (Supabase)
 Migraciones ejecutadas:
@@ -39,32 +48,50 @@ Migraciones ejecutadas:
 - `007` — Función RPC `confirm_income_distribution(p_income_id, p_lines JSONB)`:
   actualiza balances y marca el ingreso como distribuido en una sola transacción
   PL/pgSQL atómica. `SECURITY INVOKER` — RLS aplica normalmente.
+- `008` — Tabla `account_transfers` (RLS: users manage own) + función RPC
+  `execute_account_transfer(p_from, p_to, p_amount, p_currency, p_date, p_note)`
+  en PL/pgSQL `SECURITY INVOKER`: debita origen, acredita destino, inserta registro
+  en una sola transacción atómica. **Ejecutada en Supabase.**
 
 ### Rutas implementadas
 | Ruta | Descripción |
 |------|-------------|
 | `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso" |
 | `/login` | Auth email + password (Supabase Auth) |
-| `/cuentas` | Lista de cuentas agrupada, saldo disponible (balance − earmarks activos) |
+| `/cuentas` | Lista de cuentas agrupada; editar saldo y eliminar cuenta inline (CuentaActions) |
 | `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre) |
-| `/gastos` | Lista de gastos con filtros |
-| `/gastos/nuevo` | Formulario gasto: medio de pago, cuotas, cuenta de cobertura |
+| `/cuentas/transferencia` | Transferencia entre cuentas vía RPC atómico; aviso si monedas distintas |
+| `/gastos` | Lista de gastos con filtros (FK disambiguation corregida: `!account_id`) |
+| `/gastos/nuevo` | Formulario gasto: medio de pago, cuotas, cuenta de cobertura, autocomplete comercio |
 | `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
 | `/categorias` | Onboarding de categorías con defaults |
 | `/cuotas` | Cuotas pendientes agrupadas por mes, con botón "Marcar pagada" |
 | `/inversiones` | Holdings con P&L calculado; TNA de FCI vía ArgentinaDatos API (gratuita) |
 | `/inversiones/nueva` | Formulario nueva posición |
-| `/bienes` | Lista de bienes con sinking + maintenance por bien, totales por moneda |
+| `/bienes` | Lista de bienes con sinking + maintenance por bien; botones Editar y Eliminar |
 | `/bienes/nuevo` | Formulario con defaults precargados por categoría, preview en tiempo real |
+| `/bienes/[id]/editar` | Editar bien: todos los campos + `replacement_horizon_months` (override L) |
 | `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
 | `/ingresos/distribuir` | Distribución de sueldo: obligaciones / disponible / líneas editables → RPC |
-| `/ingresos/regla` | CRUD de regla de distribución activa (líneas cuenta + %) |
+| `/ingresos/regla` | CRUD de regla de distribución activa — **pendiente eliminar** |
 
 ### Componentes y libs
 - `BottomNav` — Inicio · Gastos · [+] · Cuentas · Bienes
 - `LogoutButton`, `MarkPaidButton` (Server Actions)
-- `src/lib/accounts.ts` — `getLeafAccounts()` para calcular saldos correctos con jerarquía
-- `src/lib/format.ts` — `formatARS`, `formatUSD`, `formatCurrency`
+- `ExpenseForm` — Autocomplete de comercio vía `<datalist>` nativo (sin librería externa);
+  preview formateado ARS debajo del input de monto
+- `bienes/_components/DeleteAssetButton.tsx` — Ciclo idle→confirming→deleting, llama
+  `deleteAsset` server action y luego `router.refresh()`
+- `bienes/[id]/editar/_components/EditAssetForm.tsx` — Pre-llena todos los campos;
+  campo `replacement_horizon_months` con nota "sobreescribe vida útil restante"
+- `cuentas/_components/CuentaActions.tsx` — Editar saldo / eliminar cuenta inline
+  (3 estados: idle, edit, delete); llama server actions de `cuentas/actions.ts`
+- `cuentas/transferencia/_components/TransferenciaForm.tsx` — Selectores origen/destino
+  con display name + saldo; aviso ámbar si monedas distintas
+- `src/lib/accounts.ts` — `getLeafAccounts()` (cuentas sin hijos), `accountDisplayName()`
+  ("Institución — Bolsillo" para hijos, nombre plano para raíces)
+- `src/lib/format.ts` — `formatARS`, `formatUSD`, `formatCurrency`, `formatInputAmount`
+  (preview es-AR para inputs numéricos de formularios)
 - `src/lib/categories-defaults.ts` — Categorías de gasto por defecto
 
 ### Testing

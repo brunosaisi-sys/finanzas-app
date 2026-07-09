@@ -70,16 +70,13 @@ export async function confirmDistribution(
   return {};
 }
 
-// ─── saveDistributionRule ─────────────────────────────────────────────────────
+// ─── updateEmergencyFund ──────────────────────────────────────────────────────
+// Suma additionalAmount al current_amount del fondo de emergencia.
+// Read-then-write seguro en app single-user sin concurrencia.
 
-interface RuleLine {
-  account_id: string | null;
-  label: string;
-  percentage: number;
-}
-
-export async function saveDistributionRule(
-  lines: RuleLine[]
+export async function updateEmergencyFund(
+  fundId: string,
+  additionalAmount: number
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
@@ -87,42 +84,26 @@ export async function saveDistributionRule(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  // Desactivar regla anterior
-  await supabase
-    .from("income_distribution_rules")
-    .update({ active: false })
+  const { data: fund, error: fetchError } = await supabase
+    .from("funds")
+    .select("current_amount")
+    .eq("id", fundId)
     .eq("user_id", user.id)
-    .eq("active", true);
-
-  // Insertar nueva regla
-  const { data: rule, error: ruleError } = await supabase
-    .from("income_distribution_rules")
-    .insert({ user_id: user.id, name: "Principal", active: true })
-    .select("id")
     .single();
 
-  if (ruleError) return { error: ruleError.message };
+  if (fetchError || !fund) return { error: fetchError?.message ?? "Fondo no encontrado" };
 
-  if (lines.length > 0) {
-    const { error: linesError } = await supabase
-      .from("income_distribution_lines")
-      .insert(
-        lines.map((l) => ({
-          rule_id: rule.id,
-          account_id: l.account_id,
-          label: l.label,
-          percentage: l.percentage,
-        }))
-      );
-    if (linesError) return { error: linesError.message };
-  }
+  const { error } = await supabase
+    .from("funds")
+    .update({ current_amount: Number(fund.current_amount) + additionalAmount })
+    .eq("id", fundId)
+    .eq("user_id", user.id);
 
+  if (error) return { error: error.message };
   return {};
 }
 
 // ─── redirectToDistribute ─────────────────────────────────────────────────────
-// Server Action auxiliar: solo se puede llamar desde un Server Component.
-// Redirige al flujo de distribución con el ingreso_id recién creado.
 
 export async function redirectToDistribute(incomeId: string): Promise<never> {
   redirect(`/ingresos/distribuir?ingreso_id=${incomeId}`);
