@@ -10,6 +10,69 @@ gastos, inversiones, reservas en dólares, y **fondos de amortización y manteni
 por bien** (Sinking Funds), con una base teórica financiera rigurosa y ajuste a la
 realidad económica argentina.
 
+## Estado actual del proyecto
+
+Phase 2 completada. El motor financiero está testeado y las pantallas
+principales están implementadas y compilando sin errores.
+
+## Qué existe hoy
+
+### Motor financiero (`src/lib/finance/`)
+- `sinkingFund.ts` — Motor puro de cálculo: `calcSinkingFund`, `calcMaintenance`,
+  `calcCurrentValue` (depreciación 16%/año §1.3), `calcAssetFunds`, tabla
+  `ASSET_DEFAULTS` con 12 categorías y fuentes. **27 tests unitarios** en
+  `sinkingFund.test.ts`, todos verdes.
+- `monthlyObligations.ts` — `calculateMonthlyObligations(assets, installments)`
+  agrega sinking + maintenance + cuotas del mes; alimenta la pantalla de
+  distribución de sueldo.
+
+### Base de datos (Supabase)
+Migraciones ejecutadas:
+- `001` — Schema inicial: accounts, categories, expenses, incomes, assets,
+  funds, fund_transactions. RLS en todas.
+- `002/003` — (corridas directamente, sin archivo) Agrega: payment_method,
+  installments_total, covering_account_id a expenses; tablas installments,
+  account_earmarks, income_distribution_rules, income_distribution_lines.
+- `004` — `current_value` en assets (override de depreciación calculada).
+- `005` — `replacement_cost` en assets (C₀ para sinking fund).
+- `006` — `type`, `note`, `distributed` en incomes.
+- `007` — Función RPC `confirm_income_distribution(p_income_id, p_lines JSONB)`:
+  actualiza balances y marca el ingreso como distribuido en una sola transacción
+  PL/pgSQL atómica. `SECURITY INVOKER` — RLS aplica normalmente.
+
+### Rutas implementadas
+| Ruta | Descripción |
+|------|-------------|
+| `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso" |
+| `/login` | Auth email + password (Supabase Auth) |
+| `/cuentas` | Lista de cuentas agrupada, saldo disponible (balance − earmarks activos) |
+| `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre) |
+| `/gastos` | Lista de gastos con filtros |
+| `/gastos/nuevo` | Formulario gasto: medio de pago, cuotas, cuenta de cobertura |
+| `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
+| `/categorias` | Onboarding de categorías con defaults |
+| `/cuotas` | Cuotas pendientes agrupadas por mes, con botón "Marcar pagada" |
+| `/inversiones` | Holdings con P&L calculado; TNA de FCI vía ArgentinaDatos API (gratuita) |
+| `/inversiones/nueva` | Formulario nueva posición |
+| `/bienes` | Lista de bienes con sinking + maintenance por bien, totales por moneda |
+| `/bienes/nuevo` | Formulario con defaults precargados por categoría, preview en tiempo real |
+| `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
+| `/ingresos/distribuir` | Distribución de sueldo: obligaciones / disponible / líneas editables → RPC |
+| `/ingresos/regla` | CRUD de regla de distribución activa (líneas cuenta + %) |
+
+### Componentes y libs
+- `BottomNav` — Inicio · Gastos · [+] · Cuentas · Bienes
+- `LogoutButton`, `MarkPaidButton` (Server Actions)
+- `src/lib/accounts.ts` — `getLeafAccounts()` para calcular saldos correctos con jerarquía
+- `src/lib/format.ts` — `formatARS`, `formatUSD`, `formatCurrency`
+- `src/lib/categories-defaults.ts` — Categorías de gasto por defecto
+
+### Testing
+- 27 tests unitarios en `src/lib/finance/sinkingFund.test.ts` (Jest + ts-jest)
+- `docs/test-cases.md` — 9 casos funcionales documentados con valores esperados
+- `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)
+- `screenshot.mjs` — Script Playwright para capturas autenticadas
+
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 
 - `docs/01-fundamentos-teoricos.md` — **La biblia financiera.** Toda fórmula y default
