@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import HoldingPriceEdit from "./_components/HoldingPriceEdit";
+import { FciRateCell, FciPortfolioSummary } from "./_components/FciRatesSection";
 import type { Holding } from "@/types";
 
 const ASSET_LABELS: Record<string, string> = {
@@ -16,52 +18,6 @@ const ASSET_LABELS: Record<string, string> = {
 
 type HoldingRow = Holding & { accounts: { name: string } | null };
 
-type FciFondo = { fondo: string; tna: number; fecha: string };
-
-// ArgentinaDatos solo provee TNA de FCI (no cotizaciones de acciones/CEDEARs).
-// Para acciones y CEDEARs se usa precio manual via HoldingPriceEdit.
-async function fetchAllFCIRates(): Promise<Map<string, { tna: number; fecha: string }>> {
-  const cats = ["mercadoDinero", "rentaFija", "rentaVariable", "rentaMixta"];
-  const map = new Map<string, { tna: number; fecha: string }>();
-
-  await Promise.allSettled(
-    cats.map(async (cat) => {
-      try {
-        const res = await fetch(
-          `https://api.argentinadatos.com/v1/finanzas/fci/${cat}/ultimo`,
-          { next: { revalidate: 21600 } }
-        );
-        if (!res.ok) return;
-        const data: FciFondo[] = await res.json();
-        for (const f of data) {
-          map.set(f.fondo.toLowerCase(), { tna: f.tna, fecha: f.fecha });
-        }
-      } catch {
-        // silent fail per category — API is best-effort
-      }
-    })
-  );
-
-  return map;
-}
-
-function matchFCIRate(
-  holding: HoldingRow,
-  rates: Map<string, { tna: number; fecha: string }>
-): { tna: number; fecha: string } | null {
-  if (holding.asset_type !== "fci") return null;
-  const needle = (holding.ticker ?? holding.name).toLowerCase();
-
-  if (rates.has(needle)) return rates.get(needle)!;
-
-  // Match by significant words (length > 3) from holding name against fund name
-  const words = needle.split(/\s+/).filter((w) => w.length > 3);
-  for (const [key, val] of rates) {
-    if (words.length > 0 && words.some((w) => key.includes(w))) return val;
-  }
-  return null;
-}
-
 export default async function InversionesPage() {
   const supabase = await createClient();
   const {
@@ -69,13 +25,12 @@ export default async function InversionesPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data }, fciRates] = await Promise.all([
-    supabase
-      .from("holdings")
-      .select("*, accounts(name)")
-      .order("created_at", { ascending: false }),
-    fetchAllFCIRates(),
-  ]);
+  // Solo carga holdings desde Supabase — renderiza inmediatamente.
+  // FCI rates se cargan en paralelo por holding via Suspense.
+  const { data } = await supabase
+    .from("holdings")
+    .select("*, accounts(name)")
+    .order("created_at", { ascending: false });
 
   const holdings = (data ?? []) as HoldingRow[];
 
@@ -108,23 +63,6 @@ export default async function InversionesPage() {
     );
   }
 
-  // Resumen del portafolio (solo holdings con precio actual cargado)
-  const withPrice = holdings.filter((h) => h.current_price != null);
-  const totalValueARS = withPrice
-    .filter((h) => h.currency === "ARS")
-    .reduce((s, h) => s + h.quantity * h.current_price!, 0);
-  const totalCostARS = withPrice
-    .filter((h) => h.currency === "ARS")
-    .reduce((s, h) => s + h.quantity * h.avg_buy_price, 0);
-  const totalValueUSD = withPrice
-    .filter((h) => h.currency === "USD")
-    .reduce((s, h) => s + h.quantity * h.current_price!, 0);
-  const totalCostUSD = withPrice
-    .filter((h) => h.currency === "USD")
-    .reduce((s, h) => s + h.quantity * h.avg_buy_price, 0);
-  const pnlARS = totalValueARS - totalCostARS;
-  const pnlUSD = totalValueUSD - totalCostUSD;
-
   return (
     <div className="p-4 max-w-lg mx-auto space-y-6">
       <div className="flex items-center justify-between pt-2">
@@ -137,7 +75,6 @@ export default async function InversionesPage() {
         </Link>
       </div>
 
-      {/* Aviso sobre cotizaciones */}
       <section className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
         <p className="text-xs text-gray-500">
           <span className="font-medium text-gray-700">FCI:</span> TNA actualizada desde ArgentinaDatos (cada 6 h).
@@ -145,46 +82,12 @@ export default async function InversionesPage() {
         </p>
       </section>
 
-      {/* Resumen portafolio */}
-      {(totalValueARS > 0 || totalValueUSD > 0) && (
-        <section className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-          <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-            Portafolio (con precio actual)
-          </p>
-          {totalValueARS > 0 && (
-            <div>
-              <p className="text-2xl font-semibold text-gray-900 tabular-nums">
-                {formatCurrency(totalValueARS, "ARS")}
-              </p>
-              <p
-                className={`text-sm font-medium tabular-nums ${
-                  pnlARS >= 0 ? "text-green-600" : "text-red-600"
-                }`}
-              >
-                {pnlARS >= 0 ? "+" : ""}
-                {formatCurrency(pnlARS, "ARS")} en pesos
-              </p>
-            </div>
-          )}
-          {totalValueUSD > 0 && (
-            <div>
-              <p className="text-xl font-semibold text-gray-900 tabular-nums">
-                {formatCurrency(totalValueUSD, "USD")}
-              </p>
-              <p
-                className={`text-sm font-medium tabular-nums ${
-                  pnlUSD >= 0 ? "text-green-600" : "text-red-600"
-                }`}
-              >
-                {pnlUSD >= 0 ? "+" : ""}
-                {formatCurrency(pnlUSD, "USD")} en dólares
-              </p>
-            </div>
-          )}
-        </section>
-      )}
+      {/* Resumen portafolio — no bloquea, solo usa precios ya guardados en DB */}
+      <Suspense fallback={null}>
+        <FciPortfolioSummary holdings={holdings} />
+      </Suspense>
 
-      {/* Lista de posiciones */}
+      {/* Lista de posiciones — holdings renderizan de inmediato */}
       <section>
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden divide-y divide-gray-100">
           {holdings.map((holding) => {
@@ -196,8 +99,6 @@ export default async function InversionesPage() {
             const pnl = currentValue != null ? currentValue - cost : null;
             const pnlPct =
               pnl != null && cost > 0 ? (pnl / cost) * 100 : null;
-
-            const fciRate = matchFCIRate(holding, fciRates);
 
             return (
               <div key={holding.id} className="px-4 py-3">
@@ -223,25 +124,18 @@ export default async function InversionesPage() {
                       </p>
                     )}
 
-                    {/* FCI: mostrar TNA si hay match */}
-                    {fciRate && (
-                      <p className="text-xs font-medium text-indigo-700 mt-0.5">
-                        {fciRate.tna.toFixed(1)}% TNA
-                        <span className="text-gray-400 font-normal ml-1">
-                          · {new Date(fciRate.fecha).toLocaleDateString("es-AR", { day: "2-digit", month: "short" })}
-                        </span>
-                      </p>
-                    )}
-
-                    {/* Acciones/CEDEARs/bonos: edición manual de precio */}
-                    {holding.asset_type !== "fci" && (
-                      <HoldingPriceEdit
-                        holdingId={holding.id}
-                        currentPrice={holding.current_price}
-                        currency={holding.currency}
-                      />
-                    )}
-                    {holding.asset_type === "fci" && !fciRate && (
+                    {/* FCI: TNA via Suspense — no bloquea el render de la lista */}
+                    {holding.asset_type === "fci" ? (
+                      <Suspense
+                        fallback={
+                          <p className="text-xs text-gray-300 mt-0.5 animate-pulse">
+                            Cargando TNA…
+                          </p>
+                        }
+                      >
+                        <FciRateCell holding={holding} />
+                      </Suspense>
+                    ) : (
                       <HoldingPriceEdit
                         holdingId={holding.id}
                         currentPrice={holding.current_price}

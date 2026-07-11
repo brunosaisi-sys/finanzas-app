@@ -5,8 +5,11 @@ import { formatCurrency } from "@/lib/format";
 import DeleteAssetButton from "./_components/DeleteAssetButton";
 import {
   calcAssetFunds,
+  calcMaintenance,
+  calcCurrentValue,
   getDefaultsForCategory,
   AssetCategory,
+  CarSegment,
 } from "@/lib/finance/sinkingFund";
 import type { Asset, Currency } from "@/types";
 
@@ -90,25 +93,52 @@ export default async function BienesPage() {
       if (mpa == null) mpa = def.maintenance_pct_annual;
     }
 
-    const result = calcAssetFunds({
-      C0,
-      purchasePrice: pp,
-      purchaseDate: pd,
-      useful_life_months: ulm,
-      residual_pct: rp,
-      maintenance_pct_annual: mpa ?? 0,
-      interest_rate_monthly: asset.interest_rate_monthly ?? 0,
-      current_value: asset.current_value,
-      replacement_horizon_months: asset.replacement_horizon_months,
-      today,
-    });
+    // Modo manual: aporte = goal / months, ignora modelo de depreciación
+    const isManual = asset.savings_goal_mode === "manual"
+      && asset.savings_goal_amount != null
+      && asset.savings_goal_months != null
+      && asset.savings_goal_months > 0;
+
+    let result: {
+      sinkingFund: number; maintenance: number; total: number;
+      monthsRemaining: number; goalAmount: number; residualValue: number;
+    };
+
+    if (isManual) {
+      const cv = asset.current_value ?? calcCurrentValue(pp, pd, today);
+      const maintenance = calcMaintenance(cv, mpa ?? 0);
+      const sinkingFund = asset.savings_goal_amount! / asset.savings_goal_months!;
+      result = {
+        sinkingFund,
+        maintenance,
+        total: sinkingFund + maintenance,
+        monthsRemaining: asset.savings_goal_months!,
+        goalAmount: asset.savings_goal_amount!,
+        residualValue: 0,
+      };
+    } else {
+      result = calcAssetFunds({
+        C0,
+        purchasePrice: pp,
+        purchaseDate: pd,
+        useful_life_months: ulm,
+        residual_pct: rp,
+        maintenance_pct_annual: mpa ?? 0,
+        interest_rate_monthly: asset.interest_rate_monthly ?? 0,
+        current_value: asset.current_value,
+        replacement_horizon_months: asset.replacement_horizon_months,
+        car_segment: asset.car_segment as CarSegment | null,
+        bought_used: asset.bought_used,
+        today,
+      });
+    }
 
     const c = asset.currency;
     if (!totals[c]) totals[c] = { sinking: 0, maintenance: 0 };
     totals[c].sinking += result.sinkingFund;
     totals[c].maintenance += result.maintenance;
 
-    return { asset, result };
+    return { asset, result, isManual };
   });
 
   return (
@@ -147,7 +177,7 @@ export default async function BienesPage() {
       {/* Lista de bienes */}
       <section>
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-          {items.map(({ asset, result }, i) => {
+          {items.map(({ asset, result, isManual }, i) => {
             const yr = Math.floor(result.monthsRemaining / 12);
             const mo = result.monthsRemaining % 12;
             const isExpired =
@@ -216,6 +246,12 @@ export default async function BienesPage() {
                     <p className="text-[11px] text-gray-400 tabular-nums">
                       Mant. {formatCurrency(result.maintenance, asset.currency)}
                     </p>
+                    {result.goalAmount > 0 && (
+                      <p className="text-[11px] text-indigo-500 tabular-nums mt-0.5">
+                        Meta {formatCurrency(result.goalAmount, asset.currency)}
+                        {isManual && <span className="text-gray-400 ml-1">manual</span>}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

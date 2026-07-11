@@ -194,7 +194,8 @@ function InstitutionFlow() {
     setCurrency(inst.defaultCurrency);
     setType(inst.dbType);
     setBolsillos([{ label: "", currency: inst.defaultCurrency, balance: "" }]);
-    setStep("mode");
+    // Las tarjetas de crédito van directo al form simple (no tienen bolsillos)
+    setStep(inst.dbType === "credito" ? "form" : "mode");
   }
 
   function pickCustom() {

@@ -50,6 +50,7 @@ export default function CuentaActions({
               setError(result.error);
               setSaving(false);
             } else {
+              setSaving(false);
               setMode("idle");
               router.refresh();
             }

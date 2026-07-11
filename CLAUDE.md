@@ -13,9 +13,11 @@ realidad económica argentina.
 ## Estado actual del proyecto
 
 Phase 2 completada. Motor financiero testeado, pantallas principales implementadas.
-Commit `67748e4` incluye: rediseño `/ingresos/distribuir` 3 capas (obligaciones del mes /
-fondo de emergencia ARS target 3×promedio / 50-30-20 del remanente); eliminación completa
-de `/ingresos/regla`; nueva action `updateEmergencyFund` en ingresos/actions.ts.
+Commit `92e6277` (sobre `67748e4`): inversiones con TNA en tiempo real para FCI vía
+ArgentinaDatos (4 categorías, match fuzzy por nombre) + `HoldingPriceEdit` para precio
+manual en acciones/CEDEARs; tarjeta de crédito como `AccountType` con `closing_day`/
+`due_day` en `accounts` + cálculo real de due_date por ciclo de facturación; `AmountInput`
+con separador de miles (es-AR) al blur para todos los inputs ARS.
 
 ## Qué existe hoy
 
@@ -46,6 +48,9 @@ Migraciones ejecutadas:
   `execute_account_transfer(p_from, p_to, p_amount, p_currency, p_date, p_note)`
   en PL/pgSQL `SECURITY INVOKER`: debita origen, acredita destino, inserta registro
   en una sola transacción atómica. **Ejecutada en Supabase.**
+- `009` — `closing_day`/`due_day` (`smallint`, CHECK 1–28) en tabla `accounts`;
+  guía comentada para actualizar constraint CHECK en columna `type` para incluir
+  `'credito'`. **Ejecutada en Supabase.**
 
 ### Rutas implementadas
 | Ruta | Descripción |
@@ -60,7 +65,7 @@ Migraciones ejecutadas:
 | `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
 | `/categorias` | Onboarding de categorías con defaults |
 | `/cuotas` | Cuotas pendientes agrupadas por mes, con botón "Marcar pagada" |
-| `/inversiones` | Holdings con P&L calculado; TNA de FCI vía ArgentinaDatos API (gratuita) |
+| `/inversiones` | Holdings con P&L (absoluto + %); TNA en tiempo real para FCI (4 categorías ArgentinaDatos: mercadoDinero/rentaFija/rentaVariable/rentaMixta, revalidate 6 h, match fuzzy); `HoldingPriceEdit` para precio manual en acciones/CEDEARs (sin feed gratuito); banner informativo |
 | `/inversiones/nueva` | Formulario nueva posición |
 | `/bienes` | Lista de bienes con sinking + maintenance por bien; botones Editar y Eliminar |
 | `/bienes/nuevo` | Formulario con defaults precargados por categoría, preview en tiempo real |
@@ -71,8 +76,10 @@ Migraciones ejecutadas:
 ### Componentes y libs
 - `BottomNav` — Inicio · Gastos · [+] · Cuentas · Bienes
 - `LogoutButton`, `MarkPaidButton` (Server Actions)
-- `ExpenseForm` — Autocomplete de comercio vía `<datalist>` nativo (sin librería externa);
-  preview formateado ARS debajo del input de monto
+- `ExpenseForm` — Autocomplete de comercio vía `<datalist>` nativo; `AmountInput` para ARS,
+  `<input type="number">` para USD; helper `getInstallmentDueDates` calcula fechas reales de
+  cuotas desde `closing_day`/`due_day` de la cuenta (fallback +30 días si no configurada);
+  muestra "Cierre día X · Vencimiento día Y" bajo el selector de cuenta cuando es crédito
 - `bienes/_components/DeleteAssetButton.tsx` — Ciclo idle→confirming→deleting, llama
   `deleteAsset` server action y luego `router.refresh()`
 - `bienes/[id]/editar/_components/EditAssetForm.tsx` — Pre-llena todos los campos;
@@ -88,9 +95,21 @@ Migraciones ejecutadas:
 - `src/lib/categories-defaults.ts` — Categorías de gasto por defecto
 - `ingresos/distribuir/_components/DistribuirForm.tsx` — Capa 1 obligaciones (otras
   monedas opacity-55 "informativo"), Capa 2 fondo emergencia ARS (barra progreso, aporte
-  editable que recalcula Capa 3), Capa 3 50/30/20 (flag "editado" por línea, "Restablecer")
+  editable con `AmountInput` que recalcula Capa 3), Capa 3 50/30/20 (flag "editado" por
+  línea, "Restablecer"; montos ARS usan `AmountInput`, USD usan `<input type="number">`)
 - `ingresos/actions.ts` — `createIncome`, `confirmDistribution`, `updateEmergencyFund`
   (read-then-write seguro single-user sobre tabla `funds`), `redirectToDistribute`
+- `AmountInput` (`src/components/AmountInput.tsx`) — `type="text" inputMode="numeric"`;
+  dígitos crudos mientras escribe (evita conflicto de cursor); `Intl.NumberFormat("es-AR",
+  { maximumFractionDigits: 0 })` al blur; solo enteros ARS
+- `inversiones/_components/HoldingPriceEdit.tsx` — Ciclo idle→edit→saving; llama
+  `updateHoldingPrice` server action + `router.refresh()`
+- `inversiones/actions.ts` — `updateHoldingPrice(holdingId, price)` server action con RLS
+  (`eq("user_id", user.id)`)
+- `src/lib/institutions.ts` — grupo `"credito"` + 4 instituciones (Visa, Mastercard, Amex,
+  Naranja), `dbType: "credito"`, `defaultCurrency: "ARS"`
+- `src/types/index.ts` — `AccountType` incluye `"credito"`; `Account` tiene
+  `closing_day: number | null` y `due_day: number | null`
 
 ### Testing
 - 27 tests unitarios en `src/lib/finance/sinkingFund.test.ts` (Jest + ts-jest)

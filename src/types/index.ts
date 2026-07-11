@@ -118,6 +118,9 @@ export type AssetCategory =
   | "vivienda"
   | "muebles";
 
+export type CarSegment = "popular" | "pickup" | "suv_compacta" | "premium" | "compacto_entrada";
+export type SavingsGoalMode = "calculated" | "manual";
+
 export interface Asset {
   id: string;
   user_id: string;
@@ -133,6 +136,13 @@ export interface Asset {
   replacement_horizon_months: number | null;
   interest_rate_monthly: number;
   current_value: number | null;
+  // Modelo dos tasas para autos §3.3
+  car_segment: CarSegment | null;
+  bought_used: boolean | null;
+  // Override manual del objetivo de ahorro
+  savings_goal_mode: SavingsGoalMode | null;
+  savings_goal_amount: number | null;
+  savings_goal_months: number | null;
   created_at: string;
 }
 

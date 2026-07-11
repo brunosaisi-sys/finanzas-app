@@ -15,6 +15,11 @@ interface AssetInput {
   maintenance_pct_annual: number | null;
   interest_rate_monthly: number;
   replacement_horizon_months?: number | null;
+  car_segment?: string | null;
+  bought_used?: boolean | null;
+  savings_goal_mode?: string | null;
+  savings_goal_amount?: number | null;
+  savings_goal_months?: number | null;
 }
 
 export async function createAsset(

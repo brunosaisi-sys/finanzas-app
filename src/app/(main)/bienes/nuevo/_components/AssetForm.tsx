@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import {
   ASSET_DEFAULTS,
   AssetCategory,
+  CAR_DEPRECIATION_SEGMENTS,
+  CarSegment,
   calcAssetFunds,
 } from "@/lib/finance/sinkingFund";
 import { formatCurrency } from "@/lib/format";
@@ -24,6 +26,10 @@ const CATEGORY_OPTIONS: { value: AssetCategory; label: string }[] = [
   { value: "vivienda", label: "Vivienda" },
   { value: "muebles", label: "Muebles" },
 ];
+
+const CAR_SEGMENT_OPTIONS = Object.entries(CAR_DEPRECIATION_SEGMENTS).map(
+  ([value, { label }]) => ({ value: value as CarSegment, label })
+);
 
 function Field({
   label,
@@ -51,23 +57,29 @@ export default function AssetForm() {
   const [saving, setSaving] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
 
-  // identificación
   const [name, setName] = useState("");
   const [category, setCategory] = useState<AssetCategory | "">("");
   const [defaultSource, setDefaultSource] = useState("");
 
-  // compra
   const [purchaseDate, setPurchaseDate] = useState("");
   const [purchasePrice, setPurchasePrice] = useState("");
   const [currency, setCurrency] = useState<"ARS" | "USD">("USD");
   const [replacementCost, setReplacementCost] = useState("");
   const [currentValueOverride, setCurrentValueOverride] = useState("");
 
-  // parámetros del fondo (valores en % para el usuario, ej: "10" = 10%)
   const [usefulLifeMonths, setUsefulLifeMonths] = useState("");
   const [residualPct, setResidualPct] = useState("");
   const [maintenancePct, setMaintenancePct] = useState("");
   const [interestRate, setInterestRate] = useState("0");
+
+  // Campos específicos de autos
+  const [carSegment, setCarSegment] = useState<CarSegment>("popular");
+  const [boughtUsed, setBoughtUsed] = useState(true);
+
+  // Objetivo de ahorro
+  const [savingsGoalMode, setSavingsGoalMode] = useState<"calculated" | "manual">("calculated");
+  const [savingsGoalAmount, setSavingsGoalAmount] = useState("");
+  const [savingsGoalMonths, setSavingsGoalMonths] = useState("");
 
   function handleCategoryChange(cat: AssetCategory | "") {
     setCategory(cat);
@@ -83,8 +95,33 @@ export default function AssetForm() {
     setDefaultSource(d.source);
   }
 
+  const isAuto = category === "auto";
+  const isVivienda = category === "vivienda";
+
   const preview = useMemo(() => {
     if (!purchaseDate || !purchasePrice || !replacementCost) return null;
+    if (savingsGoalMode === "manual") {
+      const goal = parseFloat(savingsGoalAmount);
+      const months = parseInt(savingsGoalMonths);
+      if (isNaN(goal) || isNaN(months) || months <= 0 || goal <= 0) return null;
+      const pp = parseFloat(purchasePrice);
+      const cv =
+        currentValueOverride && !isNaN(parseFloat(currentValueOverride))
+          ? parseFloat(currentValueOverride)
+          : null;
+      const mpa = maintenancePct ? parseFloat(maintenancePct) / 100 : 0;
+      const currentValue = cv ?? pp;
+      const maintenance = currentValue * (mpa / 12);
+      return {
+        sinkingFund: goal / months,
+        maintenance,
+        total: goal / months + maintenance,
+        monthsRemaining: months,
+        goalAmount: goal,
+        residualValue: null,
+        isManual: true,
+      };
+    }
     const C0 = parseFloat(replacementCost);
     const pp = parseFloat(purchasePrice);
     if (isNaN(C0) || isNaN(pp) || pp <= 0 || C0 <= 0) return null;
@@ -94,7 +131,7 @@ export default function AssetForm() {
       currentValueOverride && !isNaN(parseFloat(currentValueOverride))
         ? parseFloat(currentValueOverride)
         : null;
-    return calcAssetFunds({
+    const result = calcAssetFunds({
       C0,
       purchasePrice: pp,
       purchaseDate,
@@ -103,7 +140,10 @@ export default function AssetForm() {
       maintenance_pct_annual: mpa,
       interest_rate_monthly: interestRate ? parseFloat(interestRate) / 100 : 0,
       current_value: cv,
+      car_segment: isAuto ? carSegment : null,
+      bought_used: isAuto ? boughtUsed : null,
     });
+    return { ...result, isManual: false };
   }, [
     purchaseDate,
     purchasePrice,
@@ -113,6 +153,12 @@ export default function AssetForm() {
     maintenancePct,
     interestRate,
     currentValueOverride,
+    isAuto,
+    carSegment,
+    boughtUsed,
+    savingsGoalMode,
+    savingsGoalAmount,
+    savingsGoalMonths,
   ]);
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -137,6 +183,11 @@ export default function AssetForm() {
         residual_pct: pct(residualPct),
         maintenance_pct_annual: pct(maintenancePct),
         interest_rate_monthly: interestRate ? parseFloat(interestRate) / 100 : 0,
+        car_segment: isAuto ? carSegment : null,
+        bought_used: isAuto ? boughtUsed : null,
+        savings_goal_mode: savingsGoalMode,
+        savings_goal_amount: savingsGoalMode === "manual" ? num(savingsGoalAmount) : null,
+        savings_goal_months: savingsGoalMode === "manual" ? int(savingsGoalMonths) : null,
       });
 
       if (result.error) {
@@ -144,7 +195,6 @@ export default function AssetForm() {
         setSaving(false);
       } else {
         router.push("/bienes");
-        router.refresh();
       }
     } catch (err) {
       setServerError(
@@ -154,7 +204,7 @@ export default function AssetForm() {
     }
   }
 
-  const isVivienda = category === "vivienda";
+  const carSeg = CAR_DEPRECIATION_SEGMENTS[carSegment];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5 pb-8">
@@ -194,6 +244,40 @@ export default function AssetForm() {
             </p>
           )}
         </Field>
+
+        {/* Campos específicos de autos */}
+        {isAuto && (
+          <div className="space-y-3 bg-blue-50 border border-blue-100 rounded-xl p-3">
+            <p className="text-xs font-semibold text-blue-700">Detalles del auto</p>
+
+            <Field label="Segmento">
+              <select
+                value={carSegment}
+                onChange={(e) => setCarSegment(e.target.value as CarSegment)}
+                className={INPUT}
+              >
+                {CAR_SEGMENT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] text-blue-600 mt-1">
+                {carSeg.label}: −{(carSeg.d1 * 100).toFixed(0)}% primer año, −{(carSeg.d2 * 100).toFixed(0)}% años siguientes · Fuente: {carSeg.source}
+              </p>
+            </Field>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={boughtUsed}
+                onChange={(e) => setBoughtUsed(e.target.checked)}
+                className="w-4 h-4 rounded"
+              />
+              Lo compré usado (el primer año de caída fuerte ya ocurrió con el dueño anterior)
+            </label>
+          </div>
+        )}
       </section>
 
       {/* Datos de compra */}
@@ -225,7 +309,7 @@ export default function AssetForm() {
 
         <Field
           label={`Precio de compra (${currency})`}
-          hint="Si no lo recordás con exactitud, estimalo. Podés sobreescribir el valor actual manualmente."
+          hint="Si no lo recordás con exactitud, estimalo."
         >
           <input
             type="number"
@@ -239,8 +323,8 @@ export default function AssetForm() {
         </Field>
 
         <Field
-          label={`Costo de reposición C₀ (${currency})`}
-          hint="¿Cuánto te costaría reemplazarlo hoy? Puede ser el precio de un equivalente usado en MercadoLibre."
+          label={`¿Cuánto cuesta el bien con el que lo vas a reemplazar? (${currency})`}
+          hint="Puede ser más caro (upgrade) o más barato que el actual. Si querés algo similar, poné el precio de un equivalente hoy."
         >
           <input
             type="number"
@@ -255,7 +339,7 @@ export default function AssetForm() {
 
         <Field
           label={`Valor actual (${currency}) — opcional`}
-          hint="Si lo dejás vacío, se calcula con depreciación 16%/año (Cao et al. 2025 §1.3)"
+          hint={isAuto ? "Vacío = precio de compra (auto reciente)" : "Vacío = depreciación 16%/año automática (§1.3)"}
         >
           <input
             type="number"
@@ -299,18 +383,20 @@ export default function AssetForm() {
               />
             </Field>
 
-            <Field label="Valor residual al fin de vida (%)">
-              <input
-                type="number"
-                min="0"
-                max="100"
-                step="0.5"
-                placeholder="10"
-                value={residualPct}
-                onChange={(e) => setResidualPct(e.target.value)}
-                className={INPUT}
-              />
-            </Field>
+            {!isAuto && (
+              <Field label="Valor residual al fin de vida (%)">
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.5"
+                  placeholder="10"
+                  value={residualPct}
+                  onChange={(e) => setResidualPct(e.target.value)}
+                  className={INPUT}
+                />
+              </Field>
+            )}
           </>
         )}
 
@@ -343,11 +429,68 @@ export default function AssetForm() {
         </Field>
       </section>
 
+      {/* Objetivo de ahorro */}
+      {!isVivienda && (
+        <section className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+            Objetivo de ahorro
+          </h2>
+          <div className="flex gap-2">
+            {(["calculated", "manual"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setSavingsGoalMode(m)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                  savingsGoalMode === m
+                    ? "bg-gray-900 text-white border-gray-900"
+                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+                }`}
+              >
+                {m === "calculated" ? "Calculado" : "Manual"}
+              </button>
+            ))}
+          </div>
+          {savingsGoalMode === "manual" && (
+            <div className="space-y-3">
+              <Field
+                label={`Quiero juntar (${currency})`}
+                hint="La app usará exactamente este monto, ignorando el modelo de depreciación."
+              >
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder="0"
+                  value={savingsGoalAmount}
+                  onChange={(e) => setSavingsGoalAmount(e.target.value)}
+                  className={INPUT}
+                />
+              </Field>
+              <Field label="En (meses)">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  placeholder="24"
+                  value={savingsGoalMonths}
+                  onChange={(e) => setSavingsGoalMonths(e.target.value)}
+                  className={INPUT}
+                />
+              </Field>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Preview en tiempo real */}
       {preview && (
         <section className="bg-gray-900 text-white rounded-2xl p-4 space-y-3">
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
             Aporte mensual estimado
+            {preview.isManual && (
+              <span className="ml-2 text-amber-400 normal-case font-normal">· modo manual</span>
+            )}
           </p>
           <div className="space-y-2">
             {preview.sinkingFund > 0 && (
@@ -372,9 +515,12 @@ export default function AssetForm() {
               </span>
             </div>
           </div>
-          {preview.monthsRemaining > 0 && (
+          {preview.goalAmount > 0 && (
             <p className="text-xs text-gray-400">
-              {preview.monthsRemaining} meses restantes hasta el reemplazo
+              Meta: {formatCurrency(preview.goalAmount, currency)} en {preview.monthsRemaining} meses
+              {!preview.isManual && preview.residualValue != null && (
+                <span className="ml-1">(valor de reventa estimado: {formatCurrency(preview.residualValue, currency)})</span>
+              )}
             </p>
           )}
         </section>

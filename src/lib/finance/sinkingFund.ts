@@ -1,5 +1,5 @@
 // Motor de cálculo de Sinking Fund y Maintenance Reserve
-// Fórmulas: docs/01-fundamentos-teoricos.md §1.2, §2.1, §1.3
+// Fórmulas: docs/01-fundamentos-teoricos.md §1.2, §2.1, §1.3, §3.3
 // NUNCA modificar fórmulas sin actualizar el documento fuente.
 
 export type AssetCategory =
@@ -37,6 +37,8 @@ export const ASSET_DEFAULTS: Record<AssetCategory, AssetDefaults> = {
   tv:           { label: "TV",               useful_life_months: 96,  maintenance_pct_annual: 0.005, residual_pct: 0.10, currency_ref: "USD", source: "Mercado" },
   notebook:     { label: "Notebook/PC",      useful_life_months: 60,  maintenance_pct_annual: 0.01,  residual_pct: 0.15, currency_ref: "USD", source: "Mercado" },
   smartphone:   { label: "Smartphone",       useful_life_months: 36,  maintenance_pct_annual: 0.005, residual_pct: 0.30, currency_ref: "USD", source: "Mercado/SellCell (AR ajustado)" },
+  // Auto: residual_pct es null porque se usa el modelo de dos tasas (§3.3) cuando hay car_segment.
+  // El 0.35 queda como fallback si no hay segmento definido.
   auto:         { label: "Auto",             useful_life_months: 144, maintenance_pct_annual: 0.04,  residual_pct: 0.35, currency_ref: "USD", source: "BEA / mercado AR (AR ajustado)" },
   vivienda:     { label: "Vivienda",         useful_life_months: null, maintenance_pct_annual: 0.015, residual_pct: null, currency_ref: "ARS", source: "Regla 1% real estate" },
   muebles:      { label: "Muebles",          useful_life_months: 180, maintenance_pct_annual: 0.005, residual_pct: 0.10, currency_ref: "USD", source: "BEA" },
@@ -46,16 +48,56 @@ export function getDefaultsForCategory(category: AssetCategory): AssetDefaults {
   return ASSET_DEFAULTS[category];
 }
 
+// ─── Modelo de dos tasas para autos §3.3 ─────────────────────────────────────
+
+export type CarSegment = "popular" | "pickup" | "suv_compacta" | "premium" | "compacto_entrada";
+
+export const CAR_DEPRECIATION_SEGMENTS: Record<CarSegment, {
+  label: string;
+  d1: number;
+  d2: number;
+  source: string;
+}> = {
+  popular:          { label: "Auto popular / medio",             d1: 0.18, d2: 0.13, source: "ACARA/LA NACION, Autozoom" },
+  pickup:           { label: "Pickup",                           d1: 0.12, d2: 0.10, source: "CCA, Ámbito, MercadoLibre" },
+  suv_compacta:     { label: "SUV compacta",                     d1: 0.15, d2: 0.13, source: "Autozoom" },
+  premium:          { label: "Premium",                          d1: 0.22, d2: 0.19, source: "Autozoom" },
+  compacto_entrada: { label: "Compacto de entrada",              d1: 0.20, d2: 0.16, source: "comparaencasa" },
+};
+
+/**
+ * Valor de reventa estimado de un auto según el modelo de dos tasas (§3.3).
+ *
+ * boughtUsed = true:  V = currentValue × (1 − d2)^(M/12)
+ * boughtUsed = false: V = currentValue × (1 − d2)^(M/12)
+ *   (para nuevo comprado hace menos de 1 año, d1 ya aplicó sobre el precio de compra
+ *    en la depreciación del valor actual; la proyección solo usa d2)
+ *
+ * Fuente: §3.3 — ACARA, CCA, Autozoom, comparaencasa.
+ */
+export function calcCarResidualValue(params: {
+  currentValue: number;
+  monthsToReplacement: number;
+  segment: CarSegment;
+  boughtUsed: boolean;
+}): number {
+  const { currentValue, monthsToReplacement, segment } = params;
+  if (monthsToReplacement <= 0) return currentValue;
+  const { d2 } = CAR_DEPRECIATION_SEGMENTS[segment];
+  // Para el valor FUTURO siempre se aplica d2 desde el valor actual,
+  // independientemente de si fue comprado nuevo o usado (§3.3 regla especial).
+  return currentValue * Math.pow(1 - d2, monthsToReplacement / 12);
+}
+
+// ─── Depreciación general de durables §1.3 ───────────────────────────────────
+
 // Tasa de depreciación anual para durables (§1.3 — Cao et al. 2025, JMCB)
-// Valor central del rango 0.16–0.17; excluye vivienda.
 const DURABLE_DEPRECIATION_ANNUAL = 0.16;
 
 /**
  * Valor actual estimado por depreciación compuesta al 16% anual.
  * Fórmula: purchasePrice × (1 − 0.16)^(años_de_uso)
  * Fuente: §1.3 — Cao et al. (2025).
- *
- * @param today - Fecha de referencia (default: hoy). Útil para tests.
  */
 export function calcCurrentValue(
   purchasePrice: number,
@@ -76,11 +118,6 @@ export function calcCurrentValue(
  *
  * Con interés:  d = (C0 − CL) × i / ((1 + i)^L − 1)
  * Sin interés:  d = (C0 − CL) / L
- *
- * @param C0 - Costo de reposición (bien nuevo equivalente hoy)
- * @param CL - Valor de salvamento al final de la vida útil
- * @param L  - Meses hasta el reemplazo
- * @param i  - Tasa de rendimiento real mensual (default 0 — ajuste Argentina §3.1)
  */
 export function calcSinkingFund(
   C0: number,
@@ -102,9 +139,6 @@ export function calcSinkingFund(
  * Fuente: §2.1 — Regla del 1%, aplicada al valor actual del bien.
  *
  * Fórmula: currentValue × (pctAnnual / 12)
- *
- * @param currentValue  - Valor actual estimado del bien
- * @param pctAnnual     - Porcentaje anual de mantenimiento (ej: 0.01 = 1%)
  */
 export function calcMaintenance(
   currentValue: number,
@@ -114,16 +148,22 @@ export function calcMaintenance(
 }
 
 export interface AssetFundResult {
-  sinkingFund: number;   // aporte mensual sinking; 0 si la categoría no tiene sinking
-  maintenance: number;   // aporte mensual maintenance
-  total: number;         // sinkingFund + maintenance
+  sinkingFund: number;    // aporte mensual sinking; 0 si la categoría no tiene sinking
+  maintenance: number;    // aporte mensual maintenance
+  total: number;          // sinkingFund + maintenance
   monthsRemaining: number; // L usado para el cálculo
-  currentValue: number;  // valor actual calculado o provisto
+  currentValue: number;   // valor actual calculado o provisto
+  goalAmount: number;     // C0 − CL (monto a juntar); 0 si no aplica sinking
+  residualValue: number;  // CL estimado
 }
 
 /**
  * Calcula los aportes mensuales completos (Sinking + Maintenance) para un bien.
  * Punto de entrada principal para la UI.
+ *
+ * Para categoría "auto" con car_segment definido, usa el modelo de dos tasas (§3.3)
+ * para calcular CL en lugar del residual_pct fijo.
+ * Para todos los demás bienes, usa residual_pct de la tabla §4.
  */
 export function calcAssetFunds(params: {
   C0: number;
@@ -133,8 +173,11 @@ export function calcAssetFunds(params: {
   residual_pct: number | null;
   maintenance_pct_annual: number;
   interest_rate_monthly?: number;
-  current_value?: number | null; // null/undefined → calculado automáticamente
-  replacement_horizon_months?: number | null; // override manual de L (§1 IAS 16.51)
+  current_value?: number | null;
+  replacement_horizon_months?: number | null;
+  // Campos para modelo de autos §3.3
+  car_segment?: CarSegment | null;
+  bought_used?: boolean | null;
   today?: Date;
 }): AssetFundResult {
   const today = params.today ?? new Date();
@@ -147,30 +190,41 @@ export function calcAssetFunds(params: {
 
   const maintenance = calcMaintenance(currentValue, params.maintenance_pct_annual);
 
-  // Vivienda y categorías sin vida útil definida: solo maintenance
   if (params.useful_life_months === null || params.residual_pct === null) {
-    return { sinkingFund: 0, maintenance, total: maintenance, monthsRemaining: 0, currentValue };
+    return { sinkingFund: 0, maintenance, total: maintenance, monthsRemaining: 0, currentValue, goalAmount: 0, residualValue: 0 };
   }
 
   const bought =
     typeof params.purchaseDate === "string"
       ? new Date(params.purchaseDate)
       : params.purchaseDate;
-  // Meses exactos de calendario para evitar acumulación de error por años bisiestos
   const monthsUsed = Math.max(
     0,
     (today.getFullYear() - bought.getFullYear()) * 12 +
       (today.getMonth() - bought.getMonth())
   );
   const L_auto = Math.max(0, params.useful_life_months - monthsUsed);
-  // El usuario puede fijar cuándo quiere reemplazarlo; su override tiene prioridad (IAS 16.51)
   const L =
     params.replacement_horizon_months != null && params.replacement_horizon_months > 0
       ? params.replacement_horizon_months
       : L_auto;
 
-  const CL = params.C0 * params.residual_pct;
+  // CL: si es auto con segmento definido, usa modelo de dos tasas §3.3
+  // en cualquier otro caso usa residual_pct fijo
+  let CL: number;
+  if (params.car_segment) {
+    CL = calcCarResidualValue({
+      currentValue,
+      monthsToReplacement: L,
+      segment: params.car_segment,
+      boughtUsed: params.bought_used ?? true,
+    });
+  } else {
+    CL = params.C0 * params.residual_pct;
+  }
+
+  const goalAmount = Math.max(0, params.C0 - CL);
   const sinkingFund = calcSinkingFund(params.C0, CL, L, i);
 
-  return { sinkingFund, maintenance, total: sinkingFund + maintenance, monthsRemaining: L, currentValue };
+  return { sinkingFund, maintenance, total: sinkingFund + maintenance, monthsRemaining: L, currentValue, goalAmount, residualValue: CL };
 }

@@ -3,7 +3,9 @@ import {
   calcMaintenance,
   calcCurrentValue,
   calcAssetFunds,
+  calcCarResidualValue,
   ASSET_DEFAULTS,
+  CAR_DEPRECIATION_SEGMENTS,
   getDefaultsForCategory,
 } from "./sinkingFund";
 
@@ -218,5 +220,134 @@ describe("calcAssetFunds", () => {
     // maintenance debe usar 999, no el calculado
     expect(result.currentValue).toBe(999);
     expect(result.maintenance).toBeCloseTo(999 * 0.01 / 12, 5);
+  });
+});
+
+// ─── calcCarResidualValue (§3.3) ─────────────────────────────────────────────
+
+describe("calcCarResidualValue", () => {
+  test("auto usado popular, 24 meses: 12000 × (0.87)^2 ≈ 9083", () => {
+    // §3.3 ejemplo trazado del usuario
+    const result = calcCarResidualValue({
+      currentValue: 12_000,
+      monthsToReplacement: 24,
+      segment: "popular",
+      boughtUsed: true,
+    });
+    expect(result).toBeCloseTo(9_082.8, 0);
+  });
+
+  test("pickup retiene más: 12000 × (0.90)^2 = 9720", () => {
+    // d2 pickup = 0.10
+    const result = calcCarResidualValue({
+      currentValue: 12_000,
+      monthsToReplacement: 24,
+      segment: "pickup",
+      boughtUsed: true,
+    });
+    expect(result).toBeCloseTo(9_720, 0);
+  });
+
+  test("monthsToReplacement = 0: retorna currentValue sin cambio", () => {
+    const result = calcCarResidualValue({
+      currentValue: 12_000,
+      monthsToReplacement: 0,
+      segment: "popular",
+      boughtUsed: true,
+    });
+    expect(result).toBe(12_000);
+  });
+
+  test("sanity: retención a 2 años de popular está entre 65% y 90%", () => {
+    const result = calcCarResidualValue({
+      currentValue: 12_000,
+      monthsToReplacement: 24,
+      segment: "popular",
+      boughtUsed: true,
+    });
+    const pct = result / 12_000;
+    expect(pct).toBeGreaterThan(0.65);
+    expect(pct).toBeLessThan(0.90);
+  });
+});
+
+// ─── calcAssetFunds con modelo de autos ──────────────────────────────────────
+
+describe("calcAssetFunds — modelo auto §3.3", () => {
+  const TODAY = new Date("2026-07-01");
+
+  test("auto usado popular, C0=13000, 24 meses: sinking ≈ 163/mes", () => {
+    // CL = 12000 × (0.87)^2 ≈ 9083; (13000 − 9083) / 24 ≈ 163
+    const result = calcAssetFunds({
+      C0: 13_000,
+      purchasePrice: 12_000,
+      purchaseDate: "2026-03-01",
+      useful_life_months: 144,
+      residual_pct: 0.35, // ignorado cuando hay car_segment
+      maintenance_pct_annual: 0.04,
+      car_segment: "popular",
+      bought_used: true,
+      replacement_horizon_months: 24,
+      current_value: 12_000,
+      today: TODAY,
+    });
+    expect(result.sinkingFund).toBeCloseTo(163.2, 0);
+  });
+
+  test("auto usado popular, C0=20000 (upgrade), 24 meses: sinking ≈ 455/mes", () => {
+    // CL ≈ 9083; (20000 − 9083) / 24 ≈ 454.9
+    const result = calcAssetFunds({
+      C0: 20_000,
+      purchasePrice: 12_000,
+      purchaseDate: "2026-03-01",
+      useful_life_months: 144,
+      residual_pct: 0.35,
+      maintenance_pct_annual: 0.04,
+      car_segment: "popular",
+      bought_used: true,
+      replacement_horizon_months: 24,
+      current_value: 12_000,
+      today: TODAY,
+    });
+    expect(result.sinkingFund).toBeCloseTo(454.9, 0);
+  });
+
+  test("goalAmount = C0 − CL devuelto correctamente", () => {
+    const result = calcAssetFunds({
+      C0: 13_000,
+      purchasePrice: 12_000,
+      purchaseDate: "2026-03-01",
+      useful_life_months: 144,
+      residual_pct: 0.35,
+      maintenance_pct_annual: 0.04,
+      car_segment: "popular",
+      bought_used: true,
+      replacement_horizon_months: 24,
+      current_value: 12_000,
+      today: TODAY,
+    });
+    // goalAmount = 13000 − 9082.8 ≈ 3917.2
+    expect(result.goalAmount).toBeCloseTo(3_917.2, 0);
+  });
+
+  test("sin car_segment: usa residual_pct fijo (comportamiento original)", () => {
+    // CL = 13000 × 0.35 = 4550; (13000 − 4550) / 24 ≈ 352
+    const result = calcAssetFunds({
+      C0: 13_000,
+      purchasePrice: 12_000,
+      purchaseDate: "2026-03-01",
+      useful_life_months: 144,
+      residual_pct: 0.35,
+      maintenance_pct_annual: 0.04,
+      replacement_horizon_months: 24,
+      current_value: 12_000,
+      today: TODAY,
+    });
+    expect(result.sinkingFund).toBeCloseTo(352.1, 0);
+  });
+
+  test("CAR_DEPRECIATION_SEGMENTS: popular tiene d1=0.18, d2=0.13", () => {
+    expect(CAR_DEPRECIATION_SEGMENTS.popular.d1).toBe(0.18);
+    expect(CAR_DEPRECIATION_SEGMENTS.popular.d2).toBe(0.13);
   });
 });
