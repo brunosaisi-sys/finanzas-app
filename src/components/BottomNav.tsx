@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { href: "/", label: "Inicio", icon: "🏠" },
   { href: "/gastos", label: "Gastos", icon: "💸" },
   { href: "/cuentas", label: "Cuentas", icon: "🏦" },
-  { href: "/bienes", label: "Bienes", icon: "🏡" },
+  { href: "/objetivos", label: "Metas", icon: "🎯" },
 ];
 
 export default function BottomNav() {

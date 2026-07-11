@@ -103,6 +103,44 @@ export async function updateEmergencyFund(
   return {};
 }
 
+// ─── confirmDistributionWithContributions ─────────────────────────────────────
+// Versión extendida del RPC de distribución que también registra aportes a metas
+// y crea earmarks, todo en una sola transacción atómica (migración 011).
+
+interface ContributionPayload {
+  asset_id?: string | null;
+  goal_id?: string | null;
+  amount: number;
+  currency: string;
+  dest_account_id?: string | null;
+  name: string;
+}
+
+export async function confirmDistributionWithContributions(
+  incomeId: string,
+  lines: DistributionLine[],
+  contributions: ContributionPayload[],
+  emergencyAmount: number,
+  emergencyFundId: string | null
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("confirm_distribution_with_contributions", {
+    p_income_id: incomeId,
+    p_lines: lines.map((l) => ({ account_id: l.account_id, amount: l.amount })),
+    p_contributions: contributions,
+    p_emergency_amount: emergencyAmount,
+    p_emergency_fund_id: emergencyFundId,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}
+
 // ─── redirectToDistribute ─────────────────────────────────────────────────────
 
 export async function redirectToDistribute(incomeId: string): Promise<never> {

@@ -25,6 +25,10 @@ export interface MonthlyObligations {
   installments_currency: string;
   total_usd: number;
   total_ars: number;
+  // Para Capa 1 del distribuidor (solo mantenimiento + cuotas, sin sinking).
+  // Sinking se muestra en Capa 2 como parte de las metas de ahorro.
+  maintenance_only_usd: number;
+  maintenance_only_ars: number;
   breakdown: ObligationBreakdownItem[];
 }
 
@@ -131,6 +135,8 @@ export function calculateMonthlyObligations(
     installments_currency: installmentsCurrency,
     total_usd: sinkingUSD + maintUSD,
     total_ars: sinkingARS + maintARS + installmentsDue,
+    maintenance_only_usd: maintUSD,
+    maintenance_only_ars: maintARS + installmentsDue,
     breakdown,
   };
 }

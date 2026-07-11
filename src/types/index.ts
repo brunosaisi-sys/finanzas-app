@@ -143,6 +143,35 @@ export interface Asset {
   savings_goal_mode: SavingsGoalMode | null;
   savings_goal_amount: number | null;
   savings_goal_months: number | null;
+  // Cuenta donde se guarda el fondo del bien
+  account_id: string | null;
+  created_at: string;
+}
+
+export interface SavingsGoal {
+  id: string;
+  user_id: string;
+  name: string;
+  target_amount: number;
+  currency: Currency;
+  target_months: number;
+  start_date: string;
+  account_id: string | null;
+  archived: boolean;
+  created_at: string;
+}
+
+export interface SavingsContribution {
+  id: string;
+  user_id: string;
+  asset_id: string | null;
+  goal_id: string | null;
+  amount: number;
+  currency: Currency;
+  account_id: string | null;
+  income_id: string | null;
+  date: string;
+  note: string | null;
   created_at: string;
 }
 

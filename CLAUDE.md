@@ -13,20 +13,26 @@ realidad económica argentina.
 ## Estado actual del proyecto
 
 Phase 2 completada. Motor financiero testeado, pantallas principales implementadas.
-Commit `92e6277` (sobre `67748e4`): inversiones con TNA en tiempo real para FCI vía
-ArgentinaDatos (4 categorías, match fuzzy por nombre) + `HoldingPriceEdit` para precio
-manual en acciones/CEDEARs; tarjeta de crédito como `AccountType` con `closing_day`/
-`due_day` en `accounts` + cálculo real de due_date por ciclo de facturación; `AmountInput`
-con separador de miles (es-AR) al blur para todos los inputs ARS.
+Commit `84c3a1a` (sobre `92e6277`): modelo de depreciación de dos tasas para autos
+(5 segmentos, d1/d2, fuentes ACARA/CCA/Autozoom/comparaencasa, §3.3 fundamentos);
+override manual del objetivo de ahorro por bien (savings_goal_mode/amount/months);
+UI de auto en formularios de bienes (segmento + bought_used + preview reventa);
+4 bugs críticos corregidos: editar saldo múltiple en CuentaActions; navegación post-
+guardado de bien; closing_day/due_day no aparecía al crear tarjeta de crédito;
+navegación lenta en /inversiones (FCI lazy-load via Suspense).
 
 ## Qué existe hoy
 
 ### Motor financiero (`src/lib/finance/`)
 - `sinkingFund.ts` — Motor puro de cálculo: `calcSinkingFund`, `calcMaintenance`,
   `calcCurrentValue` (depreciación 16%/año §1.3), `calcAssetFunds`, tabla
-  `ASSET_DEFAULTS` con 12 categorías y fuentes. **27 tests unitarios** en
-  `sinkingFund.test.ts`, todos verdes. `calcAssetFunds` acepta parámetro opcional
-  `replacement_horizon_months` que sobreescribe L (meses restantes), principio IAS 16.51.
+  `ASSET_DEFAULTS` con 12 categorías y fuentes. **36 tests unitarios** en
+  `sinkingFund.test.ts`, todos verdes. `calcAssetFunds` acepta `replacement_horizon_months`
+  (override L, IAS 16.51), `car_segment` y `bought_used` para modelo de dos tasas (§3.3).
+  `AssetFundResult` incluye `goalAmount` y `residualValue`. Nuevos: tipo `CarSegment`
+  (5 valores), constante `CAR_DEPRECIATION_SEGMENTS` (d1/d2/source por segmento),
+  función `calcCarResidualValue({currentValue, monthsToReplacement, segment, boughtUsed})`
+  — autos usados aplican solo d2 desde el valor actual (d1 ya fue del dueño anterior).
 - `monthlyObligations.ts` — `calculateMonthlyObligations(assets, installments)`
   agrega sinking + maintenance + cuotas del mes; alimenta la pantalla de
   distribución de sueldo. Pasa `replacement_horizon_months` al motor.
@@ -51,6 +57,10 @@ Migraciones ejecutadas:
 - `009` — `closing_day`/`due_day` (`smallint`, CHECK 1–28) en tabla `accounts`;
   guía comentada para actualizar constraint CHECK en columna `type` para incluir
   `'credito'`. **Ejecutada en Supabase.**
+- `010` — `car_segment` (text, CHECK 5 valores), `bought_used` (boolean DEFAULT true),
+  `savings_goal_mode` (text, CHECK 'calculated'|'manual', DEFAULT 'calculated'),
+  `savings_goal_amount` (numeric), `savings_goal_months` (integer) en tabla `assets`.
+  **Ejecutada en Supabase.**
 
 ### Rutas implementadas
 | Ruta | Descripción |
@@ -65,11 +75,11 @@ Migraciones ejecutadas:
 | `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
 | `/categorias` | Onboarding de categorías con defaults |
 | `/cuotas` | Cuotas pendientes agrupadas por mes, con botón "Marcar pagada" |
-| `/inversiones` | Holdings con P&L (absoluto + %); TNA en tiempo real para FCI (4 categorías ArgentinaDatos: mercadoDinero/rentaFija/rentaVariable/rentaMixta, revalidate 6 h, match fuzzy); `HoldingPriceEdit` para precio manual en acciones/CEDEARs (sin feed gratuito); banner informativo |
+| `/inversiones` | Holdings con P&L; FCI lazy-load: TNA via `FciRateCell` (async SC en Suspense, sin bloquear render inicial); `HoldingPriceEdit` para precio manual en acciones/CEDEARs |
 | `/inversiones/nueva` | Formulario nueva posición |
-| `/bienes` | Lista de bienes con sinking + maintenance por bien; botones Editar y Eliminar |
-| `/bienes/nuevo` | Formulario con defaults precargados por categoría, preview en tiempo real |
-| `/bienes/[id]/editar` | Editar bien: todos los campos + `replacement_horizon_months` (override L) |
+| `/bienes` | Lista de bienes con sinking + maintenance + Meta por bien; modo manual muestra badge "manual" |
+| `/bienes/nuevo` | Formulario con defaults por categoría; sección "Detalles del auto" (segmento/bought_used/tasas+fuente); sección "Objetivo de ahorro" (toggle calculado/manual) |
+| `/bienes/[id]/editar` | Igual que nuevo + pre-llena todos los campos incluyendo car_segment/savings_goal |
 | `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
 | `/ingresos/distribuir` | 3 capas: obligaciones del mes (otras monedas = informativo) / fondo emergencia ARS (target 3×promedio, barra progreso, aporte editable) / 50-30-20 del remanente (líneas editables con cuenta y monto) → RPC |
 
@@ -83,9 +93,14 @@ Migraciones ejecutadas:
 - `bienes/_components/DeleteAssetButton.tsx` — Ciclo idle→confirming→deleting, llama
   `deleteAsset` server action y luego `router.refresh()`
 - `bienes/[id]/editar/_components/EditAssetForm.tsx` — Pre-llena todos los campos;
-  campo `replacement_horizon_months` con nota "sobreescribe vida útil restante"
+  `replacement_horizon_months`; sección "Detalles del auto" (segmento, bought_used,
+  tasas + fuente inline); sección "Objetivo de ahorro" (toggle calculado/manual;
+  manual: inputs goal_amount + goal_months); bug B2 corregido: sin `router.refresh()`
+  tras `router.push()` para evitar race condition en App Router
+- `bienes/nuevo/_components/AssetForm.tsx` — Mismas features que EditAssetForm (sin pre-llenado)
 - `cuentas/_components/CuentaActions.tsx` — Editar saldo / eliminar cuenta inline
-  (3 estados: idle, edit, delete); llama server actions de `cuentas/actions.ts`
+  (3 estados: idle, edit, delete); bug B1 corregido: `setSaving(false)` en success
+  path antes de `setMode("idle")` (sin esto el botón quedaba deshabilitado en ediciones subsiguientes)
 - `cuentas/transferencia/_components/TransferenciaForm.tsx` — Selectores origen/destino
   con display name + saldo; aviso ámbar si monedas distintas
 - `src/lib/accounts.ts` — `getLeafAccounts()` (cuentas sin hijos), `accountDisplayName()`
@@ -107,12 +122,23 @@ Migraciones ejecutadas:
 - `inversiones/actions.ts` — `updateHoldingPrice(holdingId, price)` server action con RLS
   (`eq("user_id", user.id)`)
 - `src/lib/institutions.ts` — grupo `"credito"` + 4 instituciones (Visa, Mastercard, Amex,
-  Naranja), `dbType: "credito"`, `defaultCurrency: "ARS"`
+  Naranja), `dbType: "credito"`, `defaultCurrency: "ARS"`. Bug B3 corregido en
+  `NuevaCuentaForm.tsx`: crédito salta el step "mode" y va directo al form, así
+  closing_day/due_day siempre se muestran (el step "bolsillos" no tenía esos campos)
+- `inversiones/_components/FciRatesSection.tsx` — `FciRateCell` (async SC: fetch TNA por
+  holding, fallback HoldingPriceEdit) + `FciPortfolioSummary` (totales portfolio); ambos
+  envueltos en `<Suspense>` desde la page; elimina bloqueo de 4 fetches externos al render
 - `src/types/index.ts` — `AccountType` incluye `"credito"`; `Account` tiene
-  `closing_day: number | null` y `due_day: number | null`
+  `closing_day/due_day: number | null`; `Asset` tiene `car_segment: CarSegment | null`,
+  `bought_used: boolean | null`, `savings_goal_mode: SavingsGoalMode | null`,
+  `savings_goal_amount: number | null`, `savings_goal_months: number | null`;
+  tipos `CarSegment` y `SavingsGoalMode`
 
 ### Testing
-- 27 tests unitarios en `src/lib/finance/sinkingFund.test.ts` (Jest + ts-jest)
+- 36 tests unitarios en `src/lib/finance/sinkingFund.test.ts` (Jest + ts-jest)
+  (9 nuevos: calcCarResidualValue por segmento, 0 meses, sanity check 65%-90%;
+  calcAssetFunds con modelo auto C0=13k y C0=20k upgrade; sin car_segment usa
+  residual 35%; CAR_DEPRECIATION_SEGMENTS.popular con tasas d1=0.18/d2=0.13)
 - `docs/test-cases.md` — 9 casos funcionales documentados con valores esperados
 - `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)
 - `screenshot.mjs` — Script Playwright para capturas autenticadas

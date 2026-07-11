@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import DistribuirForm from "./_components/DistribuirForm";
 import { calculateMonthlyObligations } from "@/lib/finance/monthlyObligations";
-import type { Asset, Account, Currency } from "@/types";
+import { getAllSavingsTargets } from "@/lib/finance/savingsGoals";
+import type { Asset, Account, SavingsGoal, SavingsContribution, Currency } from "@/types";
 
 type InstallmentForObligations = {
   amount: number;
@@ -32,7 +33,6 @@ export default async function DistribuirPage({
     .toISOString()
     .split("T")[0];
 
-  // Últimos 3 meses para calcular el promedio de gastos ARS
   const threeMonthsAgo = new Date(now);
   threeMonthsAgo.setMonth(threeMonthsAgo.getMonth() - 3);
   const threeMonthsAgoStr = threeMonthsAgo.toISOString().split("T")[0];
@@ -44,6 +44,8 @@ export default async function DistribuirPage({
     { data: accountsData },
     { data: emergencyFundData },
     { data: recentExpenses },
+    { data: goalsData },
+    { data: contribsData },
   ] = await Promise.all([
     supabase.from("incomes").select("*").eq("id", ingreso_id).single(),
     supabase.from("assets").select("*"),
@@ -65,6 +67,11 @@ export default async function DistribuirPage({
       .select("amount, date")
       .eq("currency", "ARS")
       .gte("date", threeMonthsAgoStr),
+    supabase
+      .from("savings_goals")
+      .select("*")
+      .eq("archived", false),
+    supabase.from("savings_contributions").select("*"),
   ]);
 
   if (!incomeData) redirect("/");
@@ -81,6 +88,8 @@ export default async function DistribuirPage({
 
   const assets = (assetsData ?? []) as Asset[];
   const accounts = (accountsData ?? []) as Account[];
+  const goals = (goalsData ?? []) as SavingsGoal[];
+  const contributions = (contribsData ?? []) as SavingsContribution[];
 
   const installments = (
     (installmentsData ?? []) as unknown as InstallmentForObligations[]
@@ -92,18 +101,21 @@ export default async function DistribuirPage({
 
   const obligations = calculateMonthlyObligations(assets, installments, now);
 
-  // Solo se resta del remanente lo que está en la misma moneda que el ingreso.
-  // Las obligaciones en la otra moneda son informativas — el usuario las cubre
-  // por separado con sus ahorros en esa moneda.
   const incomeCurrency = income.currency;
   const otherCurrency: Currency = incomeCurrency === "ARS" ? "USD" : "ARS";
-  const obligationsIncomeCurrency =
-    incomeCurrency === "ARS" ? obligations.total_ars : obligations.total_usd;
-  const obligationsOtherCurrency =
-    incomeCurrency === "ARS" ? obligations.total_usd : obligations.total_ars;
 
-  // Promedio mensual de gastos ARS en los últimos 3 meses completos (§0 fundamentos)
-  const currentMonthKey = now.toISOString().substring(0, 7); // "YYYY-MM"
+  // Capa 1 usa solo maintenance + cuotas (sin sinking, que pasa a Capa 2 como metas).
+  const capa1IncomeCurrency =
+    incomeCurrency === "ARS"
+      ? obligations.maintenance_only_ars
+      : obligations.maintenance_only_usd;
+  const capa1OtherCurrency =
+    incomeCurrency === "ARS"
+      ? obligations.maintenance_only_usd
+      : obligations.maintenance_only_ars;
+
+  // Promedio mensual gastos ARS para el fondo de emergencia
+  const currentMonthKey = now.toISOString().substring(0, 7);
   const monthTotals = new Map<string, number>();
   for (const exp of recentExpenses ?? []) {
     const monthKey = (exp.date as string).substring(0, 7);
@@ -119,7 +131,6 @@ export default async function DistribuirPage({
       : 0;
   const emergencyTarget = Math.round(monthlyAverage * 3);
 
-  // Crear fondo de emergencia si no existe
   let emergencyFund = emergencyFundData;
   if (!emergencyFund) {
     const { data: newFund } = await supabase
@@ -142,6 +153,9 @@ export default async function DistribuirPage({
       ? Math.round((emergencyTarget - currentAmount) / 12)
       : 0;
 
+  // Metas de ahorro (bienes + objetivos) para Capa 2
+  const savingsTargets = getAllSavingsTargets(assets, goals, contributions, now);
+
   return (
     <div className="p-4 max-w-lg mx-auto">
       <div className="flex items-center gap-3 pt-2 mb-6">
@@ -156,8 +170,8 @@ export default async function DistribuirPage({
         incomeAmount={income.amount}
         incomeCurrency={incomeCurrency}
         breakdown={obligations.breakdown}
-        obligationsIncomeCurrency={obligationsIncomeCurrency}
-        obligationsOtherCurrency={obligationsOtherCurrency}
+        capa1IncomeCurrency={capa1IncomeCurrency}
+        capa1OtherCurrency={capa1OtherCurrency}
         otherCurrency={otherCurrency}
         accounts={accounts}
         emergencyFund={{
@@ -167,6 +181,7 @@ export default async function DistribuirPage({
           suggestedContribution,
           monthsOfData: completedMonths.length,
         }}
+        savingsTargets={savingsTargets}
       />
     </div>
   );
