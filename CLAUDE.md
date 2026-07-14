@@ -12,7 +12,7 @@ realidad económica argentina.
 
 ## Estado actual del proyecto
 
-Phase 2 completada. Motor financiero testeado, pantallas principales implementadas.
+Phase 2 completada + módulo de metas de ahorro implementado.
 Commit `84c3a1a` (sobre `92e6277`): modelo de depreciación de dos tasas para autos
 (5 segmentos, d1/d2, fuentes ACARA/CCA/Autozoom/comparaencasa, §3.3 fundamentos);
 override manual del objetivo de ahorro por bien (savings_goal_mode/amount/months);
@@ -20,6 +20,36 @@ UI de auto en formularios de bienes (segmento + bought_used + preview reventa);
 4 bugs críticos corregidos: editar saldo múltiple en CuentaActions; navegación post-
 guardado de bien; closing_day/due_day no aparecía al crear tarjeta de crédito;
 navegación lenta en /inversiones (FCI lazy-load via Suspense).
+Commit `ad92169` (sobre `84c3a1a`): módulo Metas de Ahorro completo — migración 011
+(savings_goals, savings_contributions, account_id en assets, RPC atómico);
+motor savingsGoals.ts con SavingsTarget unificado (bienes + objetivos);
+rutas /objetivos y /objetivos/nuevo; distribuidor rediseñado en 4 capas;
+BottomNav Bienes→Metas.
+
+Sesión "Plata Real" (pendiente de commit): migración 012 ejecutada en Supabase
+(sin archivo en repo, igual que 002/003); saldos de cuentas se actualizan en tiempo
+real vía 4 RPCs atómicos; formulario de gasto refactorizado a server action; pago de
+cuotas con modal de cuenta cuando no hay cobertura; edición y eliminación de gastos
+con reversión de saldo atómica; BottomNav reescrito con bottom sheet; dashboard con
+accesos rápidos; /objetivos con botón + Bien y empty state mejorado.
+
+Sesión D "Cuotas por tarjeta" (pendiente de commit): migración 013 ejecutada en
+Supabase (archivo en repo: `013_pay_installments_batch.sql`); agrupamiento de cuotas
+en /cuotas por account_id+mes (muestra nombre tarjeta + "Vence el día X"); advertencia
+ámbar inline si la tarjeta no tiene closing_day/due_day; botón "Pagar todas (N)" con
+modal de confirmación (total + selector de cuenta) cuando hay ≥2 cuotas en un grupo;
+RPC atómico `pay_installments_batch`; banner de recordatorio en dashboard 3 días antes
+de cierre o vencimiento de cualquier tarjeta activa.
+
+## Sesiones pendientes (roadmap cercano)
+
+- **Sesión E — Suscripciones:** nueva migración con tablas `recurring_expenses` y
+  `subscription_instances`; diseño a documentar en `docs/02-arquitectura.md` antes de
+  implementar.
+- **Cuatro agentes especializados:** mencionados en `docs/02-arquitectura.md` (Fase 6)
+  y `docs/test-cases.md` pero sin definición ni archivo de configuración; no existe
+  `.claude/` en el proyecto. Se definen en sesión dedicada disparada por "app funcional
+  completa, justo antes del bot de WhatsApp (Fase 5)." Hasta entonces: NO existen.
 
 ## Qué existe hoy
 
@@ -33,9 +63,16 @@ navegación lenta en /inversiones (FCI lazy-load via Suspense).
   (5 valores), constante `CAR_DEPRECIATION_SEGMENTS` (d1/d2/source por segmento),
   función `calcCarResidualValue({currentValue, monthsToReplacement, segment, boughtUsed})`
   — autos usados aplican solo d2 desde el valor actual (d1 ya fue del dueño anterior).
+- `savingsGoals.ts` — `SavingsTarget` unificado (`kind: "asset"|"goal"`); `buildAssetTarget`
+  (modo calculado via `calcAssetFunds`, modo manual usa `savings_goal_amount/months`);
+  `buildGoalTarget` (`monthlyContribution = (target−accumulated)/monthsRemaining` dinámico,
+  sube si está atrasado); `getAllSavingsTargets` (filtra vivienda con goal=0 y sinking=0;
+  ordena por progressPct asc). **13 tests unitarios** en `savingsGoals.test.ts`, verdes.
 - `monthlyObligations.ts` — `calculateMonthlyObligations(assets, installments)`
   agrega sinking + maintenance + cuotas del mes; alimenta la pantalla de
   distribución de sueldo. Pasa `replacement_horizon_months` al motor.
+  Nuevos campos `maintenance_only_usd/ars` (solo maintenance + cuotas, sin sinking)
+  para separar Capa 1 de Capa 2 en el distribuidor — backwards-compatible.
 
 ### Base de datos (Supabase)
 Migraciones ejecutadas:
@@ -61,11 +98,30 @@ Migraciones ejecutadas:
   `savings_goal_mode` (text, CHECK 'calculated'|'manual', DEFAULT 'calculated'),
   `savings_goal_amount` (numeric), `savings_goal_months` (integer) en tabla `assets`.
   **Ejecutada en Supabase.**
+- `011` — Tabla `savings_goals` (name, target_amount, currency, target_months, start_date,
+  account_id, archived; RLS); tabla `savings_contributions` (CHECK: asset_id XOR goal_id,
+  RLS, indexes); `ALTER TABLE assets ADD COLUMN account_id uuid REFERENCES accounts(id)
+  ON DELETE SET NULL`; RPC `confirm_distribution_with_contributions(p_income_id, p_lines,
+  p_contributions, p_emergency_amount, p_emergency_fund_id)` — SECURITY INVOKER, 4 capas en
+  una transacción PL/pgSQL atómica. Earmarks de metas: `release_date = NULL` (liberación
+  manual, distinto de cuotas de tarjeta que tienen fecha fija). **Ejecutada en Supabase.**
+- `012` — (ejecutada en Supabase, sin archivo en repo) `funding_account_id uuid` en
+  `expenses`; `expense_id uuid` en `account_earmarks`; RPC `create_expense_with_balance`
+  (inserta gasto + mueve saldo + crea cuotas + earmark atómicamente); RPC `pay_installment`
+  (marca pagada + descuenta de cuenta cubriente/elegida + reduce/libera earmark por
+  expense_id); RPC `delete_expense_with_balance` (revierte saldo: porción impaga para
+  crédito+cobertura, total para efectivo/débito; elimina earmarks e installments); RPC
+  `update_expense_with_balance` (ajusta diff de saldo para efectivo/débito/transferencia;
+  monto inmutable para crédito). Todos SECURITY INVOKER.
+- `013` — (archivo en repo: `013_pay_installments_batch.sql`; ejecutada en Supabase) RPC
+  `pay_installments_batch(p_installment_ids UUID[], p_account_id UUID)` — llama
+  `pay_installment` en loop dentro de una sola transacción PL/pgSQL atómica; rollback
+  total si cualquier cuota falla. SECURITY INVOKER.
 
 ### Rutas implementadas
 | Ruta | Descripción |
 |------|-------------|
-| `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso" |
+| `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Inversiones |
 | `/login` | Auth email + password (Supabase Auth) |
 | `/cuentas` | Lista de cuentas agrupada; editar saldo y eliminar cuenta inline (CuentaActions) |
 | `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre) |
@@ -74,22 +130,48 @@ Migraciones ejecutadas:
 | `/gastos/nuevo` | Formulario gasto: medio de pago, cuotas, cuenta de cobertura, autocomplete comercio |
 | `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
 | `/categorias` | Onboarding de categorías con defaults |
-| `/cuotas` | Cuotas pendientes agrupadas por mes, con botón "Marcar pagada" |
+| `/cuotas` | Cuotas pendientes agrupadas por tarjeta+mes; nombre tarjeta, "Vence el día X", "Pagar todas (N)", advertencia si sin closing/due |
 | `/inversiones` | Holdings con P&L; FCI lazy-load: TNA via `FciRateCell` (async SC en Suspense, sin bloquear render inicial); `HoldingPriceEdit` para precio manual en acciones/CEDEARs |
 | `/inversiones/nueva` | Formulario nueva posición |
 | `/bienes` | Lista de bienes con sinking + maintenance + Meta por bien; modo manual muestra badge "manual" |
 | `/bienes/nuevo` | Formulario con defaults por categoría; sección "Detalles del auto" (segmento/bought_used/tasas+fuente); sección "Objetivo de ahorro" (toggle calculado/manual) |
 | `/bienes/[id]/editar` | Igual que nuevo + pre-llena todos los campos incluyendo car_segment/savings_goal |
 | `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
-| `/ingresos/distribuir` | 3 capas: obligaciones del mes (otras monedas = informativo) / fondo emergencia ARS (target 3×promedio, barra progreso, aporte editable) / 50-30-20 del remanente (líneas editables con cuenta y monto) → RPC |
+| `/ingresos/distribuir` | 4 capas: Capa 1 maintenance+cuotas sin sinking (otras monedas = informativo) / Capa 2 metas con checkboxes y montos editables + mini progress bars (other-currency informativo abajo) / Capa 3 fondo emergencia ARS / Capa 4 50-30-20 del remanente → RPC `confirm_distribution_with_contributions` |
+| `/objetivos` | Lista de SavingsTargets (bienes+objetivos): progress bars, badges Bien/Objetivo, AportarButton; resumen total mensual arriba; link a /bienes para detalles de mantenimiento |
+| `/objetivos/nuevo` | Formulario nueva meta: nombre, monto+moneda (toggle ARS/USD), plazo en meses, cuenta opcional; preview live "necesitás aportar X/mes" |
+| `/gastos/[id]/editar` | Editar gasto: monto (read-only para crédito con badge), merchant, descripción, categoría, fecha; eliminar con reversión de saldo atómica |
+| `/categorias/nueva` | Formulario nueva categoría |
 
 ### Componentes y libs
-- `BottomNav` — Inicio · Gastos · [+] · Cuentas · Bienes
-- `LogoutButton`, `MarkPaidButton` (Server Actions)
+- `BottomNav` — Inicio · Gastos · [+] · Cuentas · Metas; botón [+] abre bottom sheet con overlay (z-40) + 3 acciones rápidas: Nuevo gasto / Nuevo ingreso / Transferencia
+- `LogoutButton` (Server Action)
+- Dashboard (`(main)/page.tsx`) — banner recordatorio N=3 días antes de closing_day o
+  due_day de cualquier tarjeta de crédito activa; `daysUntil(targetDay, today)` maneja
+  wrap de mes.
 - `ExpenseForm` — Autocomplete de comercio vía `<datalist>` nativo; `AmountInput` para ARS,
-  `<input type="number">` para USD; helper `getInstallmentDueDates` calcula fechas reales de
-  cuotas desde `closing_day`/`due_day` de la cuenta (fallback +30 días si no configurada);
-  muestra "Cierre día X · Vencimiento día Y" bajo el selector de cuenta cuando es crédito
+  `<input type="number">` para USD; muestra "Cierre día X · Vencimiento día Y" bajo el
+  selector de cuenta cuando es crédito; campo `fundingAccountId` (visible solo cuando
+  crédito+cobertura: cuenta de donde sale la plata que se aparta); llama `createExpense`
+  server action de `gastos/actions.ts` (no Supabase client directo); `getInstallmentDueDates`
+  movido a `gastos/actions.ts`
+- `gastos/actions.ts` — Server Actions: `createExpense` (construye p_expense/p_installments/
+  p_earmark y llama RPC `create_expense_with_balance`), `deleteExpense` (RPC
+  `delete_expense_with_balance`), `updateExpense` (RPC `update_expense_with_balance`);
+  incluye helper `getInstallmentDueDates`.
+- `cuotas/actions.ts` — Server Actions: `payInstallment(installmentId, accountId | null)`
+  llama RPC `pay_installment`; `payInstallmentsBatch(installmentIds[], accountId | null)`
+  llama RPC `pay_installments_batch`.
+- `cuotas/_components/PayInstallmentButton.tsx` — Reemplaza `MarkPaidButton`. Si
+  `covering_account_id`: botón directo (accountId = null). Si no: abre modal con
+  `<select>` de leaf accounts → confirma → `payInstallment(id, selectedAccount)`.
+  Nota: `MarkPaidButton.tsx` sigue en el repo pero ya no se importa (candidato a borrar).
+- `cuotas/_components/BatchPayButton.tsx` — Modal de confirmación para pago en lote:
+  muestra total por moneda; selector de cuenta solo si alguna cuota no tiene
+  `covering_account_id`; llama `payInstallmentsBatch`. Visible cuando el grupo tiene ≥2 cuotas.
+- `gastos/[id]/editar/_components/EditExpenseForm.tsx` — Client Component. Editable:
+  merchant, descripción, categoría, fecha; monto read-only para crédito. Delete:
+  idle → confirmDelete → deleting, llama `deleteExpense` y redirige a /gastos.
 - `bienes/_components/DeleteAssetButton.tsx` — Ciclo idle→confirming→deleting, llama
   `deleteAsset` server action y luego `router.refresh()`
 - `bienes/[id]/editar/_components/EditAssetForm.tsx` — Pre-llena todos los campos;
@@ -108,12 +190,21 @@ Migraciones ejecutadas:
 - `src/lib/format.ts` — `formatARS`, `formatUSD`, `formatCurrency`, `formatInputAmount`
   (preview es-AR para inputs numéricos de formularios)
 - `src/lib/categories-defaults.ts` — Categorías de gasto por defecto
-- `ingresos/distribuir/_components/DistribuirForm.tsx` — Capa 1 obligaciones (otras
-  monedas opacity-55 "informativo"), Capa 2 fondo emergencia ARS (barra progreso, aporte
-  editable con `AmountInput` que recalcula Capa 3), Capa 3 50/30/20 (flag "editado" por
-  línea, "Restablecer"; montos ARS usan `AmountInput`, USD usan `<input type="number">`)
-- `ingresos/actions.ts` — `createIncome`, `confirmDistribution`, `updateEmergencyFund`
-  (read-then-write seguro single-user sobre tabla `funds`), `redirectToDistribute`
+- `ingresos/distribuir/_components/DistribuirForm.tsx` — 4 capas rediseñadas: Capa 1
+  solo maintenance+cuotas (items tipo "sinking" filtrados); Capa 2 metas con checkboxes,
+  montos editables, mini progress bars (`metaChecks` state), other-currency informativo;
+  Capa 3 fondo emergencia ARS; Capa 4 50/30/20 (flag "editado", "Restablecer");
+  remanente = ingreso − capa1 − totalMetasSameCurrency − emergencyContrib
+- `objetivos/actions.ts` — `createGoal` (INSERT savings_goals), `addContribution`
+  (INSERT savings_contributions + earmark con `release_date = null`, liberación manual),
+  `deleteGoal` (soft delete: `archived = true`)
+- `objetivos/_components/AportarModal.tsx` / `AportarButton.tsx` — Modal client-side:
+  campos amount, cuenta origen, date, nota; llama `addContribution` + `router.refresh()`
+- `objetivos/_components/DeleteGoalButton.tsx` — idle→confirming→deleting
+- `objetivos/nuevo/_components/GoalForm.tsx` — form con preview live de aporte mensual;
+  on submit: `createGoal` → `router.push("/objetivos")`
+- `ingresos/actions.ts` — `createIncome`, `confirmDistribution`, `updateEmergencyFund`,
+  `confirmDistributionWithContributions` (llama RPC migración 011), `redirectToDistribute`
 - `AmountInput` (`src/components/AmountInput.tsx`) — `type="text" inputMode="numeric"`;
   dígitos crudos mientras escribe (evita conflicto de cursor); `Intl.NumberFormat("es-AR",
   { maximumFractionDigits: 0 })` al blur; solo enteros ARS
@@ -131,14 +222,17 @@ Migraciones ejecutadas:
 - `src/types/index.ts` — `AccountType` incluye `"credito"`; `Account` tiene
   `closing_day/due_day: number | null`; `Asset` tiene `car_segment: CarSegment | null`,
   `bought_used: boolean | null`, `savings_goal_mode: SavingsGoalMode | null`,
-  `savings_goal_amount: number | null`, `savings_goal_months: number | null`;
-  tipos `CarSegment` y `SavingsGoalMode`
+  `savings_goal_amount: number | null`, `savings_goal_months: number | null`,
+  `account_id: string | null`; `Expense` incluye `funding_account_id: string | null`;
+  `AccountEarmark` incluye `expense_id: string | null`; tipos `CarSegment`,
+  `SavingsGoalMode`, `SavingsGoal`, `SavingsContribution`
 
 ### Testing
-- 36 tests unitarios en `src/lib/finance/sinkingFund.test.ts` (Jest + ts-jest)
-  (9 nuevos: calcCarResidualValue por segmento, 0 meses, sanity check 65%-90%;
-  calcAssetFunds con modelo auto C0=13k y C0=20k upgrade; sin car_segment usa
-  residual 35%; CAR_DEPRECIATION_SEGMENTS.popular con tasas d1=0.18/d2=0.13)
+- **49 tests totales** (Jest + ts-jest):
+  - 36 en `sinkingFund.test.ts` (9 nuevos en `84c3a1a`: calcCarResidualValue por segmento,
+    0 meses, sanity check 65%-90%; calcAssetFunds modelo auto; CAR_DEPRECIATION_SEGMENTS.popular)
+  - 13 en `savingsGoals.test.ts` (asset calculado/manual, goal con progreso/atrasado/completado/
+    expirado, filtrado vivienda, ordenamiento, maintenance excluido de sinking)
 - `docs/test-cases.md` — 9 casos funcionales documentados con valores esperados
 - `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)
 - `screenshot.mjs` — Script Playwright para capturas autenticadas

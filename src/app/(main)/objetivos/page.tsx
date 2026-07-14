@@ -45,27 +45,46 @@ export default async function ObjetivosPage() {
     <div className="p-4 max-w-lg mx-auto space-y-6">
       <div className="flex items-center justify-between pt-2">
         <h1 className="text-xl font-semibold text-gray-900">Metas</h1>
-        <Link
-          href="/objetivos/nuevo"
-          className="text-sm font-medium bg-gray-900 text-white px-3 py-1.5 rounded-lg"
-        >
-          + Objetivo
-        </Link>
+        <div className="flex gap-2">
+          <Link
+            href="/bienes/nuevo"
+            className="text-sm font-medium border border-gray-200 text-gray-700 px-3 py-1.5 rounded-lg"
+          >
+            + Bien
+          </Link>
+          <Link
+            href="/objetivos/nuevo"
+            className="text-sm font-medium bg-gray-900 text-white px-3 py-1.5 rounded-lg"
+          >
+            + Objetivo
+          </Link>
+        </div>
       </div>
 
       {isEmpty ? (
-        <div className="bg-white rounded-2xl p-8 shadow-sm text-center space-y-3">
-          <p className="text-4xl">🎯</p>
-          <p className="text-sm font-medium text-gray-900">Sin metas activas</p>
-          <p className="text-sm text-gray-400">
-            Tus bienes registrados y los objetivos manuales (viajes, etc.) aparecen acá.
+        <div className="bg-white rounded-2xl p-6 shadow-sm space-y-4">
+          <p className="text-sm text-gray-500 text-center">
+            Un <span className="font-medium text-gray-900">Bien</span> (auto, heladera) la app calcula cuánto necesitás apartar.
+            Un <span className="font-medium text-gray-900">Objetivo</span> (viaje, mudanza) lo definís vos.
           </p>
-          <Link
-            href="/objetivos/nuevo"
-            className="inline-block mt-2 text-sm font-medium text-gray-900 underline"
-          >
-            Crear primer objetivo
-          </Link>
+          <div className="grid grid-cols-2 gap-3">
+            <Link
+              href="/bienes/nuevo"
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 transition-colors text-center"
+            >
+              <span className="text-2xl">🏡</span>
+              <span className="text-sm font-medium text-gray-900">Registrar un bien</span>
+              <span className="text-xs text-gray-400">Auto, heladera, celular…</span>
+            </Link>
+            <Link
+              href="/objetivos/nuevo"
+              className="flex flex-col items-center gap-2 p-4 rounded-xl border border-gray-200 hover:border-gray-400 transition-colors text-center"
+            >
+              <span className="text-2xl">🎯</span>
+              <span className="text-sm font-medium text-gray-900">Crear un objetivo</span>
+              <span className="text-xs text-gray-400">Viaje, mudanza, entrada…</span>
+            </Link>
+          </div>
         </div>
       ) : (
         <>
@@ -199,13 +218,13 @@ export default async function ObjetivosPage() {
             </div>
           </section>
 
-          {/* Link a /bienes para ver detalle de mantenimiento */}
-          <p className="text-xs text-center text-gray-400">
-            Los aportes de mantenimiento aparecen en{" "}
-            <Link href="/bienes" className="underline">
-              Bienes
-            </Link>
-          </p>
+          {/* Link a /bienes */}
+          <Link
+            href="/bienes"
+            className="block text-center text-sm text-gray-500 hover:text-gray-900 py-2 transition-colors"
+          >
+            Ver todos los bienes →
+          </Link>
         </>
       )}
     </div>

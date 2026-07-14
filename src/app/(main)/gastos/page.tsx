@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
+import type { Currency } from "@/types";
 
 export default async function GastosPage() {
   const supabase = await createClient();
@@ -54,9 +55,10 @@ export default async function GastosPage() {
               { day: "numeric", month: "short" }
             );
             return (
-              <div
+              <Link
                 key={expense.id}
-                className={`flex items-center justify-between px-4 py-3 ${
+                href={`/gastos/${expense.id}/editar`}
+                className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors ${
                   i > 0 ? "border-t border-gray-100" : ""
                 }`}
               >
@@ -71,9 +73,9 @@ export default async function GastosPage() {
                   </div>
                 </div>
                 <p className="text-sm font-semibold text-gray-900 tabular-nums ml-3 shrink-0">
-                  {formatCurrency(Number(expense.amount), expense.currency)}
+                  {formatCurrency(Number(expense.amount), expense.currency as Currency)}
                 </p>
-              </div>
+              </Link>
             );
           })}
         </div>

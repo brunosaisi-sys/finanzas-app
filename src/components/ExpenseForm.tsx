@@ -2,50 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
 import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
 import { formatInputAmount } from "@/lib/format";
 import AmountInput from "@/components/AmountInput";
+import { createExpense } from "@/app/(main)/gastos/actions";
 import type { Account, Category, Currency, PaymentMethod } from "@/types";
 
-// Calcula las fechas de vencimiento de cada cuota.
-// Si la cuenta tiene closing_day/due_day configurados (tarjeta de crédito),
-// usa el ciclo real de facturación. Si no, fallback: +30 días por cuota.
-function getInstallmentDueDates(
-  expenseDateStr: string,
-  count: number,
-  closingDay?: number | null,
-  dueDay?: number | null
-): string[] {
-  if (!closingDay || !dueDay) {
-    const base = new Date(expenseDateStr + "T12:00:00");
-    return Array.from({ length: count }, (_, i) => {
-      const d = new Date(base);
-      d.setDate(d.getDate() + 30 * (i + 1));
-      return d.toISOString().split("T")[0];
-    });
-  }
-
-  const expDate = new Date(expenseDateStr + "T12:00:00");
-  const expDay = expDate.getDate();
-  // Si el gasto es DESPUÉS del cierre, cae en el próximo ciclo
-  let closingMonth = expDate.getMonth();
-  let closingYear = expDate.getFullYear();
-  if (expDay > closingDay) {
-    closingMonth++;
-    if (closingMonth > 11) { closingMonth = 0; closingYear++; }
-  }
-
-  return Array.from({ length: count }, (_, i) => {
-    let dueMonth = closingMonth + 1 + i;
-    let dueYear = closingYear;
-    while (dueMonth > 11) { dueMonth -= 12; dueYear++; }
-    const maxDay = new Date(dueYear, dueMonth + 1, 0).getDate();
-    return new Date(dueYear, dueMonth, Math.min(dueDay, maxDay))
-      .toISOString()
-      .split("T")[0];
-  });
-}
 
 interface Props {
   accounts: Account[];
@@ -81,6 +43,7 @@ export default function ExpenseForm({
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("efectivo");
   const [installmentsTotal, setInstallmentsTotal] = useState(1);
   const [coveringAccountId, setCoveringAccountId] = useState("");
+  const [fundingAccountId, setFundingAccountId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,95 +61,32 @@ export default function ExpenseForm({
       return;
     }
 
-    const isCredito = paymentMethod === "credito";
-    const cuotas = isCredito ? Math.max(1, installmentsTotal) : 1;
-    const installmentAmount = isCredito ? parsed / cuotas : null;
+    const selectedAccount = accounts.find((a) => a.id === accountId);
+    const coveringAccount = accounts.find((a) => a.id === coveringAccountId);
 
     setLoading(true);
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Sesión expirada. Recargá la página.");
-      setLoading(false);
-      return;
-    }
-
-    const { data: expenseData, error: expenseError } = await supabase
-      .from("expenses")
-      .insert({
-        user_id: user.id,
-        amount: parsed,
-        currency,
-        category_id: categoryId || null,
-        account_id: accountId || null,
-        merchant: merchant.trim() || null,
-        description: description.trim() || null,
-        date,
-        source: "app",
-        payment_method: paymentMethod,
-        installments_total: isCredito ? cuotas : null,
-        installment_amount: installmentAmount,
-        covering_account_id: isCredito && coveringAccountId ? coveringAccountId : null,
-      })
-      .select("id")
-      .single();
-
-    if (expenseError || !expenseData) {
-      setError(expenseError?.message ?? "Error al guardar el gasto");
-      setLoading(false);
-      return;
-    }
-
-    if (isCredito) {
-      const selectedAccount = accounts.find((a) => a.id === accountId);
-      const dueDates = getInstallmentDueDates(
-        date,
-        cuotas,
-        selectedAccount?.closing_day,
-        selectedAccount?.due_day
-      );
-      const installmentRows = Array.from({ length: cuotas }, (_, i) => ({
-        expense_id: expenseData.id,
-        installment_number: i + 1,
-        amount: installmentAmount!,
-        due_date: dueDates[i],
-        paid: false,
-      }));
-
-      const { error: installmentsError } = await supabase
-        .from("installments")
-        .insert(installmentRows);
-
-      if (installmentsError) {
-        setError(installmentsError.message);
-        setLoading(false);
-        return;
-      }
-
-      if (coveringAccountId) {
-        const coveringAccount = accounts.find((a) => a.id === coveringAccountId);
-        const { error: earmarkError } = await supabase
-          .from("account_earmarks")
-          .insert({
-            user_id: user.id,
-            account_id: coveringAccountId,
-            amount: parsed,
-            currency: coveringAccount?.currency ?? currency,
-            reason: `Cuotas: ${merchant.trim() || description.trim() || "gasto"} (${cuotas}x)`,
-            released: false,
-          });
-
-        if (earmarkError) {
-          setError(earmarkError.message);
-          setLoading(false);
-          return;
-        }
-      }
-    }
+    const result = await createExpense({
+      amount: parsed,
+      currency,
+      categoryId: categoryId || null,
+      accountId: accountId || null,
+      merchant: merchant.trim() || null,
+      description: description.trim() || null,
+      date,
+      paymentMethod,
+      installmentsTotal,
+      coveringAccountId: coveringAccountId || null,
+      fundingAccountId: fundingAccountId || null,
+      closingDay: selectedAccount?.closing_day,
+      dueDay: selectedAccount?.due_day,
+      coveringAccountCurrency: coveringAccount?.currency ?? null,
+    });
 
     setLoading(false);
+    if ("error" in result) {
+      setError(result.error);
+      return;
+    }
     router.push(redirectTo);
   }
 
@@ -300,7 +200,7 @@ export default function ExpenseForm({
             </label>
             <select
               value={coveringAccountId}
-              onChange={(e) => setCoveringAccountId(e.target.value)}
+              onChange={(e) => { setCoveringAccountId(e.target.value); setFundingAccountId(""); }}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
             >
               <option value="">Sin cuenta de cobertura</option>
@@ -311,6 +211,31 @@ export default function ExpenseForm({
               ))}
             </select>
           </div>
+          {coveringAccountId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                ¿De qué cuenta sale la plata que vas a apartar?
+              </label>
+              <select
+                required
+                value={fundingAccountId}
+                onChange={(e) => setFundingAccountId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+              >
+                <option value="">Seleccioná una cuenta</option>
+                {leafAccounts
+                  .filter((a) => a.id !== coveringAccountId)
+                  .map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {accountDisplayName(acc, accounts)}
+                    </option>
+                  ))}
+              </select>
+              <p className="text-[11px] text-gray-400 mt-0.5">
+                La plata se mueve ahora a la cuenta de cobertura, donde rinde hasta que venza la tarjeta.
+              </p>
+            </div>
+          )}
         </div>
       )}
 

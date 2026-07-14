@@ -44,6 +44,7 @@ export interface Expense {
   installments_total: number | null;
   installment_amount: number | null;
   covering_account_id: string | null;
+  funding_account_id: string | null;
 }
 
 export interface Holding {
@@ -81,6 +82,7 @@ export interface AccountEarmark {
   currency: Currency;
   reason: string | null;
   installment_id: string | null;
+  expense_id: string | null;
   release_date: string | null;
   released: boolean;
   released_date: string | null;

@@ -42,3 +42,7 @@ next-env.d.ts
 
 # test credentials (never commit)
 test-credentials.txt
+
+# screenshots de prueba
+/screenshots/
+*.png

@@ -47,6 +47,29 @@ export default async function DashboardPage() {
     .filter((a) => a.currency === "USD")
     .reduce((sum, a) => sum + Number(a.balance), 0);
 
+  // Recordatorios de cierre/vencimiento (N=3 días)
+  const REMINDER_DAYS = 3;
+  function daysUntil(targetDay: number, today: Date): number {
+    const todayNum = today.getDate();
+    if (targetDay >= todayNum) return targetDay - todayNum;
+    const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+    return daysInMonth - todayNum + targetDay;
+  }
+  type CardReminder = { name: string; type: "Cierre" | "Vencimiento"; day: number; daysLeft: number };
+  const reminders: CardReminder[] = [];
+  for (const acc of leafAccounts) {
+    if ((acc as Account).type !== "credito") continue;
+    const a = acc as Account;
+    if (a.closing_day != null) {
+      const d = daysUntil(a.closing_day, now);
+      if (d <= REMINDER_DAYS) reminders.push({ name: a.name, type: "Cierre", day: a.closing_day, daysLeft: d });
+    }
+    if (a.due_day != null) {
+      const d = daysUntil(a.due_day, now);
+      if (d <= REMINDER_DAYS) reminders.push({ name: a.name, type: "Vencimiento", day: a.due_day, daysLeft: d });
+    }
+  }
+
   const arsExpenses = (monthExpenses ?? [])
     .filter((e) => e.currency === "ARS")
     .reduce((sum, e) => sum + Number(e.amount), 0);
@@ -66,6 +89,30 @@ export default async function DashboardPage() {
         </div>
         <LogoutButton />
       </div>
+
+      {/* Recordatorios de cierre/vencimiento de tarjetas */}
+      {reminders.length > 0 && (
+        <section className="space-y-2">
+          {reminders.map((r, i) => (
+            <div
+              key={i}
+              className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3"
+            >
+              <span className="text-base shrink-0">💳</span>
+              <div>
+                <p className="text-sm font-medium text-amber-900">
+                  {r.type} {r.name}
+                </p>
+                <p className="text-xs text-amber-700">
+                  {r.daysLeft === 0
+                    ? `Hoy (día ${r.day})`
+                    : `En ${r.daysLeft} día${r.daysLeft !== 1 ? "s" : ""} (día ${r.day})`}
+                </p>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
 
       {/* Gastos del mes */}
       <section>
@@ -157,6 +204,24 @@ export default async function DashboardPage() {
             )}
           </div>
         )}
+      </section>
+
+      {/* Accesos rápidos */}
+      <section>
+        <div className="grid grid-cols-3 gap-2">
+          <Link href="/cuotas" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
+            <p className="text-lg mb-0.5">💳</p>
+            <p className="text-xs font-medium text-gray-700">Cuotas</p>
+          </Link>
+          <Link href="/bienes" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
+            <p className="text-lg mb-0.5">🏡</p>
+            <p className="text-xs font-medium text-gray-700">Bienes</p>
+          </Link>
+          <Link href="/inversiones" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
+            <p className="text-lg mb-0.5">📈</p>
+            <p className="text-xs font-medium text-gray-700">Inversiones</p>
+          </Link>
+        </div>
       </section>
 
       {/* Últimos gastos */}

@@ -1,8 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
-import MarkPaidButton from "./_components/MarkPaidButton";
-import type { Currency } from "@/types";
+import { getLeafAccounts } from "@/lib/accounts";
+import PayInstallmentButton from "./_components/PayInstallmentButton";
+import BatchPayButton from "./_components/BatchPayButton";
+import type { Currency, Account } from "@/types";
 
 const MESES = [
   "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
@@ -24,7 +26,18 @@ type InstallmentRow = {
     merchant: string | null;
     installments_total: number | null;
     currency: string;
+    covering_account_id: string | null;
+    account_id: string | null;
   } | null;
+};
+
+type GroupData = {
+  cardId: string | null;
+  cardName: string | null;
+  closingDay: number | null;
+  dueDay: number | null;
+  yearMonth: string;
+  items: InstallmentRow[];
 };
 
 export default async function CuotasPage() {
@@ -34,23 +47,50 @@ export default async function CuotasPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data } = await supabase
-    .from("installments")
-    .select(
-      "id, installment_number, amount, due_date, expenses ( description, merchant, installments_total, currency )"
-    )
-    .eq("paid", false)
-    .order("due_date");
+  const [{ data }, { data: accountsData }] = await Promise.all([
+    supabase
+      .from("installments")
+      .select(
+        "id, installment_number, amount, due_date, expenses ( description, merchant, installments_total, currency, covering_account_id, account_id )"
+      )
+      .eq("paid", false)
+      .order("due_date"),
+    supabase.from("accounts").select("*").order("name"),
+  ]);
 
   const installments = (data ?? []) as unknown as InstallmentRow[];
+  const allAccounts = (accountsData ?? []) as Account[];
+  const leafAccounts = getLeafAccounts(allAccounts);
 
-  const grouped = new Map<string, InstallmentRow[]>();
+  // Agrupar por tarjeta (account_id del gasto) + mes de vencimiento
+  const groupMap = new Map<string, GroupData>();
   for (const inst of installments) {
-    const key = inst.due_date.slice(0, 7);
-    const arr = grouped.get(key) ?? [];
-    arr.push(inst);
-    grouped.set(key, arr);
+    const cardId = inst.expenses?.account_id ?? null;
+    const yearMonth = inst.due_date.slice(0, 7);
+    const key = `${cardId ?? "no_card"}::${yearMonth}`;
+
+    if (!groupMap.has(key)) {
+      const cardAccount = cardId
+        ? allAccounts.find((a) => a.id === cardId) ?? null
+        : null;
+      groupMap.set(key, {
+        cardId,
+        cardName: cardAccount?.name ?? null,
+        closingDay: cardAccount?.closing_day ?? null,
+        dueDay: cardAccount?.due_day ?? null,
+        yearMonth,
+        items: [],
+      });
+    }
+    groupMap.get(key)!.items.push(inst);
   }
+
+  // Ordenar grupos: primero por mes, luego por nombre de tarjeta
+  const groups = Array.from(groupMap.values()).sort((a, b) => {
+    const byMonth = a.yearMonth.localeCompare(b.yearMonth);
+    if (byMonth !== 0) return byMonth;
+    return (a.cardName ?? "").localeCompare(b.cardName ?? "");
+  });
 
   return (
     <div className="p-4 max-w-lg mx-auto space-y-6">
@@ -69,41 +109,100 @@ export default async function CuotasPage() {
           <p className="text-sm font-medium">Sin cuotas pendientes</p>
         </div>
       ) : (
-        Array.from(grouped.entries()).map(([yearMonth, items]) => (
-          <section key={yearMonth}>
-            <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
-              {formatMonth(yearMonth)}
-            </h2>
-            <div className="space-y-2">
-              {items.map((inst) => {
-                const exp = inst.expenses;
-                const label = exp?.merchant || exp?.description || "Gasto";
-                const total = exp?.installments_total ?? 1;
-                const currency = (exp?.currency ?? "ARS") as Currency;
-                const [, month, day] = inst.due_date.split("-");
-                return (
-                  <div
-                    key={inst.id}
-                    className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center justify-between gap-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{label}</p>
-                      <p className="text-xs text-gray-400">
-                        Cuota {inst.installment_number}/{total} · vence {day}/{month}
-                      </p>
+        groups.map((group) => {
+          const currency = (group.items[0]?.expenses?.currency ?? "ARS") as Currency;
+          const totalAmount = group.items.reduce(
+            (sum, inst) => sum + Number(inst.amount),
+            0
+          );
+          const missingDays = !group.closingDay || !group.dueDay;
+
+          return (
+            <section key={`${group.cardId ?? "no_card"}::${group.yearMonth}`}>
+              {/* Encabezado del grupo */}
+              <div className="flex items-start justify-between mb-2 gap-2">
+                <div className="min-w-0">
+                  <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+                    {group.cardName
+                      ? `${group.cardName} · ${formatMonth(group.yearMonth)}`
+                      : formatMonth(group.yearMonth)}
+                  </h2>
+                  {group.dueDay && (
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Vence el día {group.dueDay}
+                    </p>
+                  )}
+                  {missingDays && group.cardName && (
+                    <p className="text-[11px] text-amber-600 mt-0.5">
+                      Sin cierre/vencimiento configurado — fechas aproximadas
+                    </p>
+                  )}
+                </div>
+                {/* Batch pay solo cuando hay más de una cuota en el grupo */}
+                {group.items.length > 1 && (
+                  <BatchPayButton
+                    installments={group.items.map((inst) => ({
+                      id: inst.id,
+                      amount: Number(inst.amount),
+                      currency: (inst.expenses?.currency ?? "ARS") as Currency,
+                      coveringAccountId: inst.expenses?.covering_account_id ?? null,
+                    }))}
+                    cardName={group.cardName ?? "Tarjeta"}
+                    yearMonth={group.yearMonth}
+                    leafAccounts={leafAccounts}
+                    allAccounts={allAccounts}
+                  />
+                )}
+              </div>
+
+              <div className="space-y-2">
+                {group.items.map((inst) => {
+                  const exp = inst.expenses;
+                  const label = exp?.merchant || exp?.description || "Gasto";
+                  const total = exp?.installments_total ?? 1;
+                  const instCurrency = (exp?.currency ?? "ARS") as Currency;
+                  const [, month, day] = inst.due_date.split("-");
+                  return (
+                    <div
+                      key={inst.id}
+                      className="bg-white rounded-2xl shadow-sm px-4 py-3 flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{label}</p>
+                        <p className="text-xs text-gray-400">
+                          Cuota {inst.installment_number}/{total} · vence {day}/{month}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <p className="text-sm font-semibold tabular-nums text-gray-700">
+                          {formatCurrency(Number(inst.amount), instCurrency)}
+                        </p>
+                        <PayInstallmentButton
+                          installmentId={inst.id}
+                          coveringAccountId={inst.expenses?.covering_account_id ?? null}
+                          leafAccounts={leafAccounts}
+                          allAccounts={allAccounts}
+                        />
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <p className="text-sm font-semibold tabular-nums text-gray-700">
-                        {formatCurrency(Number(inst.amount), currency)}
-                      </p>
-                      <MarkPaidButton installmentId={inst.id} />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-        ))
+                  );
+                })}
+              </div>
+
+              {/* Total del grupo */}
+              {group.items.length > 1 && (
+                <div className="flex justify-end mt-1 px-1">
+                  <p className="text-xs text-gray-400">
+                    Total{" "}
+                    <span className="font-medium text-gray-600 tabular-nums">
+                      {formatCurrency(totalAmount, currency)}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </section>
+          );
+        })
       )}
     </div>
   );
