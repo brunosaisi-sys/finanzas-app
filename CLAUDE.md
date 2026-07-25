@@ -41,15 +41,50 @@ modal de confirmación (total + selector de cuenta) cuando hay ≥2 cuotas en un
 RPC atómico `pay_installments_batch`; banner de recordatorio en dashboard 3 días antes
 de cierre o vencimiento de cualquier tarjeta activa.
 
-## Sesiones pendientes (roadmap cercano)
+## Sesiones pendientes (roadmap)
 
 - **Sesión E — Suscripciones:** nueva migración con tablas `recurring_expenses` y
   `subscription_instances`; diseño a documentar en `docs/02-arquitectura.md` antes de
   implementar.
-- **Cuatro agentes especializados:** mencionados en `docs/02-arquitectura.md` (Fase 6)
-  y `docs/test-cases.md` pero sin definición ni archivo de configuración; no existe
-  `.claude/` en el proyecto. Se definen en sesión dedicada disparada por "app funcional
-  completa, justo antes del bot de WhatsApp (Fase 5)." Hasta entonces: NO existen.
+- **Sesión F — Housekeeping** (completada): memoria paralela migrada a CLAUDE.md;
+  `MarkPaidButton.tsx` eliminado; cuatro skills de agentes creadas en `.claude/skills/`;
+  `docs/lecciones-aprendidas.md` creado; sección TWR (§8) documentada en fundamentos;
+  roadmap G–M documentado.
+- **Sesión G — Cuentas editables:** editar nombre y tipo de cuenta existente; agregar
+  bolsillos a cuenta ya creada; cuenta en USD dentro de la misma institución; asociar
+  tarjetas a un banco. Vista de saldos "junto y discriminado": total real más desglose
+  por destino.
+- **Sesión H — Earmark a transferencia real:** el earmark hoy reserva pero no mueve
+  plata. Agregar check "ya transferí" que ejecuta la transferencia real desde
+  `funding_account_id` hacia la cuenta de cobertura vía RPC atómica existente.
+- **Sesión I — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
+  unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
+  destino; desplegable con justificación teórica y fuente; distribución parcial con saldo
+  pendiente; recordatorio a fin de mes si quedó sin distribuir.
+- **Sesión J — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
+  de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
+  rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
+  `docs/lecciones-aprendidas.md §6`). INVESTIGAR feed de precios BYMA/CEDEARs.
+  **PENDIENTE DE DECISIÓN HUMANA:** cotización con retraso (gratis) vs. romper costo cero.
+- **Sesión K — Gráficos:** inversiones, gastos e ingresos con Recharts; carrusel
+  navegable en dashboard; gráfico propio dentro de cada sección.
+- **Sesión L — PWA:** manifest, service worker, íconos, instalable en iPhone; atajo de
+  iOS Shortcuts sobre `/nuevo-gasto`.
+- **Sesión M — Investigación bot de WhatsApp (NO implementación):** verificar qué es
+  viable con costo cero para (a) transcripción de audio, (b) lectura de comprobantes.
+  Evaluar primero Tesseract.js con reglas de parseo por emisor. Documentar hallazgos con
+  fuentes antes de comprometer arquitectura. NO asumir modelo propio entrenable (sin
+  dataset público de comprobantes argentinos).
+- **Después:** rediseño visual y UX completo (invocar `agente-ux`).
+
+### Skills locales disponibles (`.claude/skills/`)
+
+| Skill | Cuándo invocar |
+|---|---|
+| `agente-teoria-financiera` | Cualquier sesión con cálculos financieros |
+| `agente-seguridad` | Sesiones con DB, endpoints, auth o secrets |
+| `agente-ux` | Sesiones con pantallas o componentes |
+| `agente-calidad-codigo` | **Siempre**, antes del commit final |
 
 ## Qué existe hoy
 
@@ -237,6 +272,44 @@ Migraciones ejecutadas:
 - `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)
 - `screenshot.mjs` — Script Playwright para capturas autenticadas
 
+### QA — Selectores correctos para scripts de Playwright
+
+```javascript
+// Monto gasto ARS (AmountInput — type='text' inputMode='numeric')
+page.locator("input[inputMode='numeric']").first()
+
+// Monto ingreso IncomeForm (type='number', NO AmountInput)
+page.locator("input[type='number'][placeholder='0']")
+
+// Botón con acento (ej. "Crédito") — iterar, no usar filter hasText con regex sin acento
+var btns = page.locator("button[type='button']");
+for (var i = 0; i < await btns.count(); i++) {
+  if (/cr.dito/i.test(await btns.nth(i).textContent())) { await btns.nth(i).click(); break; }
+}
+
+// Covering account select (identificar por option única)
+page.locator("select").filter({ has: page.locator("option", { hasText: "Sin cuenta de cobertura" }) })
+
+// Funding account select
+page.locator("select").filter({ has: page.locator("option", { hasText: /Selecci/ }) })
+
+// Cuotas input
+page.locator("input[type='number'][min='1'][max='48']")
+```
+
+**Redirects intencionales (no son bugs):**
+- `/nuevo-gasto` → `"/"` (Dashboard) — ruta rápida para iOS Shortcuts
+- `/ingresos/nuevo` tipo sueldo → `/ingresos/distribuir?ingreso_id=UUID`
+- `/objetivos/nuevo` → `/objetivos`
+
+**Fixtures permanentes en DB (NO borrar):**
+- Cocos Capital (ARS, tipo=inversion)
+- Visa Test SD (ARS, tipo=credito)
+
+**Garbage conocido en DB:**
+- Posición AAPL: 150u @ PA $10 (incorrecto; debería ser 10u @ $150). Sin UI de delete
+  en `/inversiones`. Queda hasta Sesión J. Ver `docs/lecciones-aprendidas.md §6`.
+
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 
 - `docs/01-fundamentos-teoricos.md` — **La biblia financiera.** Toda fórmula y default
@@ -276,6 +349,19 @@ Ninguna dependencia, servicio o decisión puede introducir un costo recurrente.
    su fuente al documento teórico.
 5. **El usuario siempre puede hacer override.** Los defaults teóricos son puntos de
    partida; la UI siempre debe permitir editarlos (principio IAS 16.51).
+6. **Un solo commit al final de cada sesión.** No hacer commits intermedios. Todo va en
+   un único commit al cerrar la sesión.
+7. **Sin push sin mostrar el diff primero.** Siempre mostrar `git diff --cached` antes
+   de commitear. El push lo hace el usuario, nunca Claude.
+8. **Build limpio y tests verdes antes del commit.** `npm run build` + `npm test`
+   deben pasar. Si falla algo, no commitear.
+9. **No mostrar archivos completos — solo resúmenes.** Describir cambios con referencia
+   al archivo y las líneas modificadas.
+10. **Autonomía alta en sesiones de implementación.** No preguntar decisiones menores;
+    decidirlas, documentarlas, continuar. Pausar solo si: (a) cálculo financiero no
+    cubierto por fundamentos, (b) cambio irreversible en datos de producción.
+11. **Saldo TOTAL vs. DISPONIBLE:** el earmark reduce el disponible, no el total. No
+    confundir estos dos conceptos al implementar ni al documentar.
 
 ## Principios de cálculo (resumen — detalle en fundamentos)
 
@@ -308,8 +394,27 @@ Ninguna dependencia, servicio o decisión puede introducir un costo recurrente.
 /public                 → manifest PWA, íconos, service worker
 ```
 
-## Cómo empezar una sesión
+## Protocolo de sesión
 
-1. Leer `docs/01-fundamentos-teoricos.md` y `docs/02-arquitectura.md`.
-2. Confirmar en qué fase del roadmap estamos (ver arquitectura §5).
-3. Proponer el plan de la sesión y esperar OK antes de ejecutar.
+### Al iniciar
+1. Leer `CLAUDE.md`, `docs/01-fundamentos-teoricos.md` y `docs/lecciones-aprendidas.md`.
+2. Identificar qué sesión del roadmap corresponde y proponer el plan.
+3. Invocar los skills que apliquen según el tipo de trabajo (ver tabla en "Skills locales").
+
+### Durante la sesión
+- **Cálculo financiero** → invocar `agente-teoria-financiera`.
+- **Toca DB, endpoints o secrets** → invocar `agente-seguridad`.
+- **Toca pantallas o componentes** → invocar `agente-ux`.
+- **Ante un error propio:** registrarlo en `docs/lecciones-aprendidas.md` antes de cerrar.
+
+### Al cerrar (antes del commit)
+1. Invocar `agente-calidad-codigo` (build + tests + archivos huérfanos).
+2. Actualizar CLAUDE.md: pasar la sesión de "pendiente" a "completada" con resumen de
+   qué se hizo y qué quedó pendiente.
+3. Commit local único con mensaje descriptivo. Sin push.
+
+### Modo QA (sesiones de prueba funcional)
+- Playwright: `headless: false, slowMo: 300`.
+- Solo encontrar y reportar bugs; no arreglar código de producto en la misma sesión.
+- Cleanup al final: borrar todos los datos creados (gastos, bienes, objetivos, cuentas,
+  ingresos). Dejar fixtures intactos: Cocos Capital y Visa Test SD.

@@ -304,6 +304,83 @@ Al registrar un BIEN:
 
 ---
 
+## 8. Rentabilidad de inversiones — TWR vs. MWR
+
+> Documentado en preparación de Sesión J (Inversiones). Implementación pendiente.
+
+### 8.1 Qué mide cada métrica
+
+**Time-Weighted Return (TWR) — Retorno ponderado por tiempo:**
+Mide la performance del activo aislada de los aportes y retiros del inversor. Si el
+inversor hizo depósitos grandes cuando el mercado estaba caro y retiró cuando estaba
+barato, el TWR no se ve afectado: solo refleja cuánto rindió la inversión por sí misma.
+
+→ Estándar de la industria para comparar fondos y activos, porque elimina el efecto del
+timing de las decisiones del inversor.
+
+**Money-Weighted Return (MWR):**
+Equivalente a la TIR (Tasa Interna de Retorno) del flujo de fondos. Refleja el rendimiento
+real que el inversor obtuvo sobre su dinero, incluyendo el impacto del timing y tamaño de
+sus aportes y retiros.
+
+→ MWR responde "¿cuánto gané yo?"; TWR responde "¿qué tan buena es esta inversión?".
+
+**En esta app usamos TWR** para mostrar performance de activos, porque el objetivo es
+evaluar la inversión, no el comportamiento del inversor.
+
+### 8.2 Fórmula — encadenamiento geométrico de sub-períodos
+
+**Fuente:** GIPS® (Global Investment Performance Standards), CFA Institute, edición 2020.
+*(Pendiente de verificación de sección y página específica en el documento primario.)*
+
+El TWR divide el período total en sub-períodos delimitados por flujos de caja (aportes o
+retiros). El retorno de cada sub-período se calcula antes de que el flujo afecte el
+portfolio, y luego se encadenan geométricamente.
+
+**Retorno de cada sub-período i:**
+```
+Ri = (VMF_i − VMI_i) / VMI_i
+```
+Donde:
+- `VMI_i` = valor de mercado al inicio del sub-período (o inmediatamente después del flujo anterior)
+- `VMF_i` = valor de mercado al final del sub-período (inmediatamente ANTES del próximo flujo)
+
+**TWR total:**
+```
+TWR = [(1 + R1) × (1 + R2) × ... × (1 + Rn)] − 1
+```
+
+**Ejemplo:**
+1. Compra 10 acciones a $100 → portfolio = $1.000
+2. Al cierre del sub-período 1: precio = $110 → portfolio = $1.100 → R1 = 10%
+3. Nuevo aporte: compra 5 acciones a $110 → portfolio = $1.650
+4. Al cierre del sub-período 2: precio = $99 → portfolio = $1.485 → R2 = −10%
+5. TWR = (1,10 × 0,90) − 1 = **−1%** (la inversión perdió 1% en el período total)
+
+### 8.3 Nota metodológica — aplicación en esta app
+
+En esta app, los precios se actualizan manualmente. Por lo tanto:
+
+- Cada evento de flujo (aporte, retiro, compra de nuevas unidades) delimita un sub-período nuevo.
+- El precio del sub-período se toma del `price` vigente en el holding al momento del flujo
+  (el último precio registrado manualmente por el usuario).
+- Si no hubo flujos entre dos actualizaciones de precio, el sub-período abarca el intervalo
+  completo entre ambas actualizaciones.
+- El TWR se recalcula cada vez que el usuario actualiza el precio o registra un nuevo flujo.
+
+### 8.4 Pendientes antes de implementar (Sesión J)
+
+- **Feed de precios:** investigar si existe feed gratuito y confiable para acciones de BYMA
+  y CEDEARs argentinos. **PENDIENTE DE DECISIÓN HUMANA:** si no existe en tiempo real
+  gratuito, elegir entre cotización con retraso (gratis) o romper la restricción de costo
+  cero. No decidir esto sin el usuario.
+- **Precio promedio derivado:** `precio_promedio = monto_total_invertido / cantidad` en vez
+  de campo obligatorio en el formulario.
+- **Rediseño de formulario:** mover Precio antes de Cantidad para evitar la ambigüedad que
+  generó la posición AAPL incorrecta (ver `docs/lecciones-aprendidas.md §6`).
+
+---
+
 ## 7. Bibliografía / fuentes a citar en la app
 
 1. IASB — IAS 16 Property, Plant and Equipment (vida útil, valor residual, depreciación).
