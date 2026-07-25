@@ -47,8 +47,8 @@ export default function ExpenseForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const inversionLeafs = leafAccounts.filter(
-    (a) => (a as Account).type === "inversion"
+  const coveringLeafs = leafAccounts.filter(
+    (a) => (a as Account).type !== "credito"
   );
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -204,7 +204,7 @@ export default function ExpenseForm({
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
             >
               <option value="">Sin cuenta de cobertura</option>
-              {inversionLeafs.map((acc) => (
+              {coveringLeafs.map((acc) => (
                 <option key={acc.id} value={acc.id}>
                   {accountDisplayName(acc, accounts)}
                 </option>
