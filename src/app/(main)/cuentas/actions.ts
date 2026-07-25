@@ -1,11 +1,11 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
-import type { Currency } from "@/types";
+import type { AccountType, Currency } from "@/types";
 
-export async function updateAccountBalance(
+export async function updateAccount(
   accountId: string,
-  balance: number
+  data: { name: string; balance: number; type: AccountType }
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
@@ -13,11 +13,68 @@ export async function updateAccountBalance(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
+  // Fetch current type to detect changes
+  const { data: current } = await supabase
+    .from("accounts")
+    .select("type")
+    .eq("id", accountId)
+    .eq("user_id", user.id)
+    .single();
+  if (!current) return { error: "Cuenta no encontrada" };
+
+  const update: Record<string, unknown> = {
+    name: data.name.trim(),
+    balance: data.balance,
+  };
+
+  // Only apply type change if it actually differs
+  if (data.type !== current.type) {
+    const [{ count: expCount }, { count: earCount }] = await Promise.all([
+      supabase
+        .from("expenses")
+        .select("id", { count: "exact", head: true })
+        .or(
+          `account_id.eq.${accountId},covering_account_id.eq.${accountId},funding_account_id.eq.${accountId}`
+        ),
+      supabase
+        .from("account_earmarks")
+        .select("id", { count: "exact", head: true })
+        .eq("account_id", accountId)
+        .eq("released", false),
+    ]);
+    if ((expCount ?? 0) > 0 || (earCount ?? 0) > 0) {
+      return {
+        error:
+          "No se puede cambiar el tipo: la cuenta tiene gastos o reservas asociadas.",
+      };
+    }
+    update.type = data.type;
+  }
+
   const { error } = await supabase
     .from("accounts")
-    .update({ balance })
+    .update(update)
     .eq("id", accountId)
     .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function convertAccountToParent(
+  accountId: string,
+  bolsilloName: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("convert_account_to_parent", {
+    p_account_id: accountId,
+    p_bolsillo_name: bolsilloName.trim() || "General",
+  });
 
   if (error) return { error: error.message };
   return {};

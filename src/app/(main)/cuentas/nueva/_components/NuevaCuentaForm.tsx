@@ -17,11 +17,12 @@ interface ParentAccount {
 
 interface Props {
   parent: ParentAccount | null;
+  bankAccounts: { id: string; name: string }[];
 }
 
-export default function NuevaCuentaForm({ parent }: Props) {
+export default function NuevaCuentaForm({ parent, bankAccounts }: Props) {
   if (parent) return <BolsilloForm parent={parent} />;
-  return <InstitutionFlow />;
+  return <InstitutionFlow bankAccounts={bankAccounts} />;
 }
 
 function BolsilloForm({ parent }: { parent: ParentAccount }) {
@@ -163,7 +164,7 @@ interface BolsilloDraft {
   balance: string;
 }
 
-function InstitutionFlow() {
+function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: string }[] }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("pick");
   const [selected, setSelected] = useState<Institution | null>(null);
@@ -174,6 +175,7 @@ function InstitutionFlow() {
   const [balance, setBalance] = useState("");
   const [currency, setCurrency] = useState<Currency>("ARS");
   const [type, setType] = useState<AccountType>("banco");
+  const [parentBankId, setParentBankId] = useState<string>("");
 
   // Con bolsillos
   const [containerName, setContainerName] = useState("");
@@ -244,6 +246,7 @@ function InstitutionFlow() {
       balance: parseFloat(balance) || 0,
       ...(type === "credito" && closingDay ? { closing_day: parseInt(closingDay) } : {}),
       ...(type === "credito" && dueDay ? { due_day: parseInt(dueDay) } : {}),
+      ...(type === "credito" && parentBankId ? { parent_id: parentBankId } : {}),
     });
 
     setLoading(false);
@@ -593,6 +596,29 @@ function InstitutionFlow() {
               <p className="text-[11px] text-blue-600">
                 Si el gasto es antes del día de cierre, la cuota 1 vence el mes siguiente al cierre.
               </p>
+              {bankAccounts.length > 0 && (
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">
+                    Banco asociado{" "}
+                    <span className="text-gray-400 font-normal">(opcional)</span>
+                  </label>
+                  <select
+                    value={parentBankId}
+                    onChange={(e) => setParentBankId(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+                  >
+                    <option value="">Sin banco asociado</option>
+                    {bankAccounts.map((b) => (
+                      <option key={b.id} value={b.id}>
+                        {b.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    Agrupa la tarjeta visualmente bajo el banco. La deuda no afecta el saldo del banco.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

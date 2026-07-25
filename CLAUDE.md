@@ -50,10 +50,14 @@ de cierre o vencimiento de cualquier tarjeta activa.
   `MarkPaidButton.tsx` eliminado; cuatro skills de agentes creadas en `.claude/skills/`;
   `docs/lecciones-aprendidas.md` creado; sección TWR (§8) documentada en fundamentos;
   roadmap G–M documentado.
-- **Sesión G — Cuentas editables:** editar nombre y tipo de cuenta existente; agregar
-  bolsillos a cuenta ya creada; cuenta en USD dentro de la misma institución; asociar
-  tarjetas a un banco. Vista de saldos "junto y discriminado": total real más desglose
-  por destino.
+- **Sesión G — Cuentas editables** (completada): edición de nombre y tipo de cuenta
+  (CuentaActions expandido: nombre + saldo + tipo con restricción si hay dependientes);
+  conversión de cuenta simple a contenedor con bolsillos vía RPC atómica
+  `convert_account_to_parent` (migración 014 — **PENDIENTE de ejecutar en Supabase**);
+  cuentas padre con botones Editar/Eliminar inline; cuenta en USD bajo la misma
+  institución verificado E2E; tarjetas de crédito con parent_id apuntando a banco
+  (selector en form + agrupación visual en /cuentas; deuda excluida del total del banco);
+  vista discriminada de saldos: Total / Cuotas crédito / Metas / Libre cuando hay earmarks.
 - **Sesión H — Earmark a transferencia real:** el earmark hoy reserva pero no mueve
   plata. Agregar check "ya transferí" que ejecuta la transferencia real desde
   `funding_account_id` hacia la cuenta de cobertura vía RPC atómica existente.
@@ -148,6 +152,11 @@ Migraciones ejecutadas:
   crédito+cobertura, total para efectivo/débito; elimina earmarks e installments); RPC
   `update_expense_with_balance` (ajusta diff de saldo para efectivo/débito/transferencia;
   monto inmutable para crédito). Todos SECURITY INVOKER.
+- `014` — (archivo en repo: `014_convert_account_to_parent.sql`; **PENDIENTE de ejecutar en
+  Supabase**) RPC `convert_account_to_parent(p_account_id UUID, p_bolsillo_name TEXT) RETURNS UUID`:
+  en una sola transacción PL/pgSQL SECURITY INVOKER: crea bolsillo hijo con el saldo del padre;
+  vacía el padre; reasigna expenses, earmarks, incomes, savings_goals, savings_contributions,
+  income_distribution_lines al nuevo hijo. Rollback total si falla.
 - `013` — (archivo en repo: `013_pay_installments_batch.sql`; ejecutada en Supabase) RPC
   `pay_installments_batch(p_installment_ids UUID[], p_account_id UUID)` — llama
   `pay_installment` en loop dentro de una sola transacción PL/pgSQL atómica; rollback
@@ -158,8 +167,8 @@ Migraciones ejecutadas:
 |------|-------------|
 | `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Inversiones |
 | `/login` | Auth email + password (Supabase Auth) |
-| `/cuentas` | Lista de cuentas agrupada; editar saldo y eliminar cuenta inline (CuentaActions) |
-| `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre) |
+| `/cuentas` | Lista de cuentas agrupada; editar nombre/saldo/tipo + eliminar inline (CuentaActions); cuentas padre con Editar/Eliminar; tarjetas de crédito con parent_id bajo banco; vista discriminada Total/Cuotas/Metas/Libre |
+| `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre); tarjeta de crédito: selector opcional de banco padre |
 | `/cuentas/transferencia` | Transferencia entre cuentas vía RPC atómico; aviso si monedas distintas |
 | `/gastos` | Lista de gastos con filtros (FK disambiguation corregida: `!account_id`) |
 | `/gastos/nuevo` | Formulario gasto: medio de pago, cuotas, cuenta de cobertura, autocomplete comercio |
@@ -215,9 +224,11 @@ Migraciones ejecutadas:
   manual: inputs goal_amount + goal_months); bug B2 corregido: sin `router.refresh()`
   tras `router.push()` para evitar race condition en App Router
 - `bienes/nuevo/_components/AssetForm.tsx` — Mismas features que EditAssetForm (sin pre-llenado)
-- `cuentas/_components/CuentaActions.tsx` — Editar saldo / eliminar cuenta inline
-  (3 estados: idle, edit, delete); bug B1 corregido: `setSaving(false)` en success
-  path antes de `setMode("idle")` (sin esto el botón quedaba deshabilitado en ediciones subsiguientes)
+- `cuentas/_components/CuentaActions.tsx` — Editar nombre+saldo+tipo / convertir a padre /
+  eliminar cuenta inline (4 estados: idle, edit, convert, delete). Props: accountType, canChangeType
+  (si false → tipo deshabilitado con mensaje), hasChildren (si true → oculta "+ bolsillo" en idle).
+  Tipo: bloqueado si la cuenta tiene gastos o earmarks activos (verificado en server action).
+  Convert: llama RPC `convert_account_to_parent` vía `convertAccountToParent` server action.
 - `cuentas/transferencia/_components/TransferenciaForm.tsx` — Selectores origen/destino
   con display name + saldo; aviso ámbar si monedas distintas
 - `src/lib/accounts.ts` — `getLeafAccounts()` (cuentas sin hijos), `accountDisplayName()`
@@ -309,6 +320,11 @@ page.locator("input[type='number'][min='1'][max='48']")
 **Garbage conocido en DB:**
 - Posición AAPL: 150u @ PA $10 (incorrecto; debería ser 10u @ $150). Sin UI de delete
   en `/inversiones`. Queda hasta Sesión J. Ver `docs/lecciones-aprendidas.md §6`.
+
+**Migración 014 pendiente de ejecución en Supabase dashboard:**
+- Archivo: `supabase/migrations/014_convert_account_to_parent.sql`
+- Ejecutar en SQL Editor de Supabase antes de probar el botón "+ bolsillo" en cuentas existentes.
+- Sin la migración, el botón existe en la UI pero devuelve error de función no encontrada.
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 

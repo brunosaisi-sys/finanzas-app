@@ -27,5 +27,15 @@ export default async function NuevaCuentaPage({
     parent = data ?? null;
   }
 
-  return <NuevaCuentaForm parent={parent} />;
+  // Bank accounts — offered as optional parent when creating a credit card
+  const { data: bankAccountsRaw } = await supabase
+    .from("accounts")
+    .select("id, name")
+    .in("type", ["banco"])
+    .is("parent_id", null)
+    .order("name");
+
+  const bankAccounts: { id: string; name: string }[] = bankAccountsRaw ?? [];
+
+  return <NuevaCuentaForm parent={parent} bankAccounts={bankAccounts} />;
 }

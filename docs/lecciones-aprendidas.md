@@ -120,3 +120,35 @@ así que `page.content()` durante la carga no contenía el badge. El objetivo S�
 **Qué hacer:** Al verificar texto en páginas con fetch remoto: esperar que la URL esté
 estabilizada Y agregar un `waitForTimeout` adicional (≥1-2 segundos) antes de `page.content()`.
 Confirmar que el dato se creó vía API antes de declarar el badge como bug.
+
+---
+
+## 8. Cuentas padre (contenedores) — sin botón Eliminar propio
+
+**Qué pasó:** En el script de QA de Sesión G, el cleanup de "Multi Test QA" falló porque
+la cuenta tenía bolsillos hijos y el contenedor padre no tenía botón "Eliminar" propio en la UI.
+
+**Por qué:** En `/cuentas`, los contenedores padres se renderizan como un header sin
+`CuentaActions`. Para eliminar un contenedor, primero hay que borrar todos sus hijos
+(o el DELETE de postgres falla por FK violation).
+
+**Qué hacer en scripts de QA:** Al borrar cuentas con bolsillos, borrar hijos primero
+vía supabase client, luego el padre. Ver `qa-cleanup.mjs` como patrón.
+En la UI: la Sesión G corrigió esto — los contenedores padre ahora tienen `CuentaActions`
+con Editar y Eliminar. Eliminar devuelve error FK si aún tiene hijos, lo que es la
+restricción correcta.
+
+---
+
+## 9. Migración sin service_role key — ejecución manual en Supabase
+
+**Qué pasó:** La migración 014 (`convert_account_to_parent`) no pudo ejecutarse
+programáticamente porque solo está disponible la `anon_key` en `.env.local`.
+
+**Por qué:** DDL (CREATE FUNCTION) requiere el rol `postgres` o la `service_role_key`.
+La `anon_key` solo puede ejecutar queries con RLS. El Supabase CLI tampoco estaba
+autenticado (sin access token).
+
+**Qué hacer:** Ejecutar el SQL directamente en el SQL Editor del dashboard de Supabase.
+El archivo está en `supabase/migrations/014_convert_account_to_parent.sql`.
+Pendiente de ejecución antes de habilitar el botón "+ bolsillo" en cuentas existentes.
