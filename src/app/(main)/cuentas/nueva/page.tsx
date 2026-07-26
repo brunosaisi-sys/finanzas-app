@@ -16,15 +16,31 @@ export default async function NuevaCuentaPage({
 
   const { parent: parentId } = await searchParams;
 
-  let parent: { id: string; name: string; type: AccountType } | null = null;
+  let parent: {
+    id: string;
+    name: string;
+    type: AccountType;
+    balance: number;
+    currency: string;
+  } | null = null;
+  let parentHasChildren = false;
+
   if (parentId) {
+    // Removed .is("parent_id", null) — accounts at any level can be parents
     const { data } = await supabase
       .from("accounts")
-      .select("id, name, type")
+      .select("id, name, type, balance, currency")
       .eq("id", parentId)
-      .is("parent_id", null)
       .single();
     parent = data ?? null;
+
+    if (parent) {
+      const { count } = await supabase
+        .from("accounts")
+        .select("id", { count: "exact", head: true })
+        .eq("parent_id", parentId);
+      parentHasChildren = (count ?? 0) > 0;
+    }
   }
 
   // Bank accounts — offered as optional parent when creating a credit card
@@ -37,5 +53,11 @@ export default async function NuevaCuentaPage({
 
   const bankAccounts: { id: string; name: string }[] = bankAccountsRaw ?? [];
 
-  return <NuevaCuentaForm parent={parent} bankAccounts={bankAccounts} />;
+  return (
+    <NuevaCuentaForm
+      parent={parent}
+      parentHasChildren={parentHasChildren}
+      bankAccounts={bankAccounts}
+    />
+  );
 }

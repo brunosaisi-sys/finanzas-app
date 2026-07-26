@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createGoal } from "../../actions";
 import { formatCurrency } from "@/lib/format";
+import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
 import type { Account, Currency } from "@/types";
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 
 export default function GoalForm({ accounts }: Props) {
   const router = useRouter();
+  const leafAccounts = getLeafAccounts(accounts);
   const [name, setName] = useState("");
   const [targetAmount, setTargetAmount] = useState("");
   const [currency, setCurrency] = useState<Currency>("USD");
@@ -123,9 +125,9 @@ export default function GoalForm({ accounts }: Props) {
           className="w-full border border-gray-300 rounded-xl px-3 py-2.5 text-sm bg-white"
         >
           <option value="">Sin cuenta específica</option>
-          {accounts.map((a) => (
+          {leafAccounts.map((a) => (
             <option key={a.id} value={a.id}>
-              {a.name} ({a.currency})
+              {accountDisplayName(a, accounts)} ({a.currency})
             </option>
           ))}
         </select>

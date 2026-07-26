@@ -13,7 +13,6 @@ export async function updateAccount(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  // Fetch current type to detect changes
   const { data: current } = await supabase
     .from("accounts")
     .select("type")
@@ -27,7 +26,6 @@ export async function updateAccount(
     balance: data.balance,
   };
 
-  // Only apply type change if it actually differs
   if (data.type !== current.type) {
     const [{ count: expCount }, { count: earCount }] = await Promise.all([
       supabase
@@ -80,6 +78,45 @@ export async function convertAccountToParent(
   return {};
 }
 
+// Crea un bolsillo hijo en una cuenta que ya tiene hijos (INSERT directo, no RPC).
+// Para el primer bolsillo de una cuenta simple, usar convertAccountToParent en su lugar.
+export async function createChildAccount(
+  parentId: string,
+  data: { name: string; currency: Currency; balance: number }
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  // Fetch parent to inherit type and verify ownership
+  const { data: parent } = await supabase
+    .from("accounts")
+    .select("id, type, user_id")
+    .eq("id", parentId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!parent) return { error: "Cuenta padre no encontrada" };
+
+  const { error } = await supabase.from("accounts").insert({
+    user_id: user.id,
+    name: data.name.trim(),
+    type: parent.type,
+    currency: data.currency,
+    balance: data.balance,
+    parent_id: parentId,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+// Elimina una cuenta con pre-chequeo de seguridad.
+// Bloquea si la cuenta tiene:
+//   - hijos activos (deben eliminarse primero)
+//   - gastos, earmarks, ingresos o metas de ahorro asociadas
 export async function deleteAccount(
   accountId: string
 ): Promise<{ error?: string }> {
@@ -88,6 +125,80 @@ export async function deleteAccount(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
+
+  // Fetch all user accounts to walk the descendant tree
+  const { data: allAccounts } = await supabase
+    .from("accounts")
+    .select("id, parent_id, name")
+    .eq("user_id", user.id);
+
+  if (!allAccounts) return { error: "Error al verificar dependencias" };
+
+  // BFS to collect all descendant IDs (not including the node itself)
+  const childIds: string[] = [];
+  const queue = allAccounts
+    .filter((a) => a.parent_id === accountId)
+    .map((a) => a.id);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    childIds.push(current);
+    const grandchildren = allAccounts
+      .filter((a) => a.parent_id === current)
+      .map((a) => a.id);
+    queue.push(...grandchildren);
+  }
+
+  if (childIds.length > 0) {
+    return {
+      error: `No se puede eliminar: tiene ${childIds.length} subcuenta${childIds.length !== 1 ? "s" : ""} activa${childIds.length !== 1 ? "s" : ""}. Eliminá las subcuentas primero.`,
+    };
+  }
+
+  // Check dependencies on this specific account
+  const [
+    { count: expCount },
+    { count: earCount },
+    { count: incCount },
+    { count: goalCount },
+  ] = await Promise.all([
+    supabase
+      .from("expenses")
+      .select("id", { count: "exact", head: true })
+      .or(
+        `account_id.eq.${accountId},covering_account_id.eq.${accountId},funding_account_id.eq.${accountId}`
+      ),
+    supabase
+      .from("account_earmarks")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("released", false),
+    supabase
+      .from("incomes")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId),
+    supabase
+      .from("savings_goals")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .eq("archived", false),
+  ]);
+
+  const deps: string[] = [];
+  if ((expCount ?? 0) > 0)
+    deps.push(`${expCount} gasto${expCount! > 1 ? "s" : ""}`);
+  if ((earCount ?? 0) > 0)
+    deps.push(`${earCount} reserva${earCount! > 1 ? "s" : ""} activa${earCount! > 1 ? "s" : ""}`);
+  if ((incCount ?? 0) > 0)
+    deps.push(`${incCount} ingreso${incCount! > 1 ? "s" : ""}`);
+  if ((goalCount ?? 0) > 0)
+    deps.push(`${goalCount} meta${goalCount! > 1 ? "s" : ""} de ahorro`);
+
+  if (deps.length > 0) {
+    return {
+      error: `No se puede eliminar: la cuenta tiene ${deps.join(", ")} asociados. Reasigná o eliminá esos registros primero.`,
+    };
+  }
 
   const { error } = await supabase
     .from("accounts")

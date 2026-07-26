@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
+import { convertAccountToParent, createChildAccount } from "../../actions";
+import { formatCurrency } from "@/lib/format";
 import { INSTITUTIONS, INSTITUTION_GROUPS, type Institution } from "@/lib/institutions";
 import type { AccountType, Currency } from "@/types";
 
@@ -13,22 +15,32 @@ interface ParentAccount {
   id: string;
   name: string;
   type: AccountType;
+  balance: number;
+  currency: string;
 }
 
 interface Props {
   parent: ParentAccount | null;
+  parentHasChildren: boolean;
   bankAccounts: { id: string; name: string }[];
 }
 
-export default function NuevaCuentaForm({ parent, bankAccounts }: Props) {
-  if (parent) return <BolsilloForm parent={parent} />;
+export default function NuevaCuentaForm({ parent, parentHasChildren, bankAccounts }: Props) {
+  if (parent) return <BolsilloForm parent={parent} parentHasChildren={parentHasChildren} />;
   return <InstitutionFlow bankAccounts={bankAccounts} />;
 }
 
-function BolsilloForm({ parent }: { parent: ParentAccount }) {
+function BolsilloForm({
+  parent,
+  parentHasChildren,
+}: {
+  parent: ParentAccount;
+  parentHasChildren: boolean;
+}) {
   const router = useRouter();
   const [label, setLabel] = useState("");
-  const [currency, setCurrency] = useState<Currency>("ARS");
+  // First bolsillo inherits parent currency (locked); subsequent allow currency choice
+  const [currency, setCurrency] = useState<Currency>(parent.currency as Currency);
   const [balance, setBalance] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,28 +50,24 @@ function BolsilloForm({ parent }: { parent: ParentAccount }) {
     setError(null);
     setLoading(true);
 
-    const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Sesión expirada. Recargá la página.");
-      setLoading(false);
-      return;
+    let result: { error?: string };
+
+    if (!parentHasChildren) {
+      // First bolsillo: convert the parent to a container via atomic RPC.
+      // This moves the parent balance to the bolsillo and reassigns all deps.
+      result = await convertAccountToParent(parent.id, label.trim());
+    } else {
+      // Subsequent bolsillos: direct insert (parent already a container).
+      result = await createChildAccount(parent.id, {
+        name: label.trim(),
+        currency,
+        balance: parseFloat(balance) || 0,
+      });
     }
 
-    const { error } = await supabase.from("accounts").insert({
-      user_id: user.id,
-      name: label.trim(),
-      type: parent.type,
-      currency,
-      balance: parseFloat(balance) || 0,
-      parent_id: parent.id,
-    });
-
     setLoading(false);
-    if (error) {
-      setError(error.message);
+    if (result.error) {
+      setError(result.error);
       return;
     }
     router.push("/cuentas");
@@ -76,6 +84,15 @@ function BolsilloForm({ parent }: { parent: ParentAccount }) {
         </h1>
       </div>
 
+      {!parentHasChildren && parent.balance > 0 && (
+        <div className="mb-5 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-800 leading-snug">
+          ⚠ Tu saldo de{" "}
+          <strong>{formatCurrency(parent.balance, parent.currency as Currency)}</strong>{" "}
+          se moverá a este bolsillo. Los gastos, reservas e ingresos existentes
+          también se reasignarán automáticamente.
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -84,6 +101,7 @@ function BolsilloForm({ parent }: { parent: ParentAccount }) {
           <input
             type="text"
             required
+            autoFocus
             value={label}
             onChange={(e) => setLabel(e.target.value)}
             placeholder="Ej: Pesos, USD guardados, Rendimientos"
@@ -103,42 +121,49 @@ function BolsilloForm({ parent }: { parent: ParentAccount }) {
           </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
-          <div className="flex gap-2">
-            {(["ARS", "USD"] as Currency[]).map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setCurrency(c)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  currency === c
-                    ? "bg-gray-900 text-white border-gray-900"
-                    : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Saldo actual{" "}
-            <span className="text-gray-400 font-normal">(opcional)</span>
-          </label>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={balance}
-            onChange={(e) => setBalance(e.target.value)}
-            placeholder="0"
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
-          />
-        </div>
+        {parentHasChildren ? (
+          <>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
+              <div className="flex gap-2">
+                {(["ARS", "USD"] as Currency[]).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCurrency(c)}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      currency === c
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+                    }`}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Saldo actual{" "}
+                <span className="text-gray-400 font-normal">(opcional)</span>
+              </label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={balance}
+                onChange={(e) => setBalance(e.target.value)}
+                placeholder="0"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+          </>
+        ) : (
+          <p className="text-xs text-gray-400">
+            Moneda: {parent.currency} (heredada de la cuenta padre)
+          </p>
+        )}
 
         {error && (
           <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateAccount, convertAccountToParent, deleteAccount } from "../actions";
+import { updateAccount, deleteAccount } from "../actions";
 import type { AccountType, Currency } from "@/types";
 
 const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
@@ -19,11 +19,13 @@ interface Props {
   accountType: AccountType;
   currentBalance: number;
   currency: Currency;
+  // true si la cuenta tiene dependencias (gastos/earmarks) — bloquea cambio de tipo
   canChangeType: boolean;
-  hasChildren: boolean;
+  // true si la cuenta es hija (tiene parent_id) — tipo siempre heredado, nunca editable
+  isChild: boolean;
 }
 
-type Mode = "idle" | "edit" | "convert" | "delete";
+type Mode = "idle" | "edit" | "delete";
 
 export default function CuentaActions({
   accountId,
@@ -32,14 +34,13 @@ export default function CuentaActions({
   currentBalance,
   currency,
   canChangeType,
-  hasChildren,
+  isChild,
 }: Props) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
   const [name, setName] = useState(accountName);
   const [balance, setBalance] = useState(String(currentBalance));
   const [type, setType] = useState<AccountType>(accountType);
-  const [bolsilloName, setBolsilloName] = useState("General");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +51,8 @@ export default function CuentaActions({
     setError(null);
     setMode("idle");
   }
+
+  const typeEditable = !isChild && canChangeType;
 
   if (mode === "edit") {
     return (
@@ -73,7 +76,7 @@ export default function CuentaActions({
             />
             <span className="text-[10px] text-gray-400">{currency}</span>
           </div>
-          {canChangeType ? (
+          {typeEditable ? (
             <select
               value={type}
               onChange={(e) => setType(e.target.value as AccountType)}
@@ -87,7 +90,9 @@ export default function CuentaActions({
             </select>
           ) : (
             <p className="text-[10px] text-gray-400 bg-gray-50 rounded px-2 py-1">
-              Tipo no editable — la cuenta tiene gastos o reservas asociadas.
+              {isChild
+                ? "Tipo no editable — los bolsillos heredan el tipo del padre."
+                : "Tipo no editable — la cuenta tiene gastos o reservas asociadas."}
             </p>
           )}
         </div>
@@ -134,61 +139,6 @@ export default function CuentaActions({
     );
   }
 
-  if (mode === "convert") {
-    return (
-      <div className="mt-2 space-y-2">
-        <p className="text-[10px] text-gray-500 leading-snug">
-          Se creará el bolsillo <strong>{bolsilloName || "General"}</strong> con
-          el saldo actual. Los gastos, reservas e ingresos se reasignarán a ese
-          bolsillo.
-        </p>
-        <input
-          type="text"
-          autoFocus
-          value={bolsilloName}
-          onChange={(e) => setBolsilloName(e.target.value)}
-          placeholder="Nombre del primer bolsillo"
-          className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900"
-        />
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            disabled={saving}
-            onClick={async () => {
-              setSaving(true);
-              setError(null);
-              const result = await convertAccountToParent(
-                accountId,
-                bolsilloName || "General"
-              );
-              if (result.error) {
-                setError(result.error);
-                setSaving(false);
-              } else {
-                router.refresh();
-              }
-            }}
-            className="text-[11px] font-medium text-indigo-600 disabled:opacity-40"
-          >
-            {saving ? "Convirtiendo…" : "Confirmar"}
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setBolsilloName("General");
-              setError(null);
-              setMode("idle");
-            }}
-            className="text-[11px] text-gray-400"
-          >
-            Cancelar
-          </button>
-        </div>
-        {error && <p className="text-[10px] text-red-600">{error}</p>}
-      </div>
-    );
-  }
-
   if (mode === "delete") {
     return (
       <div className="mt-1 space-y-1">
@@ -204,6 +154,8 @@ export default function CuentaActions({
                 setError(result.error);
                 setSaving(false);
               } else {
+                setMode("idle");
+                setSaving(false);
                 router.refresh();
               }
             }}
@@ -236,15 +188,6 @@ export default function CuentaActions({
       >
         Editar
       </button>
-      {!hasChildren && accountType !== "credito" && (
-        <button
-          type="button"
-          onClick={() => setMode("convert")}
-          className="text-[11px] text-gray-500 hover:text-gray-700"
-        >
-          + bolsillo
-        </button>
-      )}
       <button
         type="button"
         onClick={() => setMode("delete")}
