@@ -80,9 +80,18 @@ de cierre o vencimiento de cualquier tarjeta activa.
   - ✅ **T3 — Migración 016**: `016_fix_cascade_fk.sql` creada con `accounts.parent_id` y `account_earmarks.account_id` cambiados de CASCADE a RESTRICT. `safe_delete_account` RPC actualizado: limpia earmarks liberados (`released=true`) antes del DELETE. `deleteAccount` JS también limpia released earmarks. **PENDIENTE de ejecutar en Supabase SQL Editor.**
   - ✅ **T4 — Saldo $0 investigado**: basura de fixture — 2 gastos + 1 earmark liberado referenciaban cuenta `8b480ef1-...` que no existe en accounts (borrada fuera del flujo de la app, posiblemente vía SQL directo en sesión anterior). Eliminados del test user. No hay bug de código. La cuenta referenciada habría sido borrada saltando el pre-chequeo de dependencias (debería haber fallado), lo que refuerza la necesidad de la migración 016.
   - ⚠️ **FK posiblemente faltante en producción**: los gastos orphaned tenían `account_id` poblado con UUID inexistente (no NULL), lo que sugiere que la FK `expenses.account_id ON DELETE SET NULL` podría no estar activa en el DB real (migración 001 la define pero la columna pudo haberse agregado después en 002/003 sin FK). Verificar en Supabase corriendo `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`.
-- **Sesión H — Earmark a transferencia real:** el earmark hoy reserva pero no mueve
-  plata. Agregar check "ya transferí" que ejecuta la transferencia real desde
-  `funding_account_id` hacia la cuenta de cobertura vía RPC atómica existente.
+- **Sesión H — Earmark a transferencia real** (completada — pendiente commit):
+  - ✅ **TAREA 1 confirmada con Playwright:** `create_expense_with_balance` con `covering_account_id` set y `funding_account_id=""` → **NO mueve plata** (earmark simbólico). Balances verificados antes/después con Playwright y REST directo. El usuario tenía razón: "no se movió nada".
+  - ✅ **TAREA 1 confirmada:** iOS Safari no valida `required` en `<select>` → así se creaban earmarks sin funding en iPhone. Chrome sí lo bloqueaba. Comportamiento explicado y diseño ajustado para ser consistente cross-browser.
+  - ✅ **Migración 017** (`017_confirm_earmark_funding.sql`): RPC PL/pgSQL atómica `confirm_earmark_funding(p_earmark_id, p_funding_account_id)`. Validaciones: earmark no liberado, gasto sin funding previo, origen ≠ destino, mismo user, misma moneda. Movimiento: `funding -amount, covering +amount, expense.funding_account_id = funding`. FOR UPDATE para evitar race conditions. **PENDIENTE de ejecutar en Supabase SQL Editor.**
+  - ✅ **ExpenseForm.tsx:** `fundingAccountId` ahora opcional en todos los browsers. Primera opción: "Confirmar más tarde". Hint dinámico: "La plata se mueve ahora" vs "Podés confirmar desde Cuotas". Label marcado `(opcional)`.
+  - ✅ **`cuotas/actions.ts`:** Server Action `confirmEarmarkFunding(earmarkId, fundingAccountId)` → llama RPC `confirm_earmark_funding`.
+  - ✅ **`ConfirmFundingButton.tsx`** (nuevo): Modal bottom-sheet z-[60] (sobre BottomNav z-50 + `pb-24` para no quedar tapado). Muestra nombre gasto + monto + cuenta cobertura. Select con cuentas de misma moneda + saldo actual. Advertencia ámbar si saldo insuficiente (no bloquea). On success: `router.refresh()`.
+  - ✅ **`cuotas/page.tsx`:** Sección "Transferencias pendientes" con fondo ámbar, visible solo cuando `pendingFunding.length > 0`. Query: `account_earmarks` join `expenses` filtrando `released=false AND expense_id IS NOT NULL`, luego JS-filter por `expenses.funding_account_id IS NULL`. Compatible con PostgREST (no puede filtrar joined columns directamente).
+  - ✅ **E2E Playwright 7/7:** crear sin funding → balances sin cambio → sección visible → gasto en lista → Confirmar visible → modal abre → Cancelar clickeable (z-index fix).
+  - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar (`016_fix_cascade_fk.sql`).
+  - ⚠️ **Build local:** `npm run build` falla por Turbopack + Google Fonts offline (red sin acceso a fonts.gstatic.com). Pre-existente. `npx tsc --noEmit` pasa limpio. En Vercel pasa.
+  - **TAREA 4 (semántica earmarks):** ver sección abajo "Conceptos financieros clave".
 - **Sesión I — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
   unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
   destino; desplegable con justificación teórica y fuente; distribución parcial con saldo
@@ -327,8 +336,8 @@ for (var i = 0; i < await btns.count(); i++) {
 // Covering account select (identificar por option única)
 page.locator("select").filter({ has: page.locator("option", { hasText: "Sin cuenta de cobertura" }) })
 
-// Funding account select
-page.locator("select").filter({ has: page.locator("option", { hasText: /Selecci/ }) })
+// Funding account select (primera opción es "Confirmar más tarde" desde Sesión H)
+page.locator("select").filter({ has: page.locator("option", { hasText: "Confirmar más tarde" }) })
 
 // Cuotas input
 page.locator("input[type='number'][min='1'][max='48']")
@@ -349,6 +358,7 @@ page.locator("input[type='number'][min='1'][max='48']")
 
 **Migraciones pendientes de ejecución en Supabase dashboard:**
 - `016_fix_cascade_fk.sql` — FK CASCADE → RESTRICT en `accounts.parent_id` y `account_earmarks.account_id`; incluye CREATE OR REPLACE de `safe_delete_account` con limpieza de earmarks liberados. Ejecutar en SQL Editor antes de confiar en la red de seguridad FK.
+- `017_confirm_earmark_funding.sql` — RPC `confirm_earmark_funding(p_earmark_id, p_funding_account_id)`. Completa el movimiento de plata para earmarks creados sin funding. SECURITY INVOKER. Ejecutar antes de usar el botón "Confirmar" en /cuotas.
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 
@@ -402,6 +412,41 @@ Ninguna dependencia, servicio o decisión puede introducir un costo recurrente.
     cubierto por fundamentos, (b) cambio irreversible en datos de producción.
 11. **Saldo TOTAL vs. DISPONIBLE:** el earmark reduce el disponible, no el total. No
     confundir estos dos conceptos al implementar ni al documentar.
+
+## Conceptos financieros clave (TAREA 4 Sesión H)
+
+### Saldo Total vs. Saldo Disponible
+
+- **Total** = suma de `accounts.balance` para todas las cuentas hoja. No cambia cuando se crea un earmark.
+- **Disponible** = Total − earmarks activos (`account_earmarks WHERE released = false`). El earmark reserva pero no mueve plata.
+- La UI en `/cuentas` muestra "Total / Cuotas crédito / Metas / Libre" cuando hay earmarks. "Libre" = disponible neto.
+- **Regla crítica:** nunca reducir `balance` por un earmark. Solo reducirlo cuando el dinero realmente se mueve (pago, transferencia, RPC).
+
+### Modelo de earmark para gastos de crédito
+
+El ciclo de vida completo de un gasto en cuotas con cobertura:
+
+**Fase 1 — Creación** (`create_expense_with_balance`):
+- Si `funding_account_id` presente: `funding.balance -= amount`, `covering.balance += amount`, earmark creado con `expense_id`.
+- Si `funding_account_id` vacío: earmark creado puramente simbólico, **ningún balance cambia**. El gasto existe pero la plata no se movió.
+
+**Fase 2 — Confirmación de origen** (`confirm_earmark_funding`) — NUEVO en Sesión H:
+- Solo aplica a earmarks con `expense_id` y cuyo expense tiene `funding_account_id IS NULL`.
+- Mueve: `funding.balance -= amount`, `covering.balance += amount`.
+- Actualiza: `expense.funding_account_id = p_funding_account_id`.
+- Idempotencia: si el expense ya tiene `funding_account_id`, el RPC lanza excepción.
+
+**Fase 3 — Pago de cuota** (`pay_installment`):
+- Descuenta de la cuenta cubriente (o de la cuenta elegida si no hay cobertura).
+- Reduce/libera el earmark proporcionalmente.
+
+**Fase 4 — Earmark liberado:**
+- `released = true` cuando todas las cuotas están pagadas.
+- El saldo disponible sube porque el earmark ya no cuenta.
+
+### ¿Por qué "Confirmar más tarde"?
+
+iOS Safari no valida `required` en `<select>` (bug conocido del browser). Antes de Sesión H, usuarios de iPhone podían crear earmarks sin funding aunque el form tenía `required`. En Sesión H se formalizó este flujo: el campo de funding es explícitamente opcional en todos los browsers, y la UI en `/cuotas` permite completarlo después. Esto es consistente con el modelo real: el earmark existe desde el momento del gasto, el movimiento de plata puede ocurrir después.
 
 ## Principios de cálculo (resumen — detalle en fundamentos)
 

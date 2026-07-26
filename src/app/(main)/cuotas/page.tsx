@@ -1,9 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
-import { getLeafAccounts } from "@/lib/accounts";
+import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
 import PayInstallmentButton from "./_components/PayInstallmentButton";
 import BatchPayButton from "./_components/BatchPayButton";
+import ConfirmFundingButton from "./_components/ConfirmFundingButton";
 import type { Currency, Account } from "@/types";
 
 const MESES = [
@@ -15,6 +16,21 @@ function formatMonth(yearMonth: string): string {
   const [year, month] = yearMonth.split("-");
   return `${MESES[parseInt(month) - 1]} ${year}`;
 }
+
+type PendingFundingRow = {
+  id: string;
+  account_id: string;
+  amount: number;
+  currency: Currency;
+  reason: string | null;
+  expense_id: string;
+  expenses: {
+    id: string;
+    merchant: string | null;
+    description: string | null;
+    funding_account_id: string | null;
+  } | null;
+};
 
 type InstallmentRow = {
   id: string;
@@ -47,7 +63,7 @@ export default async function CuotasPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data }, { data: accountsData }] = await Promise.all([
+  const [{ data }, { data: accountsData }, { data: earmarksRaw }] = await Promise.all([
     supabase
       .from("installments")
       .select(
@@ -56,11 +72,22 @@ export default async function CuotasPage() {
       .eq("paid", false)
       .order("due_date"),
     supabase.from("accounts").select("*").order("name"),
+    supabase
+      .from("account_earmarks")
+      .select("id, account_id, amount, currency, reason, expense_id, expenses!expense_id ( id, merchant, description, funding_account_id )")
+      .eq("released", false)
+      .not("expense_id", "is", null),
   ]);
 
   const installments = (data ?? []) as unknown as InstallmentRow[];
   const allAccounts = (accountsData ?? []) as Account[];
   const leafAccounts = getLeafAccounts(allAccounts);
+
+  // Earmarks de crédito sin funding confirmado (la plata no se movió todavía)
+  const allEarmarks = (earmarksRaw ?? []) as unknown as PendingFundingRow[];
+  const pendingFunding = allEarmarks.filter(
+    (ae) => !(ae.expenses as PendingFundingRow["expenses"])?.funding_account_id
+  );
 
   // Agrupar por tarjeta (account_id del gasto) + mes de vencimiento
   const groupMap = new Map<string, GroupData>();
@@ -102,6 +129,53 @@ export default async function CuotasPage() {
           </p>
         )}
       </div>
+
+      {/* Sección: Transferencias pendientes de confirmar */}
+      {pendingFunding.length > 0 && (
+        <section className="space-y-2">
+          <h2 className="text-xs font-medium text-amber-600 uppercase tracking-wide">
+            Transferencias pendientes
+          </h2>
+          <p className="text-[11px] text-gray-400 -mt-1">
+            Reservas que todavía no tienen cuenta de origen confirmada.
+          </p>
+          {pendingFunding.map((ae) => {
+            const exp = ae.expenses;
+            const expName = exp?.merchant || exp?.description || "Gasto";
+            const coveringAccount = allAccounts.find((a) => a.id === ae.account_id);
+            const coveringName = coveringAccount
+              ? accountDisplayName(coveringAccount, allAccounts)
+              : "Cuenta eliminada";
+            // Solo cuentas con la misma moneda que el earmark para la confirmación
+            const compatibleAccounts = leafAccounts.filter(
+              (a) => a.currency === ae.currency && a.id !== ae.account_id
+            );
+
+            return (
+              <div
+                key={ae.id}
+                className="bg-amber-50 border border-amber-100 rounded-2xl px-4 py-3 flex items-center justify-between gap-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{expName}</p>
+                  <p className="text-xs text-gray-500">
+                    {formatCurrency(ae.amount, ae.currency)} → {coveringName}
+                  </p>
+                </div>
+                <ConfirmFundingButton
+                  earmarkId={ae.id}
+                  earmarkAmount={ae.amount}
+                  earmarkCurrency={ae.currency}
+                  coveringAccountName={coveringName}
+                  expenseName={expName}
+                  leafAccounts={compatibleAccounts}
+                  allAccounts={allAccounts}
+                />
+              </div>
+            );
+          })}
+        </section>
+      )}
 
       {installments.length === 0 ? (
         <div className="text-center py-12 text-gray-400">

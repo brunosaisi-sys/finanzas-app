@@ -35,3 +35,20 @@ export async function payInstallmentsBatch(
   if (error) return { error: error.message };
   return {};
 }
+
+export async function confirmEarmarkFunding(
+  earmarkId: string,
+  fundingAccountId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("confirm_earmark_funding", {
+    p_earmark_id: earmarkId,
+    p_funding_account_id: fundingAccountId,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}

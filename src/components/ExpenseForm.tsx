@@ -214,15 +214,15 @@ export default function ExpenseForm({
           {coveringAccountId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                ¿De qué cuenta sale la plata que vas a apartar?
+                ¿De qué cuenta sale la plata?{" "}
+                <span className="text-gray-400 font-normal">(opcional)</span>
               </label>
               <select
-                required
                 value={fundingAccountId}
                 onChange={(e) => setFundingAccountId(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
               >
-                <option value="">Seleccioná una cuenta</option>
+                <option value="">Confirmar más tarde</option>
                 {leafAccounts
                   .filter((a) => a.id !== coveringAccountId)
                   .map((acc) => (
@@ -232,7 +232,9 @@ export default function ExpenseForm({
                   ))}
               </select>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                La plata se mueve ahora a la cuenta de cobertura, donde rinde hasta que venza la tarjeta.
+                {fundingAccountId
+                  ? "La plata se mueve ahora a la cuenta de cobertura."
+                  : "Si no elegís ahora, podés confirmar la transferencia más tarde desde Cuotas."}
               </p>
             </div>
           )}
