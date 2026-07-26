@@ -14,6 +14,9 @@ export interface Account {
   parent_id: string | null;
   closing_day: number | null;
   due_day: number | null;
+  // Flag manual: ¿esta cuenta genera rendimiento y puede ser destino de cobertura?
+  // undefined antes de migración 018; false por default después.
+  earns_yield?: boolean;
   created_at: string;
 }
 

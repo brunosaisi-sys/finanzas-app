@@ -80,7 +80,7 @@ de cierre o vencimiento de cualquier tarjeta activa.
   - ✅ **T3 — Migración 016**: `016_fix_cascade_fk.sql` creada con `accounts.parent_id` y `account_earmarks.account_id` cambiados de CASCADE a RESTRICT. `safe_delete_account` RPC actualizado: limpia earmarks liberados (`released=true`) antes del DELETE. `deleteAccount` JS también limpia released earmarks. **PENDIENTE de ejecutar en Supabase SQL Editor.**
   - ✅ **T4 — Saldo $0 investigado**: basura de fixture — 2 gastos + 1 earmark liberado referenciaban cuenta `8b480ef1-...` que no existe en accounts (borrada fuera del flujo de la app, posiblemente vía SQL directo en sesión anterior). Eliminados del test user. No hay bug de código. La cuenta referenciada habría sido borrada saltando el pre-chequeo de dependencias (debería haber fallado), lo que refuerza la necesidad de la migración 016.
   - ⚠️ **FK posiblemente faltante en producción**: los gastos orphaned tenían `account_id` poblado con UUID inexistente (no NULL), lo que sugiere que la FK `expenses.account_id ON DELETE SET NULL` podría no estar activa en el DB real (migración 001 la define pero la columna pudo haberse agregado después en 002/003 sin FK). Verificar en Supabase corriendo `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`.
-- **Sesión H — Earmark a transferencia real** (completada — pendiente commit):
+- **Sesión H — Earmark a transferencia real** (completada — commit bd4f632):
   - ✅ **TAREA 1 confirmada con Playwright:** `create_expense_with_balance` con `covering_account_id` set y `funding_account_id=""` → **NO mueve plata** (earmark simbólico). Balances verificados antes/después con Playwright y REST directo. El usuario tenía razón: "no se movió nada".
   - ✅ **TAREA 1 confirmada:** iOS Safari no valida `required` en `<select>` → así se creaban earmarks sin funding en iPhone. Chrome sí lo bloqueaba. Comportamiento explicado y diseño ajustado para ser consistente cross-browser.
   - ✅ **Migración 017** (`017_confirm_earmark_funding.sql`): RPC PL/pgSQL atómica `confirm_earmark_funding(p_earmark_id, p_funding_account_id)`. Validaciones: earmark no liberado, gasto sin funding previo, origen ≠ destino, mismo user, misma moneda. Movimiento: `funding -amount, covering +amount, expense.funding_account_id = funding`. FOR UPDATE para evitar race conditions. **PENDIENTE de ejecutar en Supabase SQL Editor.**
@@ -90,9 +90,30 @@ de cierre o vencimiento de cualquier tarjeta activa.
   - ✅ **`cuotas/page.tsx`:** Sección "Transferencias pendientes" con fondo ámbar, visible solo cuando `pendingFunding.length > 0`. Query: `account_earmarks` join `expenses` filtrando `released=false AND expense_id IS NOT NULL`, luego JS-filter por `expenses.funding_account_id IS NULL`. Compatible con PostgREST (no puede filtrar joined columns directamente).
   - ✅ **E2E Playwright 7/7:** crear sin funding → balances sin cambio → sección visible → gasto en lista → Confirmar visible → modal abre → Cancelar clickeable (z-index fix).
   - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar (`016_fix_cascade_fk.sql`).
+  - ✅ **Migración 017 EJECUTADA** en Supabase (confirmada con llamada de prueba a la RPC).
   - ⚠️ **Build local:** `npm run build` falla por Turbopack + Google Fonts offline (red sin acceso a fonts.gstatic.com). Pre-existente. `npx tsc --noEmit` pasa limpio. En Vercel pasa.
   - **TAREA 4 (semántica earmarks):** ver sección abajo "Conceptos financieros clave".
-- **Sesión I — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
+- **Sesión I — earns_yield + selector jerárquico + confirm earmark E2E** (completada parcialmente):
+  - ✅ **Migración 017 confirmada ejecutada** en Supabase (llamada de prueba exitosa).
+  - ✅ **Migración 018** (`018_earns_yield.sql`): `ALTER TABLE accounts ADD COLUMN earns_yield BOOLEAN NOT NULL DEFAULT false`. **PENDIENTE DE EJECUTAR en Supabase SQL Editor** antes de usar el toggle en /cuentas.
+  - ✅ **`earns_yield` en Account type** (`src/types/index.ts`): campo `earns_yield?: boolean` (opcional para compatibilidad antes de migración).
+  - ✅ **Server actions** actualizados: `updateAccount` acepta `earns_yield`; `createChildAccount` acepta `earns_yield`.
+  - ✅ **NuevaCuentaForm**: toggle "¿Esta cuenta genera rendimiento?" (Sí/No) visible para todos los tipos no-crédito. Presente en flujo simple (step "form"), bolsillos (checkbox por bolsillo), y BolsilloForm (subsiguientes bolsillos). Componente reutilizable `YieldToggle`. Nota: primer bolsillo vía `convertAccountToParent` usa default false (limitación del RPC existente — no se cambia sin nueva migración).
+  - ✅ **CuentaActions**: toggle checkbox `earns_yield` en modo edición para no-crédito. Prop `earnsYield: boolean` nuevo (requerido).
+  - ✅ **CuentasTree**: `AccountNode` tiene `earns_yield: boolean`; todos los `CuentaActions` reciben el prop. `cuentas/page.tsx` mapea `a.earns_yield ?? false`.
+  - ✅ **ExpenseForm refactorizado** (TAREA 2):
+    - Botones Efectivo/Débito/Transferencia/Crédito ELIMINADOS. La interacción primaria es el selector de cuenta.
+    - Selector jerárquico: `<optgroup>` por institución raíz para cuentas con bolsillos; `<option>` plano para cuentas raíz sin hijos.
+    - `paymentMethod` derivado automáticamente: `efectivo→efectivo`, `credito→credito`, otros→`debito`.
+    - Sección crédito (cuotas + cobertura + timing) visible solo si la cuenta seleccionada es type='credito'.
+    - Selector de cobertura filtra por `earns_yield === true`. Si no hay ninguna, muestra aviso con link a /cuentas.
+    - Opción explícita "Ahora / Después" para el timing de la transferencia (dos botones). "Después" = earmark simbólico, "Ahora" = muestra selector de cuenta origen.
+  - ⚠️ **TAREA 3 (verificación tarjeta de crédito → banco)**: no probada E2E esta sesión. El código existente en NuevaCuentaForm (selector "Banco asociado") sigue igual y funcionó en sesiones previas. Verificar en sesión siguiente.
+  - ⚠️ **TAREA 4 (Playwright E2E confirm_earmark_funding con cambio real de saldos)**: pendiente. La migración 017 está ejecutada y el flujo completo está construido. Bloqueado por migración 018 sin ejecutar (sin earns_yield en DB, ninguna cuenta aparece en el selector de cobertura). Ejecutar 018 primero, marcar Cocos Capital como earns_yield=true, luego correr el test.
+  - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar.
+  - **Decisión de diseño (Tarea 2)**: El medio de pago se deriva del tipo de cuenta, nunca editable manualmente por el usuario. Esto simplifica el formulario y elimina la posibilidad de inconsistencias (ej. marcar "crédito" pero elegir una cuenta de banco). Efectivo=efectivo, crédito=crédito, banco/inversion/usd_reserva=débito (no se diferencia débito de transferencia por decisión de producto explícita del usuario).
+
+- **Sesión J — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
   unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
   destino; desplegable con justificación teórica y fuente; distribución parcial con saldo
   pendiente; recordatorio a fin de mes si quedó sin distribuir.
@@ -228,12 +249,7 @@ Migraciones ejecutadas:
 - Dashboard (`(main)/page.tsx`) — banner recordatorio N=3 días antes de closing_day o
   due_day de cualquier tarjeta de crédito activa; `daysUntil(targetDay, today)` maneja
   wrap de mes.
-- `ExpenseForm` — Autocomplete de comercio vía `<datalist>` nativo; `AmountInput` para ARS,
-  `<input type="number">` para USD; muestra "Cierre día X · Vencimiento día Y" bajo el
-  selector de cuenta cuando es crédito; campo `fundingAccountId` (visible solo cuando
-  crédito+cobertura: cuenta de donde sale la plata que se aparta); llama `createExpense`
-  server action de `gastos/actions.ts` (no Supabase client directo); `getInstallmentDueDates`
-  movido a `gastos/actions.ts`
+- `ExpenseForm` — Refactorizado en Sesión I. **Interacción primaria: selector de cuenta** (jerárquico con `<optgroup>` por institución). `paymentMethod` derivado del tipo de cuenta: efectivo→efectivo, credito→credito, otros→debito. Sección crédito (cuotas + cobertura + timing) visible solo si cuenta es type='credito'. Cobertura filtrada por `earns_yield=true`; si vacía, muestra aviso con link a /cuentas. Timing "Ahora/Después": "Ahora" muestra selector de cuenta origen, "Después" = earmark simbólico (confirmar desde /cuotas). Autocomplete comercio vía `<datalist>`; `AmountInput` para ARS; llama `createExpense` server action.
 - `gastos/actions.ts` — Server Actions: `createExpense` (construye p_expense/p_installments/
   p_earmark y llama RPC `create_expense_with_balance`), `deleteExpense` (RPC
   `delete_expense_with_balance`), `updateExpense` (RPC `update_expense_with_balance`);
@@ -327,17 +343,22 @@ page.locator("input[inputMode='numeric']").first()
 // Monto ingreso IncomeForm (type='number', NO AmountInput)
 page.locator("input[type='number'][placeholder='0']")
 
-// Botón con acento (ej. "Crédito") — iterar, no usar filter hasText con regex sin acento
+// SESIÓN I: Botones de medio de pago ELIMINADOS. El form usa selector de cuenta como primario.
+// No buscar botones Efectivo/Débito/Crédito — ya no existen en ExpenseForm.
+
+// Selector de cuenta pagadora (primario)
+page.locator("select").filter({ has: page.locator("option", { hasText: "Sin cuenta" }) }).first()
+
+// Covering account select — "No destinar a ningún fondo"
+page.locator("select").filter({ has: page.locator("option", { hasText: "No destinar a ningún fondo" }) })
+
+// Timing "Ahora/Después" — son botones type='button' dentro de la sección crédito
+// Usar textContent() para identificarlos, ya que pueden ser varios botones
 var btns = page.locator("button[type='button']");
-for (var i = 0; i < await btns.count(); i++) {
-  if (/cr.dito/i.test(await btns.nth(i).textContent())) { await btns.nth(i).click(); break; }
-}
+// "Ahora" o "Después" — buscar por texto
 
-// Covering account select (identificar por option única)
-page.locator("select").filter({ has: page.locator("option", { hasText: "Sin cuenta de cobertura" }) })
-
-// Funding account select (primera opción es "Confirmar más tarde" desde Sesión H)
-page.locator("select").filter({ has: page.locator("option", { hasText: "Confirmar más tarde" }) })
+// Funding account select (cuando timing=Ahora) — "Seleccioná una cuenta"
+page.locator("select").filter({ has: page.locator("option", { hasText: "Seleccioná una cuenta" }) })
 
 // Cuotas input
 page.locator("input[type='number'][min='1'][max='48']")
@@ -358,7 +379,10 @@ page.locator("input[type='number'][min='1'][max='48']")
 
 **Migraciones pendientes de ejecución en Supabase dashboard:**
 - `016_fix_cascade_fk.sql` — FK CASCADE → RESTRICT en `accounts.parent_id` y `account_earmarks.account_id`; incluye CREATE OR REPLACE de `safe_delete_account` con limpieza de earmarks liberados. Ejecutar en SQL Editor antes de confiar en la red de seguridad FK.
-- `017_confirm_earmark_funding.sql` — RPC `confirm_earmark_funding(p_earmark_id, p_funding_account_id)`. Completa el movimiento de plata para earmarks creados sin funding. SECURITY INVOKER. Ejecutar antes de usar el botón "Confirmar" en /cuotas.
+- `018_earns_yield.sql` — `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS earns_yield BOOLEAN NOT NULL DEFAULT false`. Ejecutar antes de usar el toggle en /cuentas. Después de ejecutar: editar Cocos Capital y marcarla como earns_yield=true para que aparezca en el selector de cobertura de /nuevo-gasto.
+
+**Migraciones ya ejecutadas:**
+- `017_confirm_earmark_funding.sql` — ✅ EJECUTADA. RPC atómica para completar earmarks sin funding.
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 

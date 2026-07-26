@@ -76,6 +76,7 @@ export default async function CuentasPage() {
     earmarksTotal: earmarksTotalMap.get(a.id) ?? 0,
     earmarksCuotas: earmarksCuotasMap.get(a.id) ?? 0,
     earmarksMetas: earmarksMetasMap.get(a.id) ?? 0,
+    earns_yield: a.earns_yield ?? false,
     hasExpenseDeps: accountsWithDeps.has(a.id),
   }));
 

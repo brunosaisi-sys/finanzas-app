@@ -21,9 +21,8 @@ interface Props {
   accountType: AccountType;
   currentBalance: number;
   currency: Currency;
-  // true si la cuenta tiene dependencias (gastos/earmarks) — bloquea cambio de tipo
+  earnsYield: boolean;
   canChangeType: boolean;
-  // true si la cuenta es hija (tiene parent_id) — tipo siempre heredado, nunca editable
   isChild: boolean;
 }
 
@@ -35,6 +34,7 @@ export default function CuentaActions({
   accountType,
   currentBalance,
   currency,
+  earnsYield,
   canChangeType,
   isChild,
 }: Props) {
@@ -43,6 +43,7 @@ export default function CuentaActions({
   const [name, setName] = useState(accountName);
   const [balance, setBalance] = useState(String(currentBalance));
   const [type, setType] = useState<AccountType>(accountType);
+  const [earnsYieldEdit, setEarnsYieldEdit] = useState(earnsYield);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteDeps, setDeleteDeps] = useState<DepItem[]>([]);
@@ -52,11 +53,13 @@ export default function CuentaActions({
     setName(accountName);
     setBalance(String(currentBalance));
     setType(accountType);
+    setEarnsYieldEdit(earnsYield);
     setError(null);
     setMode("idle");
   }
 
   const typeEditable = !isChild && canChangeType;
+  const isCredit = type === "credito";
 
   if (mode === "edit") {
     return (
@@ -99,6 +102,17 @@ export default function CuentaActions({
                 : "Tipo no editable — la cuenta tiene gastos o reservas asociadas."}
             </p>
           )}
+          {!isCredit && (
+            <label className="flex items-center gap-2 text-[10px] text-gray-600 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={earnsYieldEdit}
+                onChange={(e) => setEarnsYieldEdit(e.target.checked)}
+                className="rounded"
+              />
+              Genera rendimiento (puede recibir coberturas de gastos en cuotas)
+            </label>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -116,6 +130,7 @@ export default function CuentaActions({
                 name,
                 balance: v,
                 type,
+                earns_yield: isCredit ? false : earnsYieldEdit,
               });
               if (result.error) {
                 setError(result.error);

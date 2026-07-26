@@ -12,7 +12,7 @@ export type DepItem = {
 
 export async function updateAccount(
   accountId: string,
-  data: { name: string; balance: number; type: AccountType }
+  data: { name: string; balance: number; type: AccountType; earns_yield?: boolean }
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
@@ -31,6 +31,7 @@ export async function updateAccount(
   const update: Record<string, unknown> = {
     name: data.name.trim(),
     balance: data.balance,
+    ...(data.earns_yield !== undefined ? { earns_yield: data.earns_yield } : {}),
   };
 
   if (data.type !== current.type) {
@@ -89,7 +90,7 @@ export async function convertAccountToParent(
 // Para el primer bolsillo de una cuenta simple, usar convertAccountToParent en su lugar.
 export async function createChildAccount(
   parentId: string,
-  data: { name: string; currency: Currency; balance: number }
+  data: { name: string; currency: Currency; balance: number; earns_yield?: boolean }
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
@@ -114,6 +115,7 @@ export async function createChildAccount(
     currency: data.currency,
     balance: data.balance,
     parent_id: parentId,
+    ...(data.earns_yield !== undefined ? { earns_yield: data.earns_yield } : {}),
   });
 
   if (error) return { error: error.message };

@@ -25,6 +25,43 @@ interface Props {
   bankAccounts: { id: string; name: string }[];
 }
 
+function YieldToggle({
+  value,
+  onChange,
+}: {
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700 mb-1">
+        ¿Esta cuenta genera rendimiento?
+      </label>
+      <div className="flex gap-2">
+        {([false, true] as const).map((v) => (
+          <button
+            key={String(v)}
+            type="button"
+            onClick={() => onChange(v)}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+              value === v
+                ? "bg-gray-900 text-white border-gray-900"
+                : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+            }`}
+          >
+            {v ? "Sí" : "No"}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-gray-400 mt-0.5">
+        {value
+          ? "Esta cuenta puede recibir transferencias de cobertura en gastos de crédito."
+          : "No aparecerá como destino de cobertura al registrar gastos en cuotas."}
+      </p>
+    </div>
+  );
+}
+
 export default function NuevaCuentaForm({ parent, parentHasChildren, bankAccounts }: Props) {
   if (parent) return <BolsilloForm parent={parent} parentHasChildren={parentHasChildren} />;
   return <InstitutionFlow bankAccounts={bankAccounts} />;
@@ -39,11 +76,13 @@ function BolsilloForm({
 }) {
   const router = useRouter();
   const [label, setLabel] = useState("");
-  // First bolsillo inherits parent currency (locked); subsequent allow currency choice
   const [currency, setCurrency] = useState<Currency>(parent.currency as Currency);
   const [balance, setBalance] = useState("");
+  const [earnsYield, setEarnsYield] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isCredit = parent.type === "credito";
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -53,15 +92,15 @@ function BolsilloForm({
     let result: { error?: string };
 
     if (!parentHasChildren) {
-      // First bolsillo: convert the parent to a container via atomic RPC.
-      // This moves the parent balance to the bolsillo and reassigns all deps.
       result = await convertAccountToParent(parent.id, label.trim());
+      // earns_yield for first bolsillo: set after creation via direct update if needed.
+      // convertAccountToParent creates the child with default false — acceptable for now.
     } else {
-      // Subsequent bolsillos: direct insert (parent already a container).
       result = await createChildAccount(parent.id, {
         name: label.trim(),
         currency,
         balance: parseFloat(balance) || 0,
+        earns_yield: isCredit ? false : earnsYield,
       });
     }
 
@@ -158,6 +197,9 @@ function BolsilloForm({
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
               />
             </div>
+            {!isCredit && (
+              <YieldToggle value={earnsYield} onChange={setEarnsYield} />
+            )}
           </>
         ) : (
           <p className="text-xs text-gray-400">
@@ -187,6 +229,7 @@ interface BolsilloDraft {
   label: string;
   currency: Currency;
   balance: string;
+  earns_yield: boolean;
 }
 
 function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: string }[] }) {
@@ -195,17 +238,16 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
   const [selected, setSelected] = useState<Institution | null>(null);
   const [isCustom, setIsCustom] = useState(false);
 
-  // Cuenta simple
   const [name, setName] = useState("");
   const [balance, setBalance] = useState("");
   const [currency, setCurrency] = useState<Currency>("ARS");
   const [type, setType] = useState<AccountType>("banco");
   const [parentBankId, setParentBankId] = useState<string>("");
+  const [earnsYield, setEarnsYield] = useState(false);
 
-  // Con bolsillos
   const [containerName, setContainerName] = useState("");
   const [bolsillos, setBolsillos] = useState<BolsilloDraft[]>([
-    { label: "", currency: "ARS", balance: "" },
+    { label: "", currency: "ARS", balance: "", earns_yield: false },
   ]);
 
   const [closingDay, setClosingDay] = useState("");
@@ -220,8 +262,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     setContainerName(inst.name);
     setCurrency(inst.defaultCurrency);
     setType(inst.dbType);
-    setBolsillos([{ label: "", currency: inst.defaultCurrency, balance: "" }]);
-    // Las tarjetas de crédito van directo al form simple (no tienen bolsillos)
+    setBolsillos([{ label: "", currency: inst.defaultCurrency, balance: "", earns_yield: false }]);
     setStep(inst.dbType === "credito" ? "form" : "mode");
   }
 
@@ -232,12 +273,12 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     setContainerName("");
     setCurrency("ARS");
     setType("banco");
-    setBolsillos([{ label: "", currency: "ARS", balance: "" }]);
+    setBolsillos([{ label: "", currency: "ARS", balance: "", earns_yield: false }]);
     setStep("mode");
   }
 
   function addBolsillo() {
-    setBolsillos((prev) => [...prev, { label: "", currency, balance: "" }]);
+    setBolsillos((prev) => [...prev, { label: "", currency, balance: "", earns_yield: false }]);
   }
 
   function removeBolsillo(i: number) {
@@ -269,6 +310,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
       type,
       currency,
       balance: parseFloat(balance) || 0,
+      ...(type !== "credito" ? { earns_yield: earnsYield } : {}),
       ...(type === "credito" && closingDay ? { closing_day: parseInt(closingDay) } : {}),
       ...(type === "credito" && dueDay ? { due_day: parseInt(dueDay) } : {}),
       ...(type === "credito" && parentBankId ? { parent_id: parentBankId } : {}),
@@ -330,6 +372,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
         type,
         currency: b.currency,
         balance: parseFloat(b.balance) || 0,
+        earns_yield: b.earns_yield,
         parent_id: parentRow.id,
       }))
     );
@@ -470,6 +513,19 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
                     className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
                   />
                 </div>
+                {type !== "credito" && (
+                  <div className="pt-1">
+                    <label className="flex items-center gap-2 text-xs text-gray-600 cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        checked={b.earns_yield}
+                        onChange={(e) => updateBolsillo(i, { earns_yield: e.target.checked })}
+                        className="rounded"
+                      />
+                      Genera rendimiento (puede ser destino de cobertura)
+                    </label>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -558,7 +614,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
                     currency === c
                       ? "bg-gray-900 text-white border-gray-900"
                       : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
-                  }`}
+                    }`}
                 >
                   {c}
                 </button>
@@ -582,6 +638,10 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
             />
           </div>
+
+          {type !== "credito" && (
+            <YieldToggle value={earnsYield} onChange={setEarnsYield} />
+          )}
 
           {type === "credito" && (
             <div className="space-y-3 bg-blue-50 border border-blue-100 rounded-xl p-3">

@@ -19,6 +19,7 @@ export interface AccountNode {
   earmarksTotal: number;
   earmarksCuotas: number;
   earmarksMetas: number;
+  earns_yield: boolean;
   // true si tiene gastos o earmarks activos (bloquea cambio de tipo)
   hasExpenseDeps: boolean;
 }
@@ -314,6 +315,7 @@ function TreeNode({
               accountType={account.type}
               currentBalance={account.balance}
               currency={account.currency}
+              earnsYield={account.earns_yield}
               canChangeType={canChangeType}
               isChild={isChild}
             />
@@ -418,6 +420,7 @@ function TreeNode({
               accountType={account.type}
               currentBalance={account.balance}
               currency={account.currency}
+              earnsYield={account.earns_yield}
               canChangeType={canChangeType}
               isChild={isChild}
             />
@@ -468,6 +471,7 @@ function TreeNode({
           accountType={account.type}
           currentBalance={account.balance}
           currency={account.currency}
+          earnsYield={account.earns_yield}
           canChangeType={canChangeType}
           isChild={isChild}
         />

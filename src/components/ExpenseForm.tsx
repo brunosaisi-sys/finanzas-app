@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
+import Link from "next/link";
+import { getLeafAccounts } from "@/lib/accounts";
 import { formatInputAmount } from "@/lib/format";
 import AmountInput from "@/components/AmountInput";
 import { createExpense } from "@/app/(main)/gastos/actions";
 import type { Account, Category, Currency, PaymentMethod } from "@/types";
-
 
 interface Props {
   accounts: Account[];
@@ -16,12 +16,43 @@ interface Props {
   redirectTo?: string;
 }
 
-const PAYMENT_METHODS: { value: PaymentMethod; label: string }[] = [
-  { value: "efectivo", label: "Efectivo" },
-  { value: "debito", label: "Débito" },
-  { value: "transferencia", label: "Transferencia" },
-  { value: "credito", label: "Crédito" },
-];
+// Agrupa cuentas hoja por la institución raíz (camina parent_id hasta el tope).
+function groupByInstitution(
+  leafAccounts: Account[],
+  allAccounts: Account[]
+): { rootId: string; rootName: string; accounts: Account[] }[] {
+  const rootOf = (acc: Account): Account => {
+    let cur = acc;
+    for (let i = 0; i < 10; i++) {
+      if (!cur.parent_id) return cur;
+      const parent = allAccounts.find((a) => a.id === cur.parent_id);
+      if (!parent) return cur;
+      cur = parent;
+    }
+    return cur;
+  };
+
+  const groups = new Map<string, { rootId: string; rootName: string; accounts: Account[] }>();
+  for (const acc of leafAccounts) {
+    const root = rootOf(acc);
+    if (!groups.has(root.id)) {
+      groups.set(root.id, { rootId: root.id, rootName: root.name, accounts: [] });
+    }
+    groups.get(root.id)!.accounts.push(acc);
+  }
+  return Array.from(groups.values()).sort((a, b) =>
+    a.rootName.localeCompare(b.rootName)
+  );
+}
+
+// Deriva el medio de pago a partir del tipo de cuenta.
+// type='efectivo' → efectivo, type='credito' → credito, resto → debito.
+function derivePaymentMethod(account: Account | undefined): PaymentMethod {
+  if (!account) return "efectivo";
+  if (account.type === "efectivo") return "efectivo";
+  if (account.type === "credito") return "credito";
+  return "debito";
+}
 
 export default function ExpenseForm({
   accounts,
@@ -40,16 +71,35 @@ export default function ExpenseForm({
   const [merchant, setMerchant] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState(today);
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("efectivo");
   const [installmentsTotal, setInstallmentsTotal] = useState(1);
   const [coveringAccountId, setCoveringAccountId] = useState("");
   const [fundingAccountId, setFundingAccountId] = useState("");
+  // "now" muestra el selector de cuenta origen; "later" deja funding vacío
+  const [fundingTiming, setFundingTiming] = useState<"now" | "later">("later");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const coveringLeafs = leafAccounts.filter(
-    (a) => (a as Account).type !== "credito"
+  const selectedAccount = leafAccounts.find((a) => a.id === accountId);
+  const paymentMethod = derivePaymentMethod(selectedAccount);
+  const isCredito = paymentMethod === "credito";
+
+  // Solo cuentas con earns_yield=true pueden ser destino de cobertura
+  const coveringLeafs = leafAccounts.filter((a) => a.earns_yield === true);
+
+  // Cuentas de origen para funding: misma moneda, excluye la cuenta de cobertura
+  const fundingLeafs = leafAccounts.filter(
+    (a) => a.currency === currency && a.id !== coveringAccountId && a.id !== accountId
   );
+
+  const groups = groupByInstitution(leafAccounts, accounts);
+
+  function handleAccountChange(id: string) {
+    setAccountId(id);
+    // Al cambiar la cuenta pagadora, resetear cobertura y funding
+    setCoveringAccountId("");
+    setFundingAccountId("");
+    setFundingTiming("later");
+  }
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -61,7 +111,7 @@ export default function ExpenseForm({
       return;
     }
 
-    const selectedAccount = accounts.find((a) => a.id === accountId);
+    const selectedAccountObj = accounts.find((a) => a.id === accountId);
     const coveringAccount = accounts.find((a) => a.id === coveringAccountId);
 
     setLoading(true);
@@ -76,9 +126,11 @@ export default function ExpenseForm({
       paymentMethod,
       installmentsTotal,
       coveringAccountId: coveringAccountId || null,
-      fundingAccountId: fundingAccountId || null,
-      closingDay: selectedAccount?.closing_day,
-      dueDay: selectedAccount?.due_day,
+      fundingAccountId: (isCredito && coveringAccountId && fundingTiming === "now")
+        ? fundingAccountId || null
+        : null,
+      closingDay: selectedAccountObj?.closing_day,
+      dueDay: selectedAccountObj?.due_day,
       coveringAccountCurrency: coveringAccount?.currency ?? null,
     });
 
@@ -143,30 +195,56 @@ export default function ExpenseForm({
         </div>
       </div>
 
-      {/* Medio de pago */}
+      {/* Cuenta pagadora — interacción primaria */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Medio de pago</label>
-        <div className="flex gap-1.5 flex-wrap">
-          {PAYMENT_METHODS.map((pm) => (
-            <button
-              key={pm.value}
-              type="button"
-              onClick={() => setPaymentMethod(pm.value)}
-              className={`flex-1 min-w-0 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                paymentMethod === pm.value
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
-              }`}
-            >
-              {pm.label}
-            </button>
-          ))}
-        </div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          ¿Con qué cuenta pagás?
+        </label>
+        <select
+          value={accountId}
+          onChange={(e) => handleAccountChange(e.target.value)}
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+        >
+          <option value="">Sin cuenta</option>
+          {groups.map((group) => {
+            // Cuenta raíz que es hoja por sí misma: plain option
+            if (group.accounts.length === 1 && !group.accounts[0].parent_id) {
+              const acc = group.accounts[0];
+              return (
+                <option key={acc.id} value={acc.id}>
+                  {acc.name}
+                  {acc.type === "credito" ? " (Crédito)" : ""}
+                </option>
+              );
+            }
+            // Institución con bolsillos: optgroup
+            return (
+              <optgroup key={group.rootId} label={group.rootName}>
+                {group.accounts.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name}
+                    {acc.type === "credito" ? " (Crédito)" : ""}
+                  </option>
+                ))}
+              </optgroup>
+            );
+          })}
+        </select>
+        {selectedAccount && (
+          <p className="text-[11px] text-gray-400 mt-0.5">
+            {paymentMethod === "credito"
+              ? "Tarjeta de crédito — podés elegir cuotas y cuenta de cobertura."
+              : paymentMethod === "efectivo"
+              ? "Pago en efectivo — el saldo se descuenta ahora."
+              : "Débito / Transferencia — el saldo se descuenta ahora."}
+          </p>
+        )}
       </div>
 
       {/* Sección crédito */}
-      {paymentMethod === "credito" && (
+      {isCredito && (
         <div className="space-y-3 bg-gray-50 rounded-xl p-3">
+          {/* Cuotas */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               ¿En cuántas cuotas?
@@ -193,50 +271,106 @@ export default function ExpenseForm({
               </p>
             )}
           </div>
+
+          {/* Cuenta de cobertura — solo earns_yield=true */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               ¿Qué cuenta cubre este pago?{" "}
               <span className="text-gray-400 font-normal">(opcional)</span>
             </label>
-            <select
-              value={coveringAccountId}
-              onChange={(e) => { setCoveringAccountId(e.target.value); setFundingAccountId(""); }}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
-            >
-              <option value="">Sin cuenta de cobertura</option>
-              {coveringLeafs.map((acc) => (
-                <option key={acc.id} value={acc.id}>
-                  {accountDisplayName(acc, accounts)}
-                </option>
-              ))}
-            </select>
+            {coveringLeafs.length === 0 ? (
+              <p className="text-xs text-gray-500 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
+                Ninguna cuenta está marcada como generadora de rendimiento.{" "}
+                <Link href="/cuentas" className="underline">
+                  Configuralo en /cuentas
+                </Link>{" "}
+                para poder destinar plata a una cuenta de cobertura.
+              </p>
+            ) : (
+              <select
+                value={coveringAccountId}
+                onChange={(e) => {
+                  setCoveringAccountId(e.target.value);
+                  setFundingAccountId("");
+                  setFundingTiming("later");
+                }}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+              >
+                <option value="">No destinar a ningún fondo</option>
+                {coveringLeafs.map((acc) => (
+                  <option key={acc.id} value={acc.id}>
+                    {acc.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
+
+          {/* Timing de la transferencia — solo cuando hay cobertura */}
           {coveringAccountId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                ¿De qué cuenta sale la plata?{" "}
-                <span className="text-gray-400 font-normal">(opcional)</span>
+                ¿Transferís la plata ahora o después?
               </label>
-              <select
-                value={fundingAccountId}
-                onChange={(e) => setFundingAccountId(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
-              >
-                <option value="">Confirmar más tarde</option>
-                {leafAccounts
-                  .filter((a) => a.id !== coveringAccountId)
-                  .map((acc) => (
-                    <option key={acc.id} value={acc.id}>
-                      {accountDisplayName(acc, accounts)}
-                    </option>
-                  ))}
-              </select>
+              <div className="flex gap-2">
+                {(["later", "now"] as const).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => {
+                      setFundingTiming(t);
+                      if (t === "later") setFundingAccountId("");
+                    }}
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                      fundingTiming === t
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+                    }`}
+                  >
+                    {t === "now" ? "Ahora" : "Después"}
+                  </button>
+                ))}
+              </div>
               <p className="text-[11px] text-gray-400 mt-0.5">
-                {fundingAccountId
-                  ? "La plata se mueve ahora a la cuenta de cobertura."
-                  : "Si no elegís ahora, podés confirmar la transferencia más tarde desde Cuotas."}
+                {fundingTiming === "now"
+                  ? "La plata se mueve hoy a la cuenta de cobertura."
+                  : "Podés confirmarlo más tarde desde Cuotas."}
               </p>
+
+              {/* Selector de cuenta origen — solo cuando "Ahora" */}
+              {fundingTiming === "now" && (
+                <div className="mt-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    ¿De qué cuenta sale la plata?
+                  </label>
+                  {fundingLeafs.length === 0 ? (
+                    <p className="text-[11px] text-gray-400">
+                      Sin cuentas disponibles en {currency}.
+                    </p>
+                  ) : (
+                    <select
+                      value={fundingAccountId}
+                      onChange={(e) => setFundingAccountId(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+                    >
+                      <option value="">Seleccioná una cuenta</option>
+                      {fundingLeafs.map((acc) => (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
             </div>
+          )}
+
+          {/* Info cierre/vencimiento */}
+          {selectedAccount?.closing_day && selectedAccount?.due_day && (
+            <p className="text-[11px] text-indigo-600">
+              Cierre día {selectedAccount.closing_day} · Vencimiento día {selectedAccount.due_day} — fechas de cuotas calculadas automáticamente
+            </p>
           )}
         </div>
       )}
@@ -279,33 +413,6 @@ export default function ExpenseForm({
             </option>
           ))}
         </select>
-      </div>
-
-      {/* Cuenta */}
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Cuenta</label>
-        <select
-          value={accountId}
-          onChange={(e) => setAccountId(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
-        >
-          <option value="">Sin cuenta</option>
-          {leafAccounts.map((acc) => (
-            <option key={acc.id} value={acc.id}>
-              {accountDisplayName(acc, accounts)}
-            </option>
-          ))}
-        </select>
-        {(() => {
-          if (paymentMethod !== "credito" || !accountId) return null;
-          const acc = accounts.find((a) => a.id === accountId);
-          if (!acc?.closing_day || !acc?.due_day) return null;
-          return (
-            <p className="text-[11px] text-indigo-600 mt-0.5">
-              Cierre día {acc.closing_day} · Vencimiento día {acc.due_day} — fechas de cuotas calculadas automáticamente
-            </p>
-          );
-        })()}
       </div>
 
       {/* Fecha */}
