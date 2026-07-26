@@ -74,6 +74,12 @@ de cierre o vencimiento de cualquier tarjeta activa.
   - ✅ **T4 FK Audit**: FKs conocidas (de archivos SQL): `expenses.account_id`, `incomes.account_id`, `savings_goals.account_id`, `savings_contributions.account_id`, `assets.account_id` → todos `ON DELETE SET NULL`. FKs desconocidas (sin archivo): `accounts.parent_id`, `account_earmarks.account_id`, `expenses.covering_account_id`, `expenses.funding_account_id`. Mitigación: `deleteAccount` y RPC `safe_delete_account` hacen pre-chequeo en JS/Postgres antes de borrar → nunca hay orphaning por la UI.
   - ✅ **E2E Playwright 23/23**: árbol 3 niveles (BBVA→Pesos/Dólares→Viaje Europa), expand/collapse independiente, totales consolidados, T3 efectivo, T5 delete con/sin hijos — todos verdes.
   - ❌ **NO completado (Sesión J)**: restricción type='efectivo' admite hijos de cualquier tipo (solo de facto vía herencia). Si se quiere bloqueo explícito, agregar validación en `createChildAccount`.
+- **Sesión G.3 — UX + Seguridad FK** (completada):
+  - ✅ **T1 — AddChildInline unificado**: formulario idéntico para primer bolsillo y subsiguientes (nombre + selector ARS/USD + saldo). Para el primer bolsillo el saldo se pre-llena con el saldo del padre (informativo — la RPC lo mueve desde el padre) y aparece el aviso "⚠ Tu saldo se moverá...". La lógica de qué server action se llama sigue siendo invisible para el usuario.
+  - ✅ **T2 — Delete accionable**: `deleteAccount` ahora devuelve `{ deps: DepItem[], overflowCount? }` con los primeros 5 gastos (merchant/monto/fecha) y links a `/gastos/{id}/editar`. Earmarks/ingresos/metas muestran resumen con link de navegación. Si hay más de 5 gastos, indica "y N más — andá a /gastos". `/gastos` no tiene filtro por cuenta (no se inventó).
+  - ✅ **T3 — Migración 016**: `016_fix_cascade_fk.sql` creada con `accounts.parent_id` y `account_earmarks.account_id` cambiados de CASCADE a RESTRICT. `safe_delete_account` RPC actualizado: limpia earmarks liberados (`released=true`) antes del DELETE. `deleteAccount` JS también limpia released earmarks. **PENDIENTE de ejecutar en Supabase SQL Editor.**
+  - ✅ **T4 — Saldo $0 investigado**: basura de fixture — 2 gastos + 1 earmark liberado referenciaban cuenta `8b480ef1-...` que no existe en accounts (borrada fuera del flujo de la app, posiblemente vía SQL directo en sesión anterior). Eliminados del test user. No hay bug de código. La cuenta referenciada habría sido borrada saltando el pre-chequeo de dependencias (debería haber fallado), lo que refuerza la necesidad de la migración 016.
+  - ⚠️ **FK posiblemente faltante en producción**: los gastos orphaned tenían `account_id` poblado con UUID inexistente (no NULL), lo que sugiere que la FK `expenses.account_id ON DELETE SET NULL` podría no estar activa en el DB real (migración 001 la define pero la columna pudo haberse agregado después en 002/003 sin FK). Verificar en Supabase corriendo `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`.
 - **Sesión H — Earmark a transferencia real:** el earmark hoy reserva pero no mueve
   plata. Agregar check "ya transferí" que ejecuta la transferencia real desde
   `funding_account_id` hacia la cuenta de cobertura vía RPC atómica existente.
@@ -342,7 +348,7 @@ page.locator("input[type='number'][min='1'][max='48']")
   en `/inversiones`. Queda hasta Sesión J. Ver `docs/lecciones-aprendidas.md §6`.
 
 **Migraciones pendientes de ejecución en Supabase dashboard:**
-_(ninguna — 014 y 015 ejecutadas en Sesión G.2, confirmadas vía REST API)_
+- `016_fix_cascade_fk.sql` — FK CASCADE → RESTRICT en `accounts.parent_id` y `account_earmarks.account_id`; incluye CREATE OR REPLACE de `safe_delete_account` con limpieza de earmarks liberados. Ejecutar en SQL Editor antes de confiar en la red de seguridad FK.
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 

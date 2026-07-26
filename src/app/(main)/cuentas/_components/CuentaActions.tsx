@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { updateAccount, deleteAccount } from "../actions";
+import type { DepItem } from "../actions";
+import Link from "next/link";
 import type { AccountType, Currency } from "@/types";
 
 const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
@@ -43,6 +45,8 @@ export default function CuentaActions({
   const [type, setType] = useState<AccountType>(accountType);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleteDeps, setDeleteDeps] = useState<DepItem[]>([]);
+  const [overflowCount, setOverflowCount] = useState(0);
 
   function resetEdit() {
     setName(accountName);
@@ -149,9 +153,13 @@ export default function CuentaActions({
             onClick={async () => {
               setSaving(true);
               setError(null);
+              setDeleteDeps([]);
+              setOverflowCount(0);
               const result = await deleteAccount(accountId);
               if (result.error) {
                 setError(result.error);
+                setDeleteDeps(result.deps ?? []);
+                setOverflowCount(result.overflowCount ?? 0);
                 setSaving(false);
               } else {
                 setMode("idle");
@@ -167,6 +175,8 @@ export default function CuentaActions({
             type="button"
             onClick={() => {
               setError(null);
+              setDeleteDeps([]);
+              setOverflowCount(0);
               setMode("idle");
             }}
             className="text-[11px] text-gray-400"
@@ -175,6 +185,29 @@ export default function CuentaActions({
           </button>
         </div>
         {error && <p className="text-[10px] text-red-600">{error}</p>}
+        {deleteDeps.length > 0 && (
+          <ul className="mt-1 space-y-1">
+            {deleteDeps.map((dep) => (
+              <li key={dep.id} className="text-[10px] text-gray-500">
+                {dep.path ? (
+                  <Link href={dep.path} className="underline hover:text-gray-900">
+                    {dep.label}
+                  </Link>
+                ) : (
+                  dep.label
+                )}
+              </li>
+            ))}
+            {overflowCount > 0 && (
+              <li className="text-[10px] text-gray-400">
+                y {overflowCount} más — andá a{" "}
+                <Link href="/gastos" className="underline hover:text-gray-900">
+                  /gastos
+                </Link>
+              </li>
+            )}
+          </ul>
+        )}
       </div>
     );
   }

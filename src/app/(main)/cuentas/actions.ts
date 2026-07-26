@@ -3,6 +3,13 @@
 import { createClient } from "@/lib/supabase/server";
 import type { AccountType, Currency } from "@/types";
 
+export type DepItem = {
+  type: "expense" | "income" | "earmark" | "goal";
+  id: string;
+  label: string;
+  path: string | null;
+};
+
 export async function updateAccount(
   accountId: string,
   data: { name: string; balance: number; type: AccountType }
@@ -119,7 +126,7 @@ export async function createChildAccount(
 //   - gastos, earmarks, ingresos o metas de ahorro asociadas
 export async function deleteAccount(
   accountId: string
-): Promise<{ error?: string }> {
+): Promise<{ error?: string; deps?: DepItem[]; overflowCount?: number }> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -184,21 +191,85 @@ export async function deleteAccount(
       .eq("archived", false),
   ]);
 
-  const deps: string[] = [];
+  const depLabels: string[] = [];
   if ((expCount ?? 0) > 0)
-    deps.push(`${expCount} gasto${expCount! > 1 ? "s" : ""}`);
+    depLabels.push(`${expCount} gasto${expCount! > 1 ? "s" : ""}`);
   if ((earCount ?? 0) > 0)
-    deps.push(`${earCount} reserva${earCount! > 1 ? "s" : ""} activa${earCount! > 1 ? "s" : ""}`);
+    depLabels.push(`${earCount} reserva${earCount! > 1 ? "s" : ""} activa${earCount! > 1 ? "s" : ""}`);
   if ((incCount ?? 0) > 0)
-    deps.push(`${incCount} ingreso${incCount! > 1 ? "s" : ""}`);
+    depLabels.push(`${incCount} ingreso${incCount! > 1 ? "s" : ""}`);
   if ((goalCount ?? 0) > 0)
-    deps.push(`${goalCount} meta${goalCount! > 1 ? "s" : ""} de ahorro`);
+    depLabels.push(`${goalCount} meta${goalCount! > 1 ? "s" : ""} de ahorro`);
 
-  if (deps.length > 0) {
+  if (depLabels.length > 0) {
+    const depItems: DepItem[] = [];
+    let overflowCount = 0;
+
+    // Fetch first 5 expenses with details for actionable links
+    if ((expCount ?? 0) > 0) {
+      const { data: expRows } = await supabase
+        .from("expenses")
+        .select("id, merchant, description, amount, currency, date")
+        .or(
+          `account_id.eq.${accountId},covering_account_id.eq.${accountId},funding_account_id.eq.${accountId}`
+        )
+        .order("date", { ascending: false })
+        .limit(5);
+
+      for (const e of expRows ?? []) {
+        const d = new Date(e.date + "T00:00:00");
+        const dateStr = `${d.getDate()}/${d.getMonth() + 1}`;
+        const name = e.merchant || e.description || "Gasto";
+        depItems.push({
+          type: "expense",
+          id: e.id,
+          label: `${name} · $${Number(e.amount).toLocaleString("es-AR")} (${dateStr})`,
+          path: `/gastos/${e.id}/editar`,
+        });
+      }
+      if ((expCount ?? 0) > 5) overflowCount += (expCount ?? 0) - 5;
+    }
+
+    // For other dep types, add a summary item without a specific path
+    if ((earCount ?? 0) > 0) {
+      depItems.push({
+        type: "earmark",
+        id: "earmark-summary",
+        label: `${earCount} reserva${earCount! > 1 ? "s" : ""} activa${earCount! > 1 ? "s" : ""} — liberalas desde la pantalla de cuotas`,
+        path: "/cuotas",
+      });
+    }
+    if ((incCount ?? 0) > 0) {
+      depItems.push({
+        type: "income",
+        id: "income-summary",
+        label: `${incCount} ingreso${incCount! > 1 ? "s" : ""} asociado${incCount! > 1 ? "s" : ""} — reasignalo${incCount! > 1 ? "s" : ""} editando el ingreso`,
+        path: null,
+      });
+    }
+    if ((goalCount ?? 0) > 0) {
+      depItems.push({
+        type: "goal",
+        id: "goal-summary",
+        label: `${goalCount} meta${goalCount! > 1 ? "s" : ""} de ahorro — archivala${goalCount! > 1 ? "s" : ""} desde /objetivos`,
+        path: "/objetivos",
+      });
+    }
+
     return {
-      error: `No se puede eliminar: la cuenta tiene ${deps.join(", ")} asociados. Reasigná o eliminá esos registros primero.`,
+      error: `No se puede eliminar: tiene ${depLabels.join(", ")} asociados.`,
+      deps: depItems,
+      overflowCount: overflowCount > 0 ? overflowCount : undefined,
     };
   }
+
+  // Clean up released earmarks before deletion — FK RESTRICT requires no earmarks remain.
+  await supabase
+    .from("account_earmarks")
+    .delete()
+    .eq("account_id", accountId)
+    .eq("user_id", user.id)
+    .eq("released", true);
 
   const { error } = await supabase
     .from("accounts")

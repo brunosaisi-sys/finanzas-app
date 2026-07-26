@@ -130,14 +130,16 @@ function AddChildInline({
   const [open, setOpen] = useState(false);
   const [childName, setChildName] = useState("");
   const [currency, setCurrency] = useState<Currency>(parentCurrency);
-  const [balance, setBalance] = useState("");
+  const [balance, setBalance] = useState(
+    !hasChildren && parentBalance > 0 ? String(parentBalance) : ""
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   function reset() {
     setChildName("");
     setCurrency(parentCurrency);
-    setBalance("");
+    setBalance(!hasChildren && parentBalance > 0 ? String(parentBalance) : "");
     setError(null);
     setOpen(false);
   }
@@ -167,37 +169,35 @@ function AddChildInline({
         autoFocus
         value={childName}
         onChange={(e) => setChildName(e.target.value)}
-        placeholder={hasChildren ? "Nombre del bolsillo" : "Nombre del primer bolsillo"}
+        placeholder="Nombre del bolsillo"
         className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
       />
-      {hasChildren && (
-        <div className="flex items-center gap-1.5">
-          {(["ARS", "USD"] as Currency[]).map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCurrency(c)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
-                currency === c
-                  ? "bg-indigo-600 text-white border-indigo-600"
-                  : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={balance}
-            onChange={(e) => setBalance(e.target.value)}
-            placeholder="Saldo (opcional)"
-            className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
-          />
-        </div>
-      )}
+      <div className="flex items-center gap-1.5">
+        {(["ARS", "USD"] as Currency[]).map((c) => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setCurrency(c)}
+            className={`px-3 py-1 rounded-lg text-xs font-medium border transition-colors ${
+              currency === c
+                ? "bg-indigo-600 text-white border-indigo-600"
+                : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+            }`}
+          >
+            {c}
+          </button>
+        ))}
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="any"
+          value={balance}
+          onChange={(e) => setBalance(e.target.value)}
+          placeholder="Saldo (opcional)"
+          className="flex-1 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500 bg-white"
+        />
+      </div>
       <div className="flex items-center gap-2">
         <button
           type="button"
