@@ -152,3 +152,66 @@ autenticado (sin access token).
 **Qué hacer:** Ejecutar el SQL directamente en el SQL Editor del dashboard de Supabase.
 El archivo está en `supabase/migrations/014_convert_account_to_parent.sql`.
 Pendiente de ejecución antes de habilitar el botón "+ bolsillo" en cuentas existentes.
+
+---
+
+## 10. Playwright — `.text-red-600` captura botones además de mensajes de error
+
+**Qué pasó:** `getDeleteError()` usaba `page.locator('.text-red-600').allTextContents()` y
+retornaba el texto del botón "Confirmar eliminar 'X'" en lugar del mensaje de error, porque
+ese botón también tiene la clase `text-red-600` (`text-[11px] font-medium text-red-600`).
+
+**Por qué:** En CuentaActions modo delete, el botón de confirmación y el párrafo de error
+comparten la clase Tailwind `text-red-600`. El selector `.text-red-600` los devuelve a ambos.
+
+**Qué hacer:** Usar `p.text-red-600` (etiqueta HTML `<p>`) para capturar solo el párrafo
+de error, que nunca es un `<button>`. Adicionalmente, usar `page.waitForSelector('p.text-red-600')`
+antes del chequeo para garantizar que el servidor action terminó.
+
+---
+
+## 11. CuentasTree — expandedIds no se actualiza con cuentas nuevas tras router.refresh()
+
+**Qué pasó:** En T2d, "Viaje Europa" se creaba correctamente en la DB (confirmado por BFS
+count=3 en T5) pero `waitForText("Viaje Europa")` retornaba false. Dólares, recién convertido
+a contenedor, aparecía colapsado en el UI.
+
+**Por qué:** `useState(() => new Set(accounts.map(a => a.id)))` inicializa el set una sola vez
+al montar CuentasTree. `router.refresh()` actualiza las props con nuevas cuentas, pero React
+no re-ejecuta el inicializador del `useState`. Las cuentas nuevas (e.g., Dólares cuando se
+convierte a contenedor, Viaje Europa recién creada) no están en `expandedIds`, por lo que
+Dólares renderiza colapsado.
+
+**Qué hacer:** Agregar un `useEffect` en CuentasTree que, cuando cambian las props `accounts`,
+añada los IDs nuevos a `expandedIds` sin quitar los existentes (preserva el estado collapse/expand
+del usuario):
+```typescript
+useEffect(() => {
+  setExpandedIds(prev => {
+    let changed = false;
+    const next = new Set(prev);
+    for (const a of accounts) {
+      if (!next.has(a.id)) { next.add(a.id); changed = true; }
+    }
+    return changed ? next : prev;
+  });
+}, [accounts]);
+```
+
+---
+
+## 12. Playwright — router.refresh() completa antes que DOM refleje la eliminación
+
+**Qué pasó:** En T5 test 3, `deleteAccount(viajeEuropaId)` eliminaba la cuenta de la DB,
+`router.refresh()` completaba, pero `hasText("Viaje Europa")` seguía retornando true.
+El cleanup posterior confirmaba que la cuenta SÍ fue eliminada (Dólares se borraba sin error).
+
+**Por qué:** Hay un race entre el final del RSC re-render y el chequeo de `hasText`. React
+puede pintar el DOM antiguo un frame más después de que `waitForLoadState("networkidle")`
+resuelve. `waitForTimeout(800)` + `waitForLoadState` no siempre es suficiente.
+
+**Qué hacer:** Para verificar que una eliminación funcionó, usar `page.goto(BASE + "/cuentas")`
+seguido de `waitForLoadState("networkidle")` antes del chequeo. El reload garantiza que el
+DOM refleja el estado real de la DB, sin depender del timing de React.
+Alternativa: `page.waitForSelector(':text-is("X")', { state: "detached", timeout: 8000 })`,
+pero el goto es más simple y robusto.

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
 import CuentaActions from "./CuentaActions";
@@ -512,6 +512,22 @@ export default function CuentasTree({ accounts }: Props) {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(accounts.map((a) => a.id))
   );
+
+  // When accounts prop changes (e.g. after router.refresh()), expand any newly added accounts.
+  // This ensures containers created mid-session (convertAccountToParent) are visible immediately.
+  useEffect(() => {
+    setExpandedIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const a of accounts) {
+        if (!next.has(a.id)) {
+          next.add(a.id);
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [accounts]);
 
   function toggleExpand(id: string) {
     setExpandedIds((prev) => {

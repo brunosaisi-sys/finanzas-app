@@ -58,20 +58,22 @@ de cierre o vencimiento de cualquier tarjeta activa.
   institución verificado E2E; tarjetas de crédito con parent_id apuntando a banco
   (selector en form + agrupación visual en /cuentas; deuda excluida del total del banco);
   vista discriminada de saldos: Total / Cuotas crédito / Metas / Libre cuando hay earmarks.
-- **Sesión G.2 — Jerarquía 3 niveles (progreso parcial, commit intermedio)**:
+- **Sesión G.2 — Jerarquía 3 niveles** (completada — verificación y cierre):
   - ✅ `accountDisplayName` recursivo (camina cadena completa de ancestros).
   - ✅ `GoalForm` usa `getLeafAccounts + accountDisplayName` en el selector de cuenta.
-  - ✅ `CuentaActions` tiene prop `isChild: boolean`; bolsillos muestran "Tipo no editable — los bolsillos heredan el tipo del padre" en lugar de mensaje de dependencias.
-  - ✅ `deleteAccount` con pre-chequeo recursivo de hijos y dependencias (gastos, earmarks, ingresos, metas) antes de borrar — mensaje descriptivo al usuario.
-  - ✅ `/cuentas` rediseñado como árbol expandible (client component `CuentasTree`): drill-down N niveles, expand/collapse por nodo, totales consolidados por moneda, crédito excluido de totales del banco.
-  - ✅ Patrón inline unificado `AddChildInline`: mismo botón para primer y subsiguientes bolsillos. Primer bolsillo llama RPC `convert_account_to_parent`; subsiguientes llaman `createChildAccount`.
-  - ✅ Fix stale state post-refresh: `setMode("idle")` antes de `router.refresh()` en todos los flujos de CuentaActions.
-  - ✅ `/cuentas/nueva?parent=<id>` corregido: elimina filtro `.is("parent_id", null)` (cuentas de cualquier nivel pueden ser padres de subcuentas). `BolsilloForm` maneja primer vs. subsiguiente bolsillo correctamente.
-  - ✅ Migración 015 escrita (`015_safe_delete_account.sql`): RPC atómica de delete — **PENDIENTE de ejecutar en Supabase**.
-  - ❌ **NO completado**: restricción type='efectivo' solo admite hijos type='efectivo' (Tarea 1c) — hoy cualquier tipo puede ser hijo de efectivo.
-  - ❌ **NO completado**: auditoría de foreign keys en Supabase (verificar ON DELETE constraints reales en la DB).
-  - ❌ **NO completado**: Playwright E2E sobre el árbol nuevo — build compila pero flujo real no verificado con datos reales.
-  - ❌ **NO completado**: documentar auto-creación de subcuenta desde metas (Tarea 4, backlog Sesión I).
+  - ✅ `CuentaActions` tiene prop `isChild: boolean`; bolsillos muestran "Tipo no editable".
+  - ✅ `deleteAccount` con pre-chequeo recursivo de hijos y dependencias; mensaje descriptivo.
+  - ✅ `/cuentas` como árbol expandible `CuentasTree`: N niveles, expand/collapse, totales consolidados.
+  - ✅ `AddChildInline` unificado: primer bolsillo → RPC `convert_account_to_parent`; subsiguientes → `createChildAccount`.
+  - ✅ Fix stale state: `setMode("idle")` antes de `router.refresh()` en CuentaActions.
+  - ✅ `/cuentas/nueva?parent=<id>` corregido: acepta cuentas de cualquier nivel como padre.
+  - ✅ Migración 014 ejecutada (`convert_account_to_parent`) — confirmado vía REST API.
+  - ✅ Migración 015 ejecutada (`safe_delete_account`) — confirmado vía REST API.
+  - ✅ Fix `CuentasTree.useEffect`: auto-expande IDs nuevos cuando `accounts` prop cambia tras `router.refresh()`. Sin este fix, contenedores recién creados quedaban colapsados y sus hijos invisibles (ver lección §11).
+  - ✅ **T3 DE FACTO**: `AddChildInline` no tiene selector de tipo → bolsillos siempre heredan el tipo del padre automáticamente. Restricción efectivo→efectivo funciona sin código adicional.
+  - ✅ **T4 FK Audit**: FKs conocidas (de archivos SQL): `expenses.account_id`, `incomes.account_id`, `savings_goals.account_id`, `savings_contributions.account_id`, `assets.account_id` → todos `ON DELETE SET NULL`. FKs desconocidas (sin archivo): `accounts.parent_id`, `account_earmarks.account_id`, `expenses.covering_account_id`, `expenses.funding_account_id`. Mitigación: `deleteAccount` y RPC `safe_delete_account` hacen pre-chequeo en JS/Postgres antes de borrar → nunca hay orphaning por la UI.
+  - ✅ **E2E Playwright 23/23**: árbol 3 niveles (BBVA→Pesos/Dólares→Viaje Europa), expand/collapse independiente, totales consolidados, T3 efectivo, T5 delete con/sin hijos — todos verdes.
+  - ❌ **NO completado (Sesión J)**: restricción type='efectivo' admite hijos de cualquier tipo (solo de facto vía herencia). Si se quiere bloqueo explícito, agregar validación en `createChildAccount`.
 - **Sesión H — Earmark a transferencia real:** el earmark hoy reserva pero no mueve
   plata. Agregar check "ya transferí" que ejecuta la transferencia real desde
   `funding_account_id` hacia la cuenta de cobertura vía RPC atómica existente.
@@ -79,6 +81,10 @@ de cierre o vencimiento de cualquier tarjeta activa.
   unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
   destino; desplegable con justificación teórica y fuente; distribución parcial con saldo
   pendiente; recordatorio a fin de mes si quedó sin distribuir.
+  **Backlog G.2 T6:** cuando el usuario asigna una cuenta Level-2 como `account_id` de una
+  meta de ahorro, ofrecer auto-crear una subcuenta Level-3 con el nombre de la meta.
+  Implementar en `GoalForm` al guardar (o en un paso de confirmación post-creación).
+  Requiere migración o RPC atómica — no hacer sin diseño previo.
 - **Sesión J — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -166,8 +172,8 @@ Migraciones ejecutadas:
   crédito+cobertura, total para efectivo/débito; elimina earmarks e installments); RPC
   `update_expense_with_balance` (ajusta diff de saldo para efectivo/débito/transferencia;
   monto inmutable para crédito). Todos SECURITY INVOKER.
-- `014` — (archivo en repo: `014_convert_account_to_parent.sql`; **PENDIENTE de ejecutar en
-  Supabase**) RPC `convert_account_to_parent(p_account_id UUID, p_bolsillo_name TEXT) RETURNS UUID`:
+- `014` — (archivo en repo: `014_convert_account_to_parent.sql`; **ejecutada en Supabase**,
+  confirmada via REST API Sesión G.2) RPC `convert_account_to_parent(p_account_id UUID, p_bolsillo_name TEXT) RETURNS UUID`:
   en una sola transacción PL/pgSQL SECURITY INVOKER: crea bolsillo hijo con el saldo del padre;
   vacía el padre; reasigna expenses, earmarks, incomes, savings_goals, savings_contributions,
   income_distribution_lines al nuevo hijo. Rollback total si falla.
@@ -336,8 +342,7 @@ page.locator("input[type='number'][min='1'][max='48']")
   en `/inversiones`. Queda hasta Sesión J. Ver `docs/lecciones-aprendidas.md §6`.
 
 **Migraciones pendientes de ejecución en Supabase dashboard:**
-- `014_convert_account_to_parent.sql` — RPC para convertir cuenta simple a contenedor con bolsillos. Sin ella, "+ Agregar subdivisión" en cuentas sin hijos devuelve error de función no encontrada.
-- `015_safe_delete_account.sql` — RPC atómica de delete con validación de dependencias. La capa JS ya hace el pre-chequeo; esta migración lo hace en una sola transacción Postgres.
+_(ninguna — 014 y 015 ejecutadas en Sesión G.2, confirmadas vía REST API)_
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 
