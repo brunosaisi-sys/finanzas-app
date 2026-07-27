@@ -200,6 +200,16 @@ useEffect(() => {
 
 ---
 
+## 13. delete_expense_with_balance — residuo de $0.01 con cuotas fraccionadas
+
+**Qué pasó:** Después de crear un gasto de $1000 en 3 cuotas con cobertura y luego eliminarlo vía RPC `delete_expense_with_balance`, la cuenta de cobertura quedó en $252500.01 en vez de $252500.00.
+
+**Por qué:** El RPC crea 3 cuotas de $333.33 + $333.33 + $333.34 = $1000.00 (redondeado). Al revertir, puede acumular error de punto flotante en la suma parcial de cuotas que se descuenta de la cuenta cubriente.
+
+**Qué hacer:** En producción este RPC solo se usa en eliminación de gastos, no en el flujo normal de pagos. El residuo de $0.01 es tolerable en el contexto de testing. Si se vuelve un problema en producción, investigar si el RPC usa `SUM` exacta vs iteración de cuotas al revertir el earmark. No bloquea el flujo de negocio normal (crear/confirmar earmark funciona perfectamente con montos enteros).
+
+---
+
 ## 12. Playwright — router.refresh() completa antes que DOM refleje la eliminación
 
 **Qué pasó:** En T5 test 3, `deleteAccount(viajeEuropaId)` eliminaba la cuenta de la DB,

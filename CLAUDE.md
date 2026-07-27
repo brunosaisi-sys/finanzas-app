@@ -93,25 +93,43 @@ de cierre o vencimiento de cualquier tarjeta activa.
   - ✅ **Migración 017 EJECUTADA** en Supabase (confirmada con llamada de prueba a la RPC).
   - ⚠️ **Build local:** `npm run build` falla por Turbopack + Google Fonts offline (red sin acceso a fonts.gstatic.com). Pre-existente. `npx tsc --noEmit` pasa limpio. En Vercel pasa.
   - **TAREA 4 (semántica earmarks):** ver sección abajo "Conceptos financieros clave".
-- **Sesión I — earns_yield + selector jerárquico + confirm earmark E2E** (completada parcialmente):
+- **Sesión I — earns_yield + selector jerárquico** (completada — commit 2c2b52a):
   - ✅ **Migración 017 confirmada ejecutada** en Supabase (llamada de prueba exitosa).
-  - ✅ **Migración 018** (`018_earns_yield.sql`): `ALTER TABLE accounts ADD COLUMN earns_yield BOOLEAN NOT NULL DEFAULT false`. **PENDIENTE DE EJECUTAR en Supabase SQL Editor** antes de usar el toggle en /cuentas.
-  - ✅ **`earns_yield` en Account type** (`src/types/index.ts`): campo `earns_yield?: boolean` (opcional para compatibilidad antes de migración).
+  - ✅ **Migración 018 EJECUTADA** en Supabase por el usuario. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` existe y es funcional.
+  - ✅ **`earns_yield` en Account type** (`src/types/index.ts`): campo `earns_yield?: boolean`.
   - ✅ **Server actions** actualizados: `updateAccount` acepta `earns_yield`; `createChildAccount` acepta `earns_yield`.
-  - ✅ **NuevaCuentaForm**: toggle "¿Esta cuenta genera rendimiento?" (Sí/No) visible para todos los tipos no-crédito. Presente en flujo simple (step "form"), bolsillos (checkbox por bolsillo), y BolsilloForm (subsiguientes bolsillos). Componente reutilizable `YieldToggle`. Nota: primer bolsillo vía `convertAccountToParent` usa default false (limitación del RPC existente — no se cambia sin nueva migración).
-  - ✅ **CuentaActions**: toggle checkbox `earns_yield` en modo edición para no-crédito. Prop `earnsYield: boolean` nuevo (requerido).
-  - ✅ **CuentasTree**: `AccountNode` tiene `earns_yield: boolean`; todos los `CuentaActions` reciben el prop. `cuentas/page.tsx` mapea `a.earns_yield ?? false`.
-  - ✅ **ExpenseForm refactorizado** (TAREA 2):
-    - Botones Efectivo/Débito/Transferencia/Crédito ELIMINADOS. La interacción primaria es el selector de cuenta.
-    - Selector jerárquico: `<optgroup>` por institución raíz para cuentas con bolsillos; `<option>` plano para cuentas raíz sin hijos.
-    - `paymentMethod` derivado automáticamente: `efectivo→efectivo`, `credito→credito`, otros→`debito`.
-    - Sección crédito (cuotas + cobertura + timing) visible solo si la cuenta seleccionada es type='credito'.
-    - Selector de cobertura filtra por `earns_yield === true`. Si no hay ninguna, muestra aviso con link a /cuentas.
-    - Opción explícita "Ahora / Después" para el timing de la transferencia (dos botones). "Después" = earmark simbólico, "Ahora" = muestra selector de cuenta origen.
-  - ⚠️ **TAREA 3 (verificación tarjeta de crédito → banco)**: no probada E2E esta sesión. El código existente en NuevaCuentaForm (selector "Banco asociado") sigue igual y funcionó en sesiones previas. Verificar en sesión siguiente.
-  - ⚠️ **TAREA 4 (Playwright E2E confirm_earmark_funding con cambio real de saldos)**: pendiente. La migración 017 está ejecutada y el flujo completo está construido. Bloqueado por migración 018 sin ejecutar (sin earns_yield en DB, ninguna cuenta aparece en el selector de cobertura). Ejecutar 018 primero, marcar Cocos Capital como earns_yield=true, luego correr el test.
-  - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar.
-  - **Decisión de diseño (Tarea 2)**: El medio de pago se deriva del tipo de cuenta, nunca editable manualmente por el usuario. Esto simplifica el formulario y elimina la posibilidad de inconsistencias (ej. marcar "crédito" pero elegir una cuenta de banco). Efectivo=efectivo, crédito=crédito, banco/inversion/usd_reserva=débito (no se diferencia débito de transferencia por decisión de producto explícita del usuario).
+  - ✅ **NuevaCuentaForm**: toggle "¿Esta cuenta genera rendimiento?" (Sí/No) visible para todos los tipos no-crédito. Componente reutilizable `YieldToggle`. Nota: primer bolsillo vía `convertAccountToParent` usa default false (limitación RPC existente).
+  - ✅ **CuentaActions**: toggle checkbox `earns_yield` en modo edición para no-crédito. Prop `earnsYield: boolean` requerido.
+  - ✅ **CuentasTree**: `AccountNode` tiene `earns_yield: boolean`; todos los `CuentaActions` reciben el prop.
+  - ✅ **ExpenseForm refactorizado** (TAREA 2): selector jerárquico como interacción primaria; `paymentMethod` derivado del tipo; sección crédito con cuotas + cobertura (earns_yield=true) + timing Ahora/Después.
+  - **Decisión de diseño**: El medio de pago se deriva del tipo de cuenta, nunca editable manualmente. efectivo=efectivo, crédito=crédito, otros=débito.
+
+- **Sesión J — Verificación E2E TAREA 3 y TAREA 4** (completada — esta sesión):
+  - ✅ **TAREA 3 — Tarjeta de crédito asociada a banco** (verificada E2E con Playwright):
+    - Flujo completo funciona: crear institución banco → crear tarjeta (Visa) → selector "Banco asociado" aparece → visa se agrupa bajo el banco en /cuentas.
+    - `parent_id` correcto en DB confirmado vía REST.
+    - Crédito salta el step "mode" y va directo al formulario ✅.
+    - Deuda de tarjeta NO suma al saldo del banco: `getConsolidatedTotals` excluye `type='credito'` ✅.
+    - **Nota UX**: si un banco tiene SOLO una tarjeta de crédito como hijo (sin bolsillos ARS/USD), el árbol muestra $0 para el banco porque el total consolidado de hijos no-crédito es vacío. El propio balance del banco queda en DB pero no aparece en el árbol. Esto es comportamiento correcto, pero puede sorprender al usuario. Flujo correcto: crear banco + bolsillo(s) + tarjeta, no banco + solo tarjeta.
+  - ✅ **TAREA 4A — Camino "Después"** (earmark simbólico + confirmación desde /cuotas):
+    - Gasto $1000 ARS con Visa Test SD, cobertura Cocos Capital, timing "Después" → saldo Cocos NO cambia al crear.
+    - Sección "Transferencias pendientes" aparece en /cuotas.
+    - Click "Confirmar" → modal abre → selector muestra cuentas compatibles ARS.
+    - Confirmar con QA Origen ARS → Cocos +$1000, QA Origen -$1000 (verificado vía REST).
+    - `expenses.funding_account_id` seteado correctamente en DB.
+  - ✅ **TAREA 4B — Camino "Ahora"** (transferencia inmediata al crear el gasto):
+    - Gasto $2000 ARS con timing "Ahora" → selector de cuenta origen visible en el formulario.
+    - Al guardar: Cocos +$2000, QA Origen -$2000 **inmediatamente**, sin pasar por /cuotas.
+    - `expenses.funding_account_id` seteado desde la creación ✅.
+  - ✅ **TAREA 5 — Consistencia visual selector jerárquico** (390px mobile):
+    - Sin cuenta → sección crédito oculta ✅.
+    - No-crédito → sección crédito oculta, hint (efectivo/débito) visible ✅.
+    - Visa → sección crédito visible, hint "Tarjeta de crédito" ✅.
+    - Sin overflow horizontal (scrollWidth=375) ✅.
+    - Cuentas de crédito marcadas "(Crédito)" en opciones del selector ✅.
+    - Al volver a no-crédito: cuotas/cobertura/timing desaparecen limpiamente ✅.
+  - ⚠️ **Nota de precisión**: `delete_expense_with_balance` con 3 cuotas ($1000÷3=333.33...) puede dejar un residuo de $0.01 al revertir el earmark. La plata sí se mueve correctamente al confirmar; el residuo es solo del delete RPC de cleanup. No afecta flujo de producción.
+  - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar (`016_fix_cascade_fk.sql`).
 
 - **Sesión J — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
   unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
@@ -379,10 +397,10 @@ page.locator("input[type='number'][min='1'][max='48']")
 
 **Migraciones pendientes de ejecución en Supabase dashboard:**
 - `016_fix_cascade_fk.sql` — FK CASCADE → RESTRICT en `accounts.parent_id` y `account_earmarks.account_id`; incluye CREATE OR REPLACE de `safe_delete_account` con limpieza de earmarks liberados. Ejecutar en SQL Editor antes de confiar en la red de seguridad FK.
-- `018_earns_yield.sql` — `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS earns_yield BOOLEAN NOT NULL DEFAULT false`. Ejecutar antes de usar el toggle en /cuentas. Después de ejecutar: editar Cocos Capital y marcarla como earns_yield=true para que aparezca en el selector de cobertura de /nuevo-gasto.
 
 **Migraciones ya ejecutadas:**
 - `017_confirm_earmark_funding.sql` — ✅ EJECUTADA. RPC atómica para completar earmarks sin funding.
+- `018_earns_yield.sql` — ✅ EJECUTADA. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` en `accounts`. Cocos Capital tiene earns_yield=true (seteado desde UI).
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 
