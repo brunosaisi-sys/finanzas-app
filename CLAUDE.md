@@ -46,90 +46,18 @@ de cierre o vencimiento de cualquier tarjeta activa.
 - **Sesión E — Suscripciones:** nueva migración con tablas `recurring_expenses` y
   `subscription_instances`; diseño a documentar en `docs/02-arquitectura.md` antes de
   implementar.
-- **Sesión F — Housekeeping** (completada): memoria paralela migrada a CLAUDE.md;
-  `MarkPaidButton.tsx` eliminado; cuatro skills de agentes creadas en `.claude/skills/`;
-  `docs/lecciones-aprendidas.md` creado; sección TWR (§8) documentada en fundamentos;
-  roadmap G–M documentado.
-- **Sesión G — Cuentas editables** (completada): edición de nombre y tipo de cuenta
-  (CuentaActions expandido: nombre + saldo + tipo con restricción si hay dependientes);
-  conversión de cuenta simple a contenedor con bolsillos vía RPC atómica
-  `convert_account_to_parent` (migración 014 — **PENDIENTE de ejecutar en Supabase**);
-  cuentas padre con botones Editar/Eliminar inline; cuenta en USD bajo la misma
-  institución verificado E2E; tarjetas de crédito con parent_id apuntando a banco
-  (selector en form + agrupación visual en /cuentas; deuda excluida del total del banco);
-  vista discriminada de saldos: Total / Cuotas crédito / Metas / Libre cuando hay earmarks.
-- **Sesión G.2 — Jerarquía 3 niveles** (completada — verificación y cierre):
-  - ✅ `accountDisplayName` recursivo (camina cadena completa de ancestros).
-  - ✅ `GoalForm` usa `getLeafAccounts + accountDisplayName` en el selector de cuenta.
-  - ✅ `CuentaActions` tiene prop `isChild: boolean`; bolsillos muestran "Tipo no editable".
-  - ✅ `deleteAccount` con pre-chequeo recursivo de hijos y dependencias; mensaje descriptivo.
-  - ✅ `/cuentas` como árbol expandible `CuentasTree`: N niveles, expand/collapse, totales consolidados.
-  - ✅ `AddChildInline` unificado: primer bolsillo → RPC `convert_account_to_parent`; subsiguientes → `createChildAccount`.
-  - ✅ Fix stale state: `setMode("idle")` antes de `router.refresh()` en CuentaActions.
-  - ✅ `/cuentas/nueva?parent=<id>` corregido: acepta cuentas de cualquier nivel como padre.
-  - ✅ Migración 014 ejecutada (`convert_account_to_parent`) — confirmado vía REST API.
-  - ✅ Migración 015 ejecutada (`safe_delete_account`) — confirmado vía REST API.
-  - ✅ Fix `CuentasTree.useEffect`: auto-expande IDs nuevos cuando `accounts` prop cambia tras `router.refresh()`. Sin este fix, contenedores recién creados quedaban colapsados y sus hijos invisibles (ver lección §11).
-  - ✅ **T3 DE FACTO**: `AddChildInline` no tiene selector de tipo → bolsillos siempre heredan el tipo del padre automáticamente. Restricción efectivo→efectivo funciona sin código adicional.
-  - ✅ **T4 FK Audit**: FKs conocidas (de archivos SQL): `expenses.account_id`, `incomes.account_id`, `savings_goals.account_id`, `savings_contributions.account_id`, `assets.account_id` → todos `ON DELETE SET NULL`. FKs desconocidas (sin archivo): `accounts.parent_id`, `account_earmarks.account_id`, `expenses.covering_account_id`, `expenses.funding_account_id`. Mitigación: `deleteAccount` y RPC `safe_delete_account` hacen pre-chequeo en JS/Postgres antes de borrar → nunca hay orphaning por la UI.
-  - ✅ **E2E Playwright 23/23**: árbol 3 niveles (BBVA→Pesos/Dólares→Viaje Europa), expand/collapse independiente, totales consolidados, T3 efectivo, T5 delete con/sin hijos — todos verdes.
-  - ❌ **NO completado (Sesión J)**: restricción type='efectivo' admite hijos de cualquier tipo (solo de facto vía herencia). Si se quiere bloqueo explícito, agregar validación en `createChildAccount`.
-- **Sesión G.3 — UX + Seguridad FK** (completada):
-  - ✅ **T1 — AddChildInline unificado**: formulario idéntico para primer bolsillo y subsiguientes (nombre + selector ARS/USD + saldo). Para el primer bolsillo el saldo se pre-llena con el saldo del padre (informativo — la RPC lo mueve desde el padre) y aparece el aviso "⚠ Tu saldo se moverá...". La lógica de qué server action se llama sigue siendo invisible para el usuario.
-  - ✅ **T2 — Delete accionable**: `deleteAccount` ahora devuelve `{ deps: DepItem[], overflowCount? }` con los primeros 5 gastos (merchant/monto/fecha) y links a `/gastos/{id}/editar`. Earmarks/ingresos/metas muestran resumen con link de navegación. Si hay más de 5 gastos, indica "y N más — andá a /gastos". `/gastos` no tiene filtro por cuenta (no se inventó).
-  - ✅ **T3 — Migración 016**: `016_fix_cascade_fk.sql` creada con `accounts.parent_id` y `account_earmarks.account_id` cambiados de CASCADE a RESTRICT. `safe_delete_account` RPC actualizado: limpia earmarks liberados (`released=true`) antes del DELETE. `deleteAccount` JS también limpia released earmarks. **PENDIENTE de ejecutar en Supabase SQL Editor.**
-  - ✅ **T4 — Saldo $0 investigado**: basura de fixture — 2 gastos + 1 earmark liberado referenciaban cuenta `8b480ef1-...` que no existe en accounts (borrada fuera del flujo de la app, posiblemente vía SQL directo en sesión anterior). Eliminados del test user. No hay bug de código. La cuenta referenciada habría sido borrada saltando el pre-chequeo de dependencias (debería haber fallado), lo que refuerza la necesidad de la migración 016.
-  - ⚠️ **FK posiblemente faltante en producción**: los gastos orphaned tenían `account_id` poblado con UUID inexistente (no NULL), lo que sugiere que la FK `expenses.account_id ON DELETE SET NULL` podría no estar activa en el DB real (migración 001 la define pero la columna pudo haberse agregado después en 002/003 sin FK). Verificar en Supabase corriendo `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`.
-- **Sesión H — Earmark a transferencia real** (completada — commit bd4f632):
-  - ✅ **TAREA 1 confirmada con Playwright:** `create_expense_with_balance` con `covering_account_id` set y `funding_account_id=""` → **NO mueve plata** (earmark simbólico). Balances verificados antes/después con Playwright y REST directo. El usuario tenía razón: "no se movió nada".
-  - ✅ **TAREA 1 confirmada:** iOS Safari no valida `required` en `<select>` → así se creaban earmarks sin funding en iPhone. Chrome sí lo bloqueaba. Comportamiento explicado y diseño ajustado para ser consistente cross-browser.
-  - ✅ **Migración 017** (`017_confirm_earmark_funding.sql`): RPC PL/pgSQL atómica `confirm_earmark_funding(p_earmark_id, p_funding_account_id)`. Validaciones: earmark no liberado, gasto sin funding previo, origen ≠ destino, mismo user, misma moneda. Movimiento: `funding -amount, covering +amount, expense.funding_account_id = funding`. FOR UPDATE para evitar race conditions. **PENDIENTE de ejecutar en Supabase SQL Editor.**
-  - ✅ **ExpenseForm.tsx:** `fundingAccountId` ahora opcional en todos los browsers. Primera opción: "Confirmar más tarde". Hint dinámico: "La plata se mueve ahora" vs "Podés confirmar desde Cuotas". Label marcado `(opcional)`.
-  - ✅ **`cuotas/actions.ts`:** Server Action `confirmEarmarkFunding(earmarkId, fundingAccountId)` → llama RPC `confirm_earmark_funding`.
-  - ✅ **`ConfirmFundingButton.tsx`** (nuevo): Modal bottom-sheet z-[60] (sobre BottomNav z-50 + `pb-24` para no quedar tapado). Muestra nombre gasto + monto + cuenta cobertura. Select con cuentas de misma moneda + saldo actual. Advertencia ámbar si saldo insuficiente (no bloquea). On success: `router.refresh()`.
-  - ✅ **`cuotas/page.tsx`:** Sección "Transferencias pendientes" con fondo ámbar, visible solo cuando `pendingFunding.length > 0`. Query: `account_earmarks` join `expenses` filtrando `released=false AND expense_id IS NOT NULL`, luego JS-filter por `expenses.funding_account_id IS NULL`. Compatible con PostgREST (no puede filtrar joined columns directamente).
-  - ✅ **E2E Playwright 7/7:** crear sin funding → balances sin cambio → sección visible → gasto en lista → Confirmar visible → modal abre → Cancelar clickeable (z-index fix).
-  - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar (`016_fix_cascade_fk.sql`).
-  - ✅ **Migración 017 EJECUTADA** en Supabase (confirmada con llamada de prueba a la RPC).
-  - ⚠️ **Build local:** `npm run build` falla por Turbopack + Google Fonts offline (red sin acceso a fonts.gstatic.com). Pre-existente. `npx tsc --noEmit` pasa limpio. En Vercel pasa.
-  - **TAREA 4 (semántica earmarks):** ver sección abajo "Conceptos financieros clave".
-- **Sesión I — earns_yield + selector jerárquico** (completada — commit 2c2b52a):
-  - ✅ **Migración 017 confirmada ejecutada** en Supabase (llamada de prueba exitosa).
-  - ✅ **Migración 018 EJECUTADA** en Supabase por el usuario. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` existe y es funcional.
-  - ✅ **`earns_yield` en Account type** (`src/types/index.ts`): campo `earns_yield?: boolean`.
-  - ✅ **Server actions** actualizados: `updateAccount` acepta `earns_yield`; `createChildAccount` acepta `earns_yield`.
-  - ✅ **NuevaCuentaForm**: toggle "¿Esta cuenta genera rendimiento?" (Sí/No) visible para todos los tipos no-crédito. Componente reutilizable `YieldToggle`. Nota: primer bolsillo vía `convertAccountToParent` usa default false (limitación RPC existente).
-  - ✅ **CuentaActions**: toggle checkbox `earns_yield` en modo edición para no-crédito. Prop `earnsYield: boolean` requerido.
-  - ✅ **CuentasTree**: `AccountNode` tiene `earns_yield: boolean`; todos los `CuentaActions` reciben el prop.
-  - ✅ **ExpenseForm refactorizado** (TAREA 2): selector jerárquico como interacción primaria; `paymentMethod` derivado del tipo; sección crédito con cuotas + cobertura (earns_yield=true) + timing Ahora/Después.
-  - **Decisión de diseño**: El medio de pago se deriva del tipo de cuenta, nunca editable manualmente. efectivo=efectivo, crédito=crédito, otros=débito.
 
-- **Sesión J — Verificación E2E TAREA 3 y TAREA 4** (completada — esta sesión):
-  - ✅ **TAREA 3 — Tarjeta de crédito asociada a banco** (verificada E2E con Playwright):
-    - Flujo completo funciona: crear institución banco → crear tarjeta (Visa) → selector "Banco asociado" aparece → visa se agrupa bajo el banco en /cuentas.
-    - `parent_id` correcto en DB confirmado vía REST.
-    - Crédito salta el step "mode" y va directo al formulario ✅.
-    - Deuda de tarjeta NO suma al saldo del banco: `getConsolidatedTotals` excluye `type='credito'` ✅.
-    - **Nota UX**: si un banco tiene SOLO una tarjeta de crédito como hijo (sin bolsillos ARS/USD), el árbol muestra $0 para el banco porque el total consolidado de hijos no-crédito es vacío. El propio balance del banco queda en DB pero no aparece en el árbol. Esto es comportamiento correcto, pero puede sorprender al usuario. Flujo correcto: crear banco + bolsillo(s) + tarjeta, no banco + solo tarjeta.
-  - ✅ **TAREA 4A — Camino "Después"** (earmark simbólico + confirmación desde /cuotas):
-    - Gasto $1000 ARS con Visa Test SD, cobertura Cocos Capital, timing "Después" → saldo Cocos NO cambia al crear.
-    - Sección "Transferencias pendientes" aparece en /cuotas.
-    - Click "Confirmar" → modal abre → selector muestra cuentas compatibles ARS.
-    - Confirmar con QA Origen ARS → Cocos +$1000, QA Origen -$1000 (verificado vía REST).
-    - `expenses.funding_account_id` seteado correctamente en DB.
-  - ✅ **TAREA 4B — Camino "Ahora"** (transferencia inmediata al crear el gasto):
-    - Gasto $2000 ARS con timing "Ahora" → selector de cuenta origen visible en el formulario.
-    - Al guardar: Cocos +$2000, QA Origen -$2000 **inmediatamente**, sin pasar por /cuotas.
-    - `expenses.funding_account_id` seteado desde la creación ✅.
-  - ✅ **TAREA 5 — Consistencia visual selector jerárquico** (390px mobile):
-    - Sin cuenta → sección crédito oculta ✅.
-    - No-crédito → sección crédito oculta, hint (efectivo/débito) visible ✅.
-    - Visa → sección crédito visible, hint "Tarjeta de crédito" ✅.
-    - Sin overflow horizontal (scrollWidth=375) ✅.
-    - Cuentas de crédito marcadas "(Crédito)" en opciones del selector ✅.
-    - Al volver a no-crédito: cuotas/cobertura/timing desaparecen limpiamente ✅.
-  - ⚠️ **Nota de precisión**: `delete_expense_with_balance` con 3 cuotas ($1000÷3=333.33...) puede dejar un residuo de $0.01 al revertir el earmark. La plata sí se mueve correctamente al confirmar; el residuo es solo del delete RPC de cleanup. No afecta flujo de producción.
-  - ⚠️ **Migración 016** todavía PENDIENTE de ejecutar (`016_fix_cascade_fk.sql`).
+### Sesiones cerradas
+
+Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle completo de cada sesión.
+
+- **Sesión F** (sin commit): housekeeping — skills de agentes, lecciones-aprendidas.md, roadmap G–M, TWR §8 en fundamentos.
+- **Sesión G** (sin commit): cuentas editables — CuentaActions, conversión a contenedor (migración 014), tarjetas con parent_id.
+- **Sesión G.2** (sin commit): árbol 3 niveles — E2E 23/23, migraciones 014+015 ejecutadas, useEffect auto-expand.
+- **Sesión G.3** (sin commit): UX + seguridad FK — AddChildInline unificado, delete accionable, migración 016 creada.
+- **Sesión H** (commit bd4f632): earmark → transferencia real — RPC confirm_earmark_funding, ConfirmFundingButton, migración 017.
+- **Sesión I** (commit 2c2b52a): earns_yield + selector jerárquico — ExpenseForm refactorizado, timing Ahora/Después, migración 018.
+- **Sesión I.1** (commit 558edc5): verificación E2E — tarjeta-banco, earmark caminos Ahora/Después con saldos reales confirmados, UX 390px.
 
 - **Sesión J — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
   unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
@@ -139,7 +67,10 @@ de cierre o vencimiento de cualquier tarjeta activa.
   meta de ahorro, ofrecer auto-crear una subcuenta Level-3 con el nombre de la meta.
   Implementar en `GoalForm` al guardar (o en un paso de confirmación post-creación).
   Requiere migración o RPC atómica — no hacer sin diseño previo.
-- **Sesión J — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
+  **Backlog G.2 (no completado):** restricción `type='efectivo'` admite hijos de cualquier tipo
+  (de facto por herencia del padre). Si se quiere bloqueo explícito, agregar validación en
+  `createChildAccount`.
+- **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
   `docs/lecciones-aprendidas.md §6`). INVESTIGAR feed de precios BYMA/CEDEARs.
@@ -235,6 +166,8 @@ Migraciones ejecutadas:
   `pay_installments_batch(p_installment_ids UUID[], p_account_id UUID)` — llama
   `pay_installment` en loop dentro de una sola transacción PL/pgSQL atómica; rollback
   total si cualquier cuota falla. SECURITY INVOKER.
+- `015` — (archivo en repo: `015_safe_delete_account.sql`; **ejecutada en Supabase**, confirmada via REST API Sesión G.2) RPC `safe_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: verifica propiedad vía `FOR UPDATE`; rechaza si tiene hijos directos; rechaza si tiene dependencias activas (gastos, earmarks no liberados, ingresos, metas); limpia earmarks `released=true` antes del DELETE; error descriptivo en español con conteos.
+- `016` — (archivo en repo: `016_fix_cascade_fk.sql`; **ejecutada en Supabase**, sesión housekeeping post-I.1) Cambia FK `accounts.parent_id` y `account_earmarks.account_id` de `ON DELETE CASCADE` a `ON DELETE RESTRICT`. Actualiza `safe_delete_account` para limpiar earmarks released antes del DELETE (obligatorio con RESTRICT). Red de seguridad contra borrados externos por SQL directo sin pasar por el pre-chequeo de la app.
 
 ### Rutas implementadas
 | Ruta | Descripción |
@@ -343,6 +276,9 @@ Migraciones ejecutadas:
   `SavingsGoalMode`, `SavingsGoal`, `SavingsContribution`
 
 ### Testing
+
+**Nota de build local:** `npm run build` falla por Turbopack + `fonts.gstatic.com` sin acceso a red (pre-existente; no es un bug de código). En entorno sin internet, usar `npx tsc --noEmit` como verificación de tipos. En Vercel el build pasa normalmente.
+
 - **49 tests totales** (Jest + ts-jest):
   - 36 en `sinkingFund.test.ts` (9 nuevos en `84c3a1a`: calcCarResidualValue por segmento,
     0 meses, sanity check 65%-90%; calcAssetFunds modelo auto; CAR_DEPRECIATION_SEGMENTS.popular)
@@ -393,14 +329,16 @@ page.locator("input[type='number'][min='1'][max='48']")
 
 **Garbage conocido en DB:**
 - Posición AAPL: 150u @ PA $10 (incorrecto; debería ser 10u @ $150). Sin UI de delete
-  en `/inversiones`. Queda hasta Sesión J. Ver `docs/lecciones-aprendidas.md §6`.
+  en `/inversiones`. Queda hasta Sesión J.2. Ver `docs/lecciones-aprendidas.md §6`.
 
-**Migraciones pendientes de ejecución en Supabase dashboard:**
-- `016_fix_cascade_fk.sql` — FK CASCADE → RESTRICT en `accounts.parent_id` y `account_earmarks.account_id`; incluye CREATE OR REPLACE de `safe_delete_account` con limpieza de earmarks liberados. Ejecutar en SQL Editor antes de confiar en la red de seguridad FK.
+**Migraciones pendientes de ejecución en Supabase dashboard:** ninguna.
 
-**Migraciones ya ejecutadas:**
+**Migraciones recientes ejecutadas** (ver lista completa en sección "Base de datos" arriba):
+- `016_fix_cascade_fk.sql` — ✅ EJECUTADA (sesión housekeeping post-I.1). FK CASCADE → RESTRICT + `safe_delete_account` actualizado.
 - `017_confirm_earmark_funding.sql` — ✅ EJECUTADA. RPC atómica para completar earmarks sin funding.
 - `018_earns_yield.sql` — ✅ EJECUTADA. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` en `accounts`. Cocos Capital tiene earns_yield=true (seteado desde UI).
+
+⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 
 ## Documentos de contexto (LEER ANTES DE CODEAR)
 
