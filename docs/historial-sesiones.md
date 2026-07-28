@@ -116,3 +116,19 @@
   - Al volver a no-crédito: cuotas/cobertura/timing desaparecen limpiamente ✅.
 - ⚠️ `delete_expense_with_balance` con 3 cuotas ($1000÷3=333.33...) puede dejar residuo de $0.01 al revertir el earmark. No afecta flujo de producción. Ver lección §13.
 - ✅ Solo cambios de documentación commiteados (CLAUDE.md + lecciones-aprendidas.md). Sin cambios de código.
+
+---
+
+## Sesión J — Distribución de sueldo rediseñada (commit pendiente)
+
+- ✅ **DistribuirForm.tsx** reescrito: vista unificada en un solo scroll (sin capas rígidas separadas por label "Capa N"). Obligaciones → Metas → Emergencia → Remanente 50/30/20, todo visible a la vez.
+- ✅ **Toggle `$/%` global** en la sección 50/30/20: en modo `%` el usuario tipea porcentaje del remanente y el monto se computa live; en modo `$` el usuario tipea monto y se muestra el % derivado. Toggle sincroniza `userPct` con los amounts actuales al cambiar de modo.
+- ✅ **Contador "Sin asignar"** en el header junto a "Ingresaron": se actualiza en tiempo real al modificar cualquier campo. Verde cuando llega a 0, rojo si se supera el ingreso.
+- ✅ **Distribución parcial**: confirmar con saldo sin asignar es completamente válido. Se removió el error "asigná al menos una cuenta". El RPC `confirm_distribution_with_contributions` acepta arrays vacíos; el income queda `distributed=true` con lo que el usuario asignó.
+- ✅ **"Saltear por ahora →"**: botón secundario que hace `router.push("/")` sin llamar al RPC. El income queda `distributed=false`. No requiere migración.
+- ✅ **"Solo registrar"** en `IncomeForm.tsx`: para tipo=sueldo, segundo botón que registra el income sin redirigir a distribución. Llama `createIncome` + `router.push("/")` directamente.
+- ✅ **Sección "¿Por qué esta distribución?"** colapsable (toggle con useState): cita fuentes §1.2 (Sinking Fund), §2.5 (50/30/20), §3.1 (Argentina i=0), §0 (cuatro tipos de fondos), IAS 16.51 (override usuario). Aviso explícito de que la app puede errar.
+- ✅ **Banner de recordatorio** en dashboard (`page.tsx`): query adicional en Promise.all busca sueldos con `distributed=false` y `date <= 7 días atrás`. Banner indigo con link directo a `/ingresos/distribuir?ingreso_id=...`. N=7 días elegido: da tiempo sin ser intrusivo al día siguiente.
+- ✅ Sin migración nueva: toda la funcionalidad aprovecha el RPC y esquema existentes.
+- ✅ agente-teoria-financiera verificado: ninguna fórmula nueva. La prioridad de capas es diseño, no cálculo. §§ citados correctamente.
+- ✅ tsc --noEmit limpio · 49/49 tests verdes.

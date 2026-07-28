@@ -21,7 +21,13 @@ export default async function DashboardPage() {
     .toISOString()
     .split("T")[0];
 
-  const [{ data: accounts }, { data: monthExpenses }, { data: recentExpenses }] =
+  // Recordatorio de sueldo sin distribuir: aplica si tiene más de 7 días sin distribuir
+  const UNDISTRIBUTED_REMINDER_DAYS = 7;
+  const reminderCutoff = new Date(now);
+  reminderCutoff.setDate(reminderCutoff.getDate() - UNDISTRIBUTED_REMINDER_DAYS);
+  const reminderCutoffStr = reminderCutoff.toISOString().split("T")[0];
+
+  const [{ data: accounts }, { data: monthExpenses }, { data: recentExpenses }, { data: undistributedSueldos }] =
     await Promise.all([
       supabase.from("accounts").select("*").order("created_at"),
       supabase
@@ -37,6 +43,13 @@ export default async function DashboardPage() {
         .order("date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(5),
+      supabase
+        .from("incomes")
+        .select("id, amount, currency, date")
+        .eq("type", "sueldo")
+        .eq("distributed", false)
+        .lte("date", reminderCutoffStr)
+        .order("date", { ascending: false }),
     ]);
 
   const leafAccounts = getLeafAccounts((accounts ?? []) as Account[]);
@@ -110,6 +123,36 @@ export default async function DashboardPage() {
                 </p>
               </div>
             </div>
+          ))}
+        </section>
+      )}
+
+      {/* Recordatorio de sueldo sin distribuir (>7 días pendiente) */}
+      {undistributedSueldos && undistributedSueldos.length > 0 && (
+        <section className="space-y-2">
+          {undistributedSueldos.map((inc) => (
+            <Link
+              key={inc.id}
+              href={`/ingresos/distribuir?ingreso_id=${inc.id}`}
+              className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-base shrink-0">💰</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-indigo-900">
+                    Sueldo sin distribuir
+                  </p>
+                  <p className="text-xs text-indigo-600 tabular-nums">
+                    {formatCurrency(Number(inc.amount), inc.currency as "ARS" | "USD")} ·{" "}
+                    {new Date(inc.date + "T00:00:00").toLocaleDateString("es-AR", {
+                      day: "numeric",
+                      month: "short",
+                    })}
+                  </p>
+                </div>
+              </div>
+              <span className="text-sm text-indigo-600 shrink-0 ml-3">Distribuir →</span>
+            </Link>
           ))}
         </section>
       )}

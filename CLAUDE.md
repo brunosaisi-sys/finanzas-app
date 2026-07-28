@@ -58,18 +58,8 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión H** (commit bd4f632): earmark → transferencia real — RPC confirm_earmark_funding, ConfirmFundingButton, migración 017.
 - **Sesión I** (commit 2c2b52a): earns_yield + selector jerárquico — ExpenseForm refactorizado, timing Ahora/Después, migración 018.
 - **Sesión I.1** (commit 558edc5): verificación E2E — tarjeta-banco, earmark caminos Ahora/Después con saldos reales confirmados, UX 390px.
+- **Sesión J** (commit pendiente): distribución rediseñada — vista unificada, toggle `$/%` en 50/30/20, sinAsignar live en header, distribución parcial válida, botón "Saltear", "Solo registrar" en IncomeForm, sección teórica colapsable, banner dashboard N=7d.
 
-- **Sesión J — Distribución de sueldo rediseñada:** opcional y salteable; cuatro capas
-  unificadas en una sola vista editable; editable por monto o porcentaje; bienes como
-  destino; desplegable con justificación teórica y fuente; distribución parcial con saldo
-  pendiente; recordatorio a fin de mes si quedó sin distribuir.
-  **Backlog G.2 T6:** cuando el usuario asigna una cuenta Level-2 como `account_id` de una
-  meta de ahorro, ofrecer auto-crear una subcuenta Level-3 con el nombre de la meta.
-  Implementar en `GoalForm` al guardar (o en un paso de confirmación post-creación).
-  Requiere migración o RPC atómica — no hacer sin diseño previo.
-  **Backlog G.2 (no completado):** restricción `type='efectivo'` admite hijos de cualquier tipo
-  (de facto por herencia del padre). Si se quiere bloqueo explícito, agregar validación en
-  `createChildAccount`.
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver

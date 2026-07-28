@@ -49,6 +49,14 @@ export default function IncomeForm({ accounts }: Props) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    await submitIncome({ distribute: type === "sueldo" });
+  }
+
+  async function handleSoloRegistrar() {
+    await submitIncome({ distribute: false });
+  }
+
+  async function submitIncome({ distribute }: { distribute: boolean }) {
     const parsed = parseFloat(amount);
     if (isNaN(parsed) || parsed <= 0) {
       setError("Ingresá un monto válido");
@@ -73,7 +81,7 @@ export default function IncomeForm({ accounts }: Props) {
         return;
       }
 
-      if (type === "sueldo") {
+      if (distribute) {
         router.push(`/ingresos/distribuir?ingreso_id=${result.id}`);
       } else {
         router.push("/");
@@ -196,6 +204,17 @@ export default function IncomeForm({ accounts }: Props) {
           ? "Registrar y distribuir →"
           : "Registrar ingreso"}
       </button>
+
+      {type === "sueldo" && (
+        <button
+          type="button"
+          onClick={handleSoloRegistrar}
+          disabled={saving || !amount}
+          className="w-full border border-gray-200 rounded-xl py-3 text-sm text-gray-500 font-medium disabled:opacity-40 transition-opacity"
+        >
+          Solo registrar
+        </button>
+      )}
     </form>
   );
 }
