@@ -146,3 +146,110 @@ export async function confirmDistributionWithContributions(
 export async function redirectToDistribute(incomeId: string): Promise<never> {
   redirect(`/ingresos/distribuir?ingreso_id=${incomeId}`);
 }
+
+// ─── updateIncome ─────────────────────────────────────────────────────────────
+
+interface UpdateIncomeInput {
+  amount?: number;
+  currency?: Currency;
+  type?: IncomeType;
+  account_id?: string | null;
+  date?: string;
+  note?: string | null;
+}
+
+export async function updateIncome(
+  incomeId: string,
+  data: UpdateIncomeInput
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const update: Record<string, unknown> = {};
+  if (data.amount !== undefined) update.amount = data.amount;
+  if (data.currency !== undefined) update.currency = data.currency;
+  if (data.type !== undefined) update.type = data.type;
+  if ("account_id" in data) update.account_id = data.account_id;
+  if (data.date !== undefined) update.date = data.date;
+  if ("note" in data) update.note = data.note;
+
+  const { error } = await supabase
+    .from("incomes")
+    .update(update)
+    .eq("id", incomeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+// ─── deleteIncome ─────────────────────────────────────────────────────────────
+// Para ingresos distribuidos: borra las savings_contributions asociadas (para que el
+// progreso de metas no quede inflado) pero NO revierte los saldos de cuentas
+// (irreversible: no hay registro de qué cuentas recibieron qué).
+
+export async function deleteIncome(
+  incomeId: string
+): Promise<{ error?: string; wasDistributed?: boolean }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { data: income } = await supabase
+    .from("incomes")
+    .select("id, distributed")
+    .eq("id", incomeId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!income) return { error: "Ingreso no encontrado" };
+
+  const wasDistributed = Boolean(income.distributed);
+
+  if (wasDistributed) {
+    // Borrar contributions asociadas para que no queden como progreso de metas
+    await supabase
+      .from("savings_contributions")
+      .delete()
+      .eq("income_id", incomeId)
+      .eq("user_id", user.id);
+  }
+
+  const { error } = await supabase
+    .from("incomes")
+    .delete()
+    .eq("id", incomeId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+  return { wasDistributed };
+}
+
+// ─── setEmergencyFundAmount ───────────────────────────────────────────────────
+// Permite setear (no sumar) el saldo actual del fondo de emergencia.
+// Usado para cargar manualmente cuánto ya existe en el fondo.
+
+export async function setEmergencyFundAmount(
+  fundId: string,
+  newAmount: number
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase
+    .from("funds")
+    .update({ current_amount: newAmount })
+    .eq("id", fundId)
+    .eq("user_id", user.id);
+
+  if (error) return { error: error.message };
+  return {};
+}

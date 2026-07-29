@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateAccount, deleteAccount } from "../actions";
+import { updateAccount, deleteAccount, forceDeleteAccount } from "../actions";
 import type { DepItem } from "../actions";
 import Link from "next/link";
 import type { AccountType, Currency } from "@/types";
@@ -48,6 +48,8 @@ export default function CuentaActions({
   const [error, setError] = useState<string | null>(null);
   const [deleteDeps, setDeleteDeps] = useState<DepItem[]>([]);
   const [overflowCount, setOverflowCount] = useState(0);
+  const [forceConfirm, setForceConfirm] = useState(false);
+  const [forcing, setForcing] = useState(false);
 
   function resetEdit() {
     setName(accountName);
@@ -192,6 +194,7 @@ export default function CuentaActions({
               setError(null);
               setDeleteDeps([]);
               setOverflowCount(0);
+              setForceConfirm(false);
               setMode("idle");
             }}
             className="text-[11px] text-gray-400"
@@ -201,27 +204,77 @@ export default function CuentaActions({
         </div>
         {error && <p className="text-[10px] text-red-600">{error}</p>}
         {deleteDeps.length > 0 && (
-          <ul className="mt-1 space-y-1">
-            {deleteDeps.map((dep) => (
-              <li key={dep.id} className="text-[10px] text-gray-500">
-                {dep.path ? (
-                  <Link href={dep.path} className="underline hover:text-gray-900">
-                    {dep.label}
+          <div className="mt-1 space-y-1">
+            <ul className="space-y-1">
+              {deleteDeps.map((dep) => (
+                <li key={dep.id} className="text-[10px] text-gray-500">
+                  {dep.path ? (
+                    <Link href={dep.path} className="underline hover:text-gray-900">
+                      {dep.label}
+                    </Link>
+                  ) : (
+                    dep.label
+                  )}
+                </li>
+              ))}
+              {overflowCount > 0 && (
+                <li className="text-[10px] text-gray-400">
+                  y {overflowCount} más — andá a{" "}
+                  <Link href="/gastos" className="underline hover:text-gray-900">
+                    /gastos
                   </Link>
-                ) : (
-                  dep.label
-                )}
-              </li>
-            ))}
-            {overflowCount > 0 && (
-              <li className="text-[10px] text-gray-400">
-                y {overflowCount} más — andá a{" "}
-                <Link href="/gastos" className="underline hover:text-gray-900">
-                  /gastos
-                </Link>
-              </li>
-            )}
-          </ul>
+                </li>
+              )}
+            </ul>
+
+            {/* Opción de borrado forzado — visible solo cuando hay deps */}
+            <div className="mt-2 pt-2 border-t border-gray-100">
+              {!forceConfirm ? (
+                <button
+                  type="button"
+                  onClick={() => setForceConfirm(true)}
+                  className="text-[10px] text-gray-400 hover:text-red-500 underline"
+                >
+                  Eliminar de todas formas (desvincular dependencias)
+                </button>
+              ) : (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] text-red-600 leading-relaxed">
+                    ⚠ Los saldos de las cuentas NO se revertirán. Los gastos e ingresos asociados quedarán sin cuenta. Las reservas activas se liberarán.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      disabled={forcing}
+                      onClick={async () => {
+                        setForcing(true);
+                        setError(null);
+                        const result = await forceDeleteAccount(accountId);
+                        if (result.error) {
+                          setError(result.error);
+                          setForcing(false);
+                        } else {
+                          setMode("idle");
+                          setForcing(false);
+                          router.refresh();
+                        }
+                      }}
+                      className="text-[11px] font-medium text-red-600 disabled:opacity-40"
+                    >
+                      {forcing ? "Eliminando…" : "Confirmar eliminación forzada"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setForceConfirm(false)}
+                      className="text-[11px] text-gray-400"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     );

@@ -283,6 +283,28 @@ export async function deleteAccount(
   return {};
 }
 
+// Elimina una cuenta forzadamente, ignorando dependencias:
+// - Libera y borra todos sus earmarks
+// - NULLea referencias en expenses/incomes/goals/etc
+// - NO revierte saldos de cuentas
+// Requiere migración 019 ejecutada en Supabase.
+export async function forceDeleteAccount(
+  accountId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("force_delete_account", {
+    p_account_id: accountId,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}
+
 export async function createTransfer(input: {
   from_account_id: string;
   to_account_id: string;

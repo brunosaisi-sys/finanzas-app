@@ -203,8 +203,8 @@ export default async function DashboardPage() {
             >
               + Ingreso
             </Link>
-            <Link href="/cuentas" className="text-xs text-gray-500 hover:text-gray-900">
-              Ver cuentas →
+            <Link href="/ingresos" className="text-xs text-gray-500 hover:text-gray-900">
+              Ver ingresos →
             </Link>
           </div>
         </div>

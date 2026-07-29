@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { confirmDistributionWithContributions } from "../../actions";
+import { confirmDistributionWithContributions, setEmergencyFundAmount } from "../../actions";
 import { formatCurrency, formatInputAmount } from "@/lib/format";
 import AmountInput from "@/components/AmountInput";
 import { getLeafAccounts, accountDisplayName } from "@/lib/accounts";
@@ -33,6 +33,14 @@ interface MetaCheckState {
   amount: string;
 }
 
+// T6: Categorías personalizadas en el 50/30/20
+interface CustomLine {
+  key: string;
+  label: string;
+  amount: string;
+  accountId: string;
+}
+
 interface Props {
   incomeId: string;
   incomeAmount: number;
@@ -46,32 +54,38 @@ interface Props {
   savingsTargets: SavingsTarget[];
 }
 
+// T3: último line toma el resto exacto para evitar residuo de redondeo
 function makeLayer4(rem: number): Layer4Line[] {
+  const a0 = Math.max(0, Math.round(rem * 0.5));
+  const a1 = Math.max(0, Math.round(rem * 0.3));
+  const a2 = Math.max(0, rem - a0 - a1); // resto exacto
   return [
-    { key: "gastos", label: "Gastos corrientes", suggestedPct: 50, userPct: "50", amount: Math.max(0, Math.round(rem * 0.5)).toString(), accountId: "", edited: false },
-    { key: "ocio",   label: "Ocio",              suggestedPct: 30, userPct: "30", amount: Math.max(0, Math.round(rem * 0.3)).toString(), accountId: "", edited: false },
-    { key: "inv",    label: "Inversión",          suggestedPct: 20, userPct: "20", amount: Math.max(0, Math.round(rem * 0.2)).toString(), accountId: "", edited: false },
+    { key: "gastos", label: "Gastos corrientes", suggestedPct: 50, userPct: "50", amount: a0.toString(), accountId: "", edited: false },
+    { key: "ocio",   label: "Ocio",              suggestedPct: 30, userPct: "30", amount: a1.toString(), accountId: "", edited: false },
+    { key: "inv",    label: "Inversión",          suggestedPct: 20, userPct: "20", amount: a2.toString(), accountId: "", edited: false },
   ];
 }
 
-function initMetaChecks(targets: SavingsTarget[], currency: Currency): Record<string, MetaCheckState> {
+// T4: inicializa metaChecks para TODOS los targets (same y other currency)
+function initMetaChecks(targets: SavingsTarget[]): Record<string, MetaCheckState> {
   return Object.fromEntries(
-    targets
-      .filter((t) => t.currency === currency)
-      .map((t) => [
-        t.id,
-        {
-          checked: true,
-          amount: t.monthlyContribution > 0
-            ? String(Math.round(t.monthlyContribution * 100) / 100)
-            : "0",
-        },
-      ])
+    targets.map((t) => [
+      t.id,
+      {
+        checked: true,
+        amount: t.monthlyContribution > 0
+          ? String(Math.round(t.monthlyContribution * 100) / 100)
+          : "0",
+      },
+    ])
   );
 }
 
 const INPUT =
   "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white";
+
+const INPUT_SM =
+  "w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white";
 
 export default function DistribuirForm({
   incomeId,
@@ -92,11 +106,12 @@ export default function DistribuirForm({
   const [showTheory, setShowTheory] = useState(false);
   const [layer4Mode, setLayer4Mode] = useState<"amount" | "pct">("amount");
 
+  // T4: metaChecks para todos los targets
   const sameCurrencyTargets = savingsTargets.filter((t) => t.currency === incomeCurrency);
   const otherCurrencyTargets = savingsTargets.filter((t) => t.currency !== incomeCurrency);
 
   const [metaChecks, setMetaChecks] = useState<Record<string, MetaCheckState>>(
-    () => initMetaChecks(savingsTargets, incomeCurrency)
+    () => initMetaChecks(savingsTargets)
   );
 
   const totalMetasSameCurrency = sameCurrencyTargets.reduce((sum, t) => {
@@ -105,12 +120,20 @@ export default function DistribuirForm({
     return sum + (parseFloat(mc.amount) || 0);
   }, 0);
 
+  // T5: estado del fondo de emergencia
   const initialContrib = emergencyFund.suggestedContribution > 0
     ? emergencyFund.suggestedContribution.toString()
     : "0";
   const [emergencyContrib, setEmergencyContrib] = useState(initialContrib);
+  const [emergencyMode, setEmergencyMode] = useState<"amount" | "pct">("amount");
+  const [emergencyPct, setEmergencyPct] = useState("0");
+  // Saldo actual editable
+  const [localCurrentAmount, setLocalCurrentAmount] = useState(emergencyFund.currentAmount);
+  const [editingBalance, setEditingBalance] = useState(false);
+  const [balanceInput, setBalanceInput] = useState(emergencyFund.currentAmount.toString());
+  const [savingBalance, setSavingBalance] = useState(false);
 
-  // rem: base para calcular los 50/30/20 (después de cubrir capas 1+2+3)
+  // rem: remanente para el 50/30/20 (después de cubrir obligaciones, metas y emergencia)
   const rem = Math.max(0, incomeAmount - capa1IncomeCurrency - totalMetasSameCurrency - (parseFloat(emergencyContrib) || 0));
 
   const [layer4, setLayer4] = useState<Layer4Line[]>(() => {
@@ -118,25 +141,49 @@ export default function DistribuirForm({
     return makeLayer4(initialRem);
   });
 
+  // T6: categorías custom en el 50/30/20
+  const [customLines, setCustomLines] = useState<CustomLine[]>([]);
+
+  // T3 fix: recomputeLayer4 con último-unedited-toma-el-resto
   function recomputeLayer4(newRem: number, currentMode: "amount" | "pct") {
-    setLayer4((prev) =>
-      prev.map((l) => {
-        if (!l.edited) {
-          return {
-            ...l,
-            amount: Math.max(0, Math.round(newRem * l.suggestedPct / 100)).toString(),
-            userPct: l.suggestedPct.toString(),
-          };
+    setLayer4((prev) => {
+      const next = prev.map((l): Layer4Line => {
+        if (l.edited) {
+          if (currentMode === "pct") {
+            return {
+              ...l,
+              amount: Math.max(0, Math.round(newRem * (parseFloat(l.userPct) || 0) / 100)).toString(),
+            };
+          }
+          return l;
         }
-        if (currentMode === "pct") {
-          return {
-            ...l,
-            amount: Math.max(0, Math.round(newRem * (parseFloat(l.userPct) || 0) / 100)).toString(),
-          };
+        // Placeholder; será reemplazado abajo
+        return { ...l, userPct: l.suggestedPct.toString(), amount: "0" };
+      });
+
+      // Suma de las líneas editadas
+      const sumEdited = next.reduce(
+        (s, l, i) => (prev[i].edited ? s + (parseFloat(l.amount) || 0) : s),
+        0
+      );
+      const remForUnedited = Math.max(0, newRem - sumEdited);
+
+      // Distribuir remForUnedited entre no-editadas: última toma el resto exacto
+      const uneditedIdx = prev.map((l, i) => (!l.edited ? i : -1)).filter((i) => i >= 0);
+      let sumUnedited = 0;
+      for (let k = 0; k < uneditedIdx.length; k++) {
+        const i = uneditedIdx[k];
+        if (k < uneditedIdx.length - 1) {
+          const amt = Math.max(0, Math.round(remForUnedited * prev[i].suggestedPct / 100));
+          next[i] = { ...next[i], amount: amt.toString() };
+          sumUnedited += amt;
+        } else {
+          next[i] = { ...next[i], amount: Math.max(0, remForUnedited - sumUnedited).toString() };
         }
-        return l;
-      })
-    );
+      }
+
+      return next;
+    });
   }
 
   function handleMetaCheck(id: string, checked: boolean) {
@@ -147,6 +194,16 @@ export default function DistribuirForm({
     setMetaChecks((prev) => ({ ...prev, [id]: { ...prev[id], amount } }));
   }
 
+  // T5a: toggle $/% en fondo de emergencia
+  function toggleEmergencyMode(newMode: "amount" | "pct") {
+    if (newMode === "pct") {
+      const preRem = Math.max(0, incomeAmount - capa1IncomeCurrency - totalMetasSameCurrency);
+      const currentAmt = parseFloat(emergencyContrib) || 0;
+      setEmergencyPct(preRem > 0 ? (currentAmt / preRem * 100).toFixed(1) : "0");
+    }
+    setEmergencyMode(newMode);
+  }
+
   function handleEmergencyChange(val: string) {
     setEmergencyContrib(val);
     const newRem = Math.max(
@@ -154,6 +211,27 @@ export default function DistribuirForm({
       incomeAmount - capa1IncomeCurrency - totalMetasSameCurrency - (parseFloat(val) || 0)
     );
     recomputeLayer4(newRem, layer4Mode);
+  }
+
+  function handleEmergencyPctChange(pctVal: string) {
+    setEmergencyPct(pctVal);
+    const preRem = Math.max(0, incomeAmount - capa1IncomeCurrency - totalMetasSameCurrency);
+    const amount = Math.max(0, Math.round(preRem * (parseFloat(pctVal) || 0) / 100));
+    handleEmergencyChange(amount.toString());
+  }
+
+  // T5b: guardar saldo actual del fondo
+  async function handleSaveBalance() {
+    const parsed = parseFloat(balanceInput);
+    if (isNaN(parsed) || parsed < 0) return;
+    setSavingBalance(true);
+    const result = await setEmergencyFundAmount(emergencyFund.id, parsed);
+    setSavingBalance(false);
+    if (!result.error) {
+      setLocalCurrentAmount(parsed);
+      setEditingBalance(false);
+      router.refresh();
+    }
   }
 
   function handleAmount4(key: string, val: string) {
@@ -177,7 +255,6 @@ export default function DistribuirForm({
 
   function toggleLayer4Mode(newMode: "amount" | "pct") {
     if (newMode === "pct") {
-      // Sync userPct from current amounts so el input refleja el estado real
       setLayer4((prev) =>
         prev.map((l) => ({
           ...l,
@@ -192,25 +269,40 @@ export default function DistribuirForm({
   }
 
   function resetSuggested() {
-    setLayer4(
-      makeLayer4(rem).map((l) => ({ ...l, edited: false }))
-    );
-    if (layer4Mode === "pct") {
-      setLayer4Mode("amount");
-    }
+    setLayer4(makeLayer4(rem).map((l) => ({ ...l, edited: false })));
+    if (layer4Mode === "pct") setLayer4Mode("amount");
+    setCustomLines([]);
+  }
+
+  // T6: funciones de líneas custom
+  function addCustomLine() {
+    const key = `custom-${Date.now()}`;
+    setCustomLines((prev) => [...prev, { key, label: "", amount: "0", accountId: "" }]);
+  }
+
+  function updateCustomLine(key: string, field: keyof CustomLine, value: string) {
+    setCustomLines((prev) => prev.map((l) => (l.key === key ? { ...l, [field]: value } : l)));
+  }
+
+  function removeCustomLine(key: string) {
+    setCustomLines((prev) => prev.filter((l) => l.key !== key));
   }
 
   const totalLayer4 = layer4.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
+  const totalCustom = customLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
   const totalAsignado =
     capa1IncomeCurrency +
     totalMetasSameCurrency +
     (parseFloat(emergencyContrib) || 0) +
-    totalLayer4;
+    totalLayer4 +
+    totalCustom;
   const sinAsignar = incomeAmount - totalAsignado;
 
+  // Progreso del fondo de emergencia (usa localCurrentAmount para reflejar ediciones inline)
+  const effectiveTarget = Math.max(0, emergencyFund.targetAmount);
   const progressPct =
-    emergencyFund.targetAmount > 0
-      ? Math.min(100, Math.round((emergencyFund.currentAmount / emergencyFund.targetAmount) * 100))
+    effectiveTarget > 0
+      ? Math.min(100, Math.round((localCurrentAmount / effectiveTarget) * 100))
       : 0;
 
   const capa1Items = breakdown.filter((item) => item.type !== "sinking");
@@ -219,15 +311,26 @@ export default function DistribuirForm({
   async function handleConfirm() {
     const contrib = parseFloat(emergencyContrib) || 0;
 
-    const validLines = layer4
-      .filter((l) => l.accountId && parseFloat(l.amount) > 0)
-      .map((l) => ({
-        account_id: l.accountId,
-        amount: parseFloat(l.amount),
-        currency: incomeCurrency,
-      }));
+    const validLines = [
+      ...layer4
+        .filter((l) => l.accountId && parseFloat(l.amount) > 0)
+        .map((l) => ({
+          account_id: l.accountId,
+          amount: parseFloat(l.amount),
+          currency: incomeCurrency,
+        })),
+      // T6: líneas custom
+      ...customLines
+        .filter((l) => l.accountId && parseFloat(l.amount) > 0)
+        .map((l) => ({
+          account_id: l.accountId,
+          amount: parseFloat(l.amount),
+          currency: incomeCurrency,
+        })),
+    ];
 
-    const contributionPayloads = sameCurrencyTargets
+    // T4: incluir tanto same-currency como other-currency contributions
+    const contributionPayloads = savingsTargets
       .filter((t) => {
         const mc = metaChecks[t.id];
         return mc?.checked && parseFloat(mc.amount) > 0;
@@ -373,7 +476,7 @@ export default function DistribuirForm({
         )}
       </section>
 
-      {/* Metas de ahorro (bienes + objetivos) */}
+      {/* Metas de ahorro */}
       <section className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
         <div>
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
@@ -384,9 +487,10 @@ export default function DistribuirForm({
           </p>
         </div>
 
-        {sameCurrencyTargets.length === 0 ? (
+        {/* T4: same-currency targets — como antes */}
+        {sameCurrencyTargets.length === 0 && otherCurrencyTargets.length === 0 ? (
           <p className="text-sm text-gray-400">
-            Sin metas en {incomeCurrency} — creá una en{" "}
+            Sin metas — creá una en{" "}
             <a href="/objetivos" className="text-indigo-600 underline">
               Metas
             </a>
@@ -445,40 +549,93 @@ export default function DistribuirForm({
                         value={mc.amount}
                         onChange={(e) => handleMetaAmount(target.id, e.target.value)}
                         disabled={!mc.checked}
-                        className="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 bg-white disabled:bg-gray-50 disabled:text-gray-400"
+                        className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
                       />
                     </div>
                   </div>
                 </div>
               );
             })}
-            <div className="border-t border-gray-100 pt-2 flex justify-between">
-              <span className="text-xs font-medium text-gray-500">
-                Total metas ({incomeCurrency})
-              </span>
-              <span className="text-sm font-semibold tabular-nums">
-                {formatCurrency(totalMetasSameCurrency, incomeCurrency)}
-              </span>
-            </div>
-          </div>
-        )}
 
-        {otherCurrencyTargets.length > 0 && (
-          <div className="pt-3 border-t border-dashed border-gray-200 space-y-1">
-            <p className="text-[11px] text-gray-400 font-medium">
-              Además apartar en {otherCurrency} (informativo):
-            </p>
-            {otherCurrencyTargets.map((t) => (
-              <div
-                key={t.id}
-                className="flex justify-between text-[11px] text-gray-400"
-              >
-                <span className="truncate">{t.name}</span>
-                <span className="tabular-nums shrink-0 ml-2">
-                  {formatCurrency(t.monthlyContribution, t.currency)}/mes
+            {sameCurrencyTargets.length > 0 && (
+              <div className="border-t border-gray-100 pt-2 flex justify-between">
+                <span className="text-xs font-medium text-gray-500">
+                  Total metas ({incomeCurrency})
+                </span>
+                <span className="text-sm font-semibold tabular-nums">
+                  {formatCurrency(totalMetasSameCurrency, incomeCurrency)}
                 </span>
               </div>
-            ))}
+            )}
+
+            {/* T4: other-currency targets — ahora interactuables */}
+            {otherCurrencyTargets.length > 0 && (
+              <div className="pt-3 border-t border-dashed border-gray-200 space-y-3">
+                <div>
+                  <p className="text-[11px] text-gray-500 font-medium mb-0.5">
+                    Metas en {otherCurrency}
+                  </p>
+                  <p className="text-[10px] text-gray-400 leading-snug">
+                    Registra tu intención de aporte — la transferencia real la hacés por separado.
+                  </p>
+                </div>
+                {otherCurrencyTargets.map((target) => {
+                  const mc = metaChecks[target.id] ?? { checked: false, amount: "0" };
+                  return (
+                    <div
+                      key={target.id}
+                      className={`pb-3 border-b border-gray-100 last:border-0 last:pb-0 ${
+                        !mc.checked ? "opacity-50" : ""
+                      }`}
+                    >
+                      <div className="flex items-start gap-2">
+                        <input
+                          type="checkbox"
+                          checked={mc.checked}
+                          onChange={(e) => handleMetaCheck(target.id, e.target.checked)}
+                          className="mt-0.5 shrink-0 w-4 h-4"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {target.name}
+                            </p>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                              {otherCurrency}
+                            </span>
+                          </div>
+                          <div className="mt-1 h-1 bg-gray-100 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-amber-400 rounded-full"
+                              style={{ width: `${Math.min(100, target.progressPct)}%` }}
+                            />
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-0.5">
+                            {formatCurrency(target.accumulated, target.currency)} de{" "}
+                            {formatCurrency(target.targetAmount, target.currency)}{" "}
+                            ({Math.round(target.progressPct)}%)
+                          </p>
+                        </div>
+                        <div className="shrink-0 w-28">
+                          <p className="text-[10px] text-gray-400 mb-1">
+                            Monto ({otherCurrency})
+                          </p>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={mc.amount}
+                            onChange={(e) => handleMetaAmount(target.id, e.target.value)}
+                            disabled={!mc.checked}
+                            className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </section>
@@ -497,18 +654,60 @@ export default function DistribuirForm({
                 : " · sin historial aún"}
             </p>
           </div>
+
+          {/* Saldo actual con edición inline (T5b) */}
           <div className="space-y-1.5">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-700 tabular-nums">
-                {formatCurrency(emergencyFund.currentAmount, "ARS")}
-              </span>
+            <div className="flex justify-between items-center text-sm">
+              <div className="flex items-center gap-2">
+                {editingBalance ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      autoFocus
+                      value={balanceInput}
+                      onChange={(e) => setBalanceInput(e.target.value)}
+                      className="w-28 border border-amber-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveBalance}
+                      disabled={savingBalance}
+                      className="text-[11px] font-medium text-amber-700 disabled:opacity-40"
+                    >
+                      {savingBalance ? "…" : "Guardar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingBalance(false); setBalanceInput(localCurrentAmount.toString()); }}
+                      className="text-[11px] text-gray-400"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <span className="text-gray-700 tabular-nums">
+                      {formatCurrency(localCurrentAmount, "ARS")}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => { setEditingBalance(true); setBalanceInput(localCurrentAmount.toString()); }}
+                      className="text-[10px] text-amber-600 underline"
+                    >
+                      Editar saldo
+                    </button>
+                  </>
+                )}
+              </div>
               <span className="text-gray-500">
-                {emergencyFund.targetAmount > 0
-                  ? `Meta: ${formatCurrency(emergencyFund.targetAmount, "ARS")}`
+                {effectiveTarget > 0
+                  ? `Meta: ${formatCurrency(effectiveTarget, "ARS")}`
                   : "Meta: sin datos de gastos"}
               </span>
             </div>
-            {emergencyFund.targetAmount > 0 && (
+            {effectiveTarget > 0 && (
               <>
                 <div className="w-full bg-amber-100 rounded-full h-2">
                   <div
@@ -522,22 +721,74 @@ export default function DistribuirForm({
               </>
             )}
           </div>
+
+          {/* Aporte con toggle $/% (T5a) */}
           <div>
-            <label className="text-xs font-medium text-gray-600 mb-1 block">
-              Aporte este mes{" "}
-              <span className="text-gray-400 font-normal">(opcional)</span>
-              {emergencyFund.suggestedContribution > 0 && (
-                <span className="text-gray-400 font-normal ml-1">
-                  · sugerido: {formatCurrency(emergencyFund.suggestedContribution, "ARS")}/mes
-                </span>
-              )}
-            </label>
-            <AmountInput
-              value={emergencyContrib}
-              onChange={handleEmergencyChange}
-              className={INPUT}
-            />
-            {emergencyContrib && parseFloat(emergencyContrib) > 0 && (
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-gray-600">
+                Aporte este mes{" "}
+                <span className="text-gray-400 font-normal">(opcional)</span>
+                {emergencyFund.suggestedContribution > 0 && emergencyMode === "amount" && (
+                  <span className="text-gray-400 font-normal ml-1">
+                    · sugerido: {formatCurrency(emergencyFund.suggestedContribution, "ARS")}/mes
+                  </span>
+                )}
+              </label>
+              <div className="flex rounded-lg border border-amber-200 overflow-hidden text-xs font-medium">
+                <button
+                  type="button"
+                  onClick={() => toggleEmergencyMode("amount")}
+                  className={`px-2.5 py-1 ${
+                    emergencyMode === "amount"
+                      ? "bg-amber-600 text-white"
+                      : "bg-white text-amber-600 hover:bg-amber-50"
+                  }`}
+                >
+                  $
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleEmergencyMode("pct")}
+                  className={`px-2.5 py-1 ${
+                    emergencyMode === "pct"
+                      ? "bg-amber-600 text-white"
+                      : "bg-white text-amber-600 hover:bg-amber-50"
+                  }`}
+                >
+                  %
+                </button>
+              </div>
+            </div>
+
+            {emergencyMode === "amount" ? (
+              <AmountInput
+                value={emergencyContrib}
+                onChange={handleEmergencyChange}
+                className={INPUT}
+              />
+            ) : (
+              <div className="space-y-1">
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.1"
+                    value={emergencyPct}
+                    onChange={(e) => handleEmergencyPctChange(e.target.value)}
+                    className={INPUT + " pr-7"}
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">
+                    %
+                  </span>
+                </div>
+                <p className="text-[11px] text-amber-600 text-right">
+                  = {formatCurrency(parseFloat(emergencyContrib) || 0, "ARS")}
+                </p>
+              </div>
+            )}
+
+            {emergencyMode === "amount" && emergencyContrib && parseFloat(emergencyContrib) > 0 && (
               <p className="text-[11px] text-amber-600 mt-0.5 text-right">
                 {formatInputAmount(emergencyContrib, "ARS")}
               </p>
@@ -546,7 +797,7 @@ export default function DistribuirForm({
         </section>
       )}
 
-      {/* Distribución del remanente — 50/30/20 */}
+      {/* Distribución del remanente — 50/30/20 + categorías custom (T6) */}
       <section className="bg-white rounded-2xl p-4 shadow-sm space-y-4">
         <div className="flex items-start justify-between">
           <div>
@@ -558,7 +809,7 @@ export default function DistribuirForm({
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0 ml-2">
-            {layer4.some((l) => l.edited) && (
+            {(layer4.some((l) => l.edited) || customLines.length > 0) && (
               <button
                 type="button"
                 onClick={resetSuggested}
@@ -596,6 +847,7 @@ export default function DistribuirForm({
         </div>
 
         <div className="space-y-3">
+          {/* Líneas por defecto 50/30/20 */}
           {layer4.map((line) => {
             const derivedPct =
               rem > 0
@@ -692,27 +944,97 @@ export default function DistribuirForm({
               </div>
             );
           })}
+
+          {/* T6: Líneas custom */}
+          {customLines.map((line) => (
+            <div
+              key={line.key}
+              className="space-y-2 pb-3 border-b border-gray-100"
+            >
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  placeholder="Nombre de la categoría"
+                  value={line.label}
+                  onChange={(e) => updateCustomLine(line.key, "label", e.target.value)}
+                  className="flex-1 border border-gray-200 rounded-lg px-2 py-1.5 text-sm text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-900 bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeCustomLine(line.key)}
+                  className="text-gray-300 hover:text-red-400 text-sm shrink-0 px-1"
+                >
+                  ✕
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Monto ({incomeCurrency})</p>
+                  {incomeCurrency === "ARS" ? (
+                    <AmountInput
+                      value={line.amount}
+                      onChange={(val) => updateCustomLine(line.key, "amount", val)}
+                      className={INPUT}
+                    />
+                  ) : (
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={line.amount}
+                      onChange={(e) => updateCustomLine(line.key, "amount", e.target.value)}
+                      className={INPUT}
+                    />
+                  )}
+                </div>
+                <div>
+                  <p className="text-[10px] text-gray-400 mb-1">Cuenta destino</p>
+                  <select
+                    value={line.accountId}
+                    onChange={(e) => updateCustomLine(line.key, "accountId", e.target.value)}
+                    className={INPUT}
+                  >
+                    <option value="">Sin cuenta</option>
+                    {leafAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {accountDisplayName(a, accounts)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Botón agregar categoría custom */}
+          <button
+            type="button"
+            onClick={addCustomLine}
+            className="text-xs text-indigo-600 font-medium"
+          >
+            + Agregar categoría
+          </button>
         </div>
 
         <div className="border-t border-gray-200 pt-3 space-y-1">
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Asignado en esta sección</span>
             <span className="font-semibold tabular-nums">
-              {formatCurrency(totalLayer4, incomeCurrency)}
+              {formatCurrency(totalLayer4 + totalCustom, incomeCurrency)}
             </span>
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-gray-500">Disponible restante</span>
             <span
               className={`font-semibold tabular-nums ${
-                rem - totalLayer4 < 0
+                rem - totalLayer4 - totalCustom < 0
                   ? "text-red-600"
-                  : rem - totalLayer4 === 0
+                  : rem - totalLayer4 - totalCustom === 0
                   ? "text-green-600"
                   : "text-gray-700"
               }`}
             >
-              {formatCurrency(rem - totalLayer4, incomeCurrency)}
+              {formatCurrency(rem - totalLayer4 - totalCustom, incomeCurrency)}
             </span>
           </div>
         </div>

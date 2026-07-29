@@ -47,6 +47,18 @@ de cierre o vencimiento de cualquier tarjeta activa.
   `subscription_instances`; diseño a documentar en `docs/02-arquitectura.md` antes de
   implementar.
 
+- **Sesión N — Motor de recomendación basado en historial:** analizar gastos reales
+  registrados por categoría a lo largo del tiempo para sugerir montos de distribución
+  (incluyendo fondo de emergencia) en vez de usar únicamente el 50/30/20 genérico.
+  **Requiere diseño previo antes de implementar:** (a) cuántos meses mínimos de historial,
+  (b) cómo tratar gastos irregulares vs. recurrentes, (c) fuente teórica del método de
+  cálculo — NO inventar fórmula de "recomendación" sin research previo con fuentes.
+
+- **Sesión O — Vista unificada de Movimientos:** pantalla nueva que muestre gastos e
+  ingresos juntos en orden cronológico, con edición desde ahí. Evaluar si reemplaza o
+  complementa `/gastos` existente. Decidir antes: ¿filtros por tipo/cuenta/período?
+  ¿Paginación o infinite scroll? ¿Requiere migración para indexar por fecha cross-tabla?
+
 ### Sesiones cerradas
 
 Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle completo de cada sesión.
@@ -58,7 +70,8 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión H** (commit bd4f632): earmark → transferencia real — RPC confirm_earmark_funding, ConfirmFundingButton, migración 017.
 - **Sesión I** (commit 2c2b52a): earns_yield + selector jerárquico — ExpenseForm refactorizado, timing Ahora/Después, migración 018.
 - **Sesión I.1** (commit 558edc5): verificación E2E — tarjeta-banco, earmark caminos Ahora/Después con saldos reales confirmados, UX 390px.
-- **Sesión J** (commit pendiente): distribución rediseñada — vista unificada, toggle `$/%` en 50/30/20, sinAsignar live en header, distribución parcial válida, botón "Saltear", "Solo registrar" en IncomeForm, sección teórica colapsable, banner dashboard N=7d.
+- **Sesión J** (commit 44a4019): distribución rediseñada — vista unificada, toggle `$/%` en 50/30/20, sinAsignar live en header, distribución parcial válida, botón "Saltear", "Solo registrar" en IncomeForm, sección teórica colapsable, banner dashboard N=7d.
+- **Sesión K** (commit pendiente): borrado forzado de cuentas (migración 019), /ingresos list + /ingresos/[id]/editar, fix redondeo sinAsignar (-$1 bug), metas en otra moneda interactuables, toggle $/% + saldo manual en fondo emergencia, categorías custom en 50/30/20, sesiones N+O documentadas.
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -177,8 +190,10 @@ Migraciones ejecutadas:
 | `/bienes` | Lista de bienes con sinking + maintenance + Meta por bien; modo manual muestra badge "manual" |
 | `/bienes/nuevo` | Formulario con defaults por categoría; sección "Detalles del auto" (segmento/bought_used/tasas+fuente); sección "Objetivo de ahorro" (toggle calculado/manual) |
 | `/bienes/[id]/editar` | Igual que nuevo + pre-llena todos los campos incluyendo car_segment/savings_goal |
+| `/ingresos` | Lista de ingresos (últimos 100); link a editar cada uno; badge distribuido/sin distribuir |
 | `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
-| `/ingresos/distribuir` | 4 capas: Capa 1 maintenance+cuotas sin sinking (otras monedas = informativo) / Capa 2 metas con checkboxes y montos editables + mini progress bars (other-currency informativo abajo) / Capa 3 fondo emergencia ARS / Capa 4 50-30-20 del remanente → RPC `confirm_distribution_with_contributions` |
+| `/ingresos/[id]/editar` | Editar ingreso: monto/moneda (read-only si distribuido), tipo, cuenta, fecha, nota; eliminar con advertencia explícita si distribuido (saldos no se revierten) |
+| `/ingresos/distribuir` | Vista unificada de distribución: sinAsignar live en header, obligaciones (no edit.), metas same-currency + other-currency interactuables, fondo emergencia con toggle $/% y saldo manual editable, 50/30/20 con toggle $/% + categorías custom, sección teórica colapsable → RPC `confirm_distribution_with_contributions` |
 | `/objetivos` | Lista de SavingsTargets (bienes+objetivos): progress bars, badges Bien/Objetivo, AportarButton; resumen total mensual arriba; link a /bienes para detalles de mantenimiento |
 | `/objetivos/nuevo` | Formulario nueva meta: nombre, monto+moneda (toggle ARS/USD), plazo en meses, cuenta opcional; preview live "necesitás aportar X/mes" |
 | `/gastos/[id]/editar` | Editar gasto: monto (read-only para crédito con badge), merchant, descripción, categoría, fecha; eliminar con reversión de saldo atómica |
@@ -242,7 +257,10 @@ Migraciones ejecutadas:
 - `objetivos/nuevo/_components/GoalForm.tsx` — form con preview live de aporte mensual;
   on submit: `createGoal` → `router.push("/objetivos")`
 - `ingresos/actions.ts` — `createIncome`, `confirmDistribution`, `updateEmergencyFund`,
-  `confirmDistributionWithContributions` (llama RPC migración 011), `redirectToDistribute`
+  `confirmDistributionWithContributions` (llama RPC migración 011), `redirectToDistribute`,
+  `updateIncome` (monto/moneda bloqueados si distribuido), `deleteIncome` (borra
+  savings_contributions asociadas; advierte que saldos no se revierten),
+  `setEmergencyFundAmount` (SET directo de current_amount, no +=)
 - `AmountInput` (`src/components/AmountInput.tsx`) — `type="text" inputMode="numeric"`;
   dígitos crudos mientras escribe (evita conflicto de cursor); `Intl.NumberFormat("es-AR",
   { maximumFractionDigits: 0 })` al blur; solo enteros ARS
@@ -327,6 +345,8 @@ page.locator("input[type='number'][min='1'][max='48']")
 - `016_fix_cascade_fk.sql` — ✅ EJECUTADA (sesión housekeeping post-I.1). FK CASCADE → RESTRICT + `safe_delete_account` actualizado.
 - `017_confirm_earmark_funding.sql` — ✅ EJECUTADA. RPC atómica para completar earmarks sin funding.
 - `018_earns_yield.sql` — ✅ EJECUTADA. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` en `accounts`. Cocos Capital tiene earns_yield=true (seteado desde UI).
+
+- `019` — (archivo en repo: `019_force_delete_account.sql`; **PENDIENTE DE EJECUCIÓN en Supabase**) RPC `force_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: elimina una cuenta aunque tenga dependencias activas; libera y borra todos sus earmarks; NULLea referencias en expenses/incomes/savings_goals/savings_contributions/assets/income_distribution_lines; bloquea solo si tiene subcuentas. Invocado desde `CuentaActions` vía `forceDeleteAccount` server action, como segunda confirmación después de ver la lista de deps.
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 
