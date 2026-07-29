@@ -65,6 +65,13 @@ BEGIN
   UPDATE income_distribution_lines SET account_id = NULL
   WHERE account_id = p_account_id;
 
+  -- Eliminar transferencias que involucran esta cuenta.
+  -- account_transfers.from_account_id y to_account_id son NOT NULL → no se pueden NULLear.
+  -- El historial de transferencias se pierde; el usuario acepta esta consecuencia.
+  DELETE FROM account_transfers
+  WHERE (from_account_id = p_account_id OR to_account_id = p_account_id)
+    AND user_id = v_user_id;
+
   -- Eliminar la cuenta
   DELETE FROM accounts
   WHERE id = p_account_id AND user_id = v_user_id;

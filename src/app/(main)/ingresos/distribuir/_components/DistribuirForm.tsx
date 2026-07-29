@@ -31,6 +31,9 @@ interface Layer4Line {
 interface MetaCheckState {
   checked: boolean;
   amount: string;
+  pct: string;
+  inputMode: "target" | "income";
+  incomeInput: string;
 }
 
 // T6: Categorías personalizadas en el 50/30/20
@@ -76,6 +79,9 @@ function initMetaChecks(targets: SavingsTarget[]): Record<string, MetaCheckState
         amount: t.monthlyContribution > 0
           ? String(Math.round(t.monthlyContribution * 100) / 100)
           : "0",
+        pct: "0",
+        inputMode: "target" as const,
+        incomeInput: "",
       },
     ])
   );
@@ -105,6 +111,10 @@ export default function DistribuirForm({
   const [error, setError] = useState<string | null>(null);
   const [showTheory, setShowTheory] = useState(false);
   const [layer4Mode, setLayer4Mode] = useState<"amount" | "pct">("amount");
+  // T4: $/% toggle para metas de ahorro
+  const [metaMode, setMetaMode] = useState<"amount" | "pct">("amount");
+  // T5: tasa MEP para conversión de metas en otra moneda
+  const [mepRate, setMepRate] = useState<string>("");
 
   // T4: metaChecks para todos los targets
   const sameCurrencyTargets = savingsTargets.filter((t) => t.currency === incomeCurrency);
@@ -192,6 +202,33 @@ export default function DistribuirForm({
 
   function handleMetaAmount(id: string, amount: string) {
     setMetaChecks((prev) => ({ ...prev, [id]: { ...prev[id], amount } }));
+  }
+
+  // T4: toggle $/% para metas de ahorro (base = incomeAmount, igual que fondo de emergencia)
+  function toggleMetaMode(newMode: "amount" | "pct") {
+    if (newMode === "pct" && metaMode === "amount") {
+      setMetaChecks((prev) =>
+        Object.fromEntries(
+          Object.entries(prev).map(([id, mc]) => {
+            const pct = incomeAmount > 0
+              ? ((parseFloat(mc.amount) || 0) / incomeAmount * 100).toFixed(1)
+              : "0";
+            return [id, { ...mc, pct }];
+          })
+        )
+      );
+    }
+    setMetaMode(newMode);
+  }
+
+  function handleMetaPct(id: string, pct: string) {
+    const amount = Math.max(0, Math.round(incomeAmount * (parseFloat(pct) || 0) / 100));
+    setMetaChecks((prev) => ({ ...prev, [id]: { ...prev[id], pct, amount: String(amount) } }));
+  }
+
+  // T5: entrada en moneda del ingreso para metas en otra moneda
+  function handleOtherIncomeInput(id: string, val: string) {
+    setMetaChecks((prev) => ({ ...prev, [id]: { ...prev[id], incomeInput: val } }));
   }
 
   // T5a: toggle $/% en fondo de emergencia
@@ -329,20 +366,29 @@ export default function DistribuirForm({
         })),
     ];
 
-    // T4: incluir tanto same-currency como other-currency contributions
+    // T4/T5: incluir tanto same-currency como other-currency contributions
+    const mepRateVal = parseFloat(mepRate) || 0;
     const contributionPayloads = savingsTargets
       .filter((t) => {
         const mc = metaChecks[t.id];
-        return mc?.checked && parseFloat(mc.amount) > 0;
+        if (!mc?.checked) return false;
+        if (mc.inputMode === "income") return parseFloat(mc.incomeInput) > 0 && mepRateVal > 0;
+        return parseFloat(mc.amount) > 0;
       })
-      .map((t) => ({
-        asset_id: t.kind === "asset" ? t.id : null,
-        goal_id: t.kind === "goal" ? t.id : null,
-        amount: parseFloat(metaChecks[t.id].amount),
-        currency: t.currency,
-        dest_account_id: t.accountId ?? null,
-        name: t.name,
-      }));
+      .map((t) => {
+        const mc = metaChecks[t.id];
+        const amount = mc.inputMode === "income"
+          ? Math.round((parseFloat(mc.incomeInput) || 0) / mepRateVal * 100) / 100
+          : parseFloat(mc.amount);
+        return {
+          asset_id: t.kind === "asset" ? t.id : null,
+          goal_id: t.kind === "goal" ? t.id : null,
+          amount,
+          currency: t.currency,
+          dest_account_id: t.accountId ?? null,
+          name: t.name,
+        };
+      });
 
     setSaving(true);
     setError(null);
@@ -478,13 +524,41 @@ export default function DistribuirForm({
 
       {/* Metas de ahorro */}
       <section className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-        <div>
-          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
-            Metas de ahorro
-          </h2>
-          <p className="text-[11px] text-gray-400 mt-0.5">
-            Sinking funds de bienes + objetivos · destildá si no aportás este mes
-          </p>
+        <div className="flex items-start justify-between gap-2">
+          <div>
+            <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wide">
+              Metas de ahorro
+            </h2>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Sinking funds de bienes + objetivos · destildá si no aportás este mes
+            </p>
+          </div>
+          {sameCurrencyTargets.length > 0 && (
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-medium shrink-0">
+              <button
+                type="button"
+                onClick={() => toggleMetaMode("amount")}
+                className={`px-2.5 py-1 ${
+                  metaMode === "amount"
+                    ? "bg-gray-900 text-white"
+                    : "bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+              >
+                $
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleMetaMode("pct")}
+                className={`px-2.5 py-1 ${
+                  metaMode === "pct"
+                    ? "bg-gray-900 text-white"
+                    : "bg-white text-gray-500 hover:bg-gray-50"
+                }`}
+              >
+                %
+              </button>
+            </div>
+          )}
         </div>
 
         {/* T4: same-currency targets — como antes */}
@@ -541,16 +615,41 @@ export default function DistribuirForm({
                       </p>
                     </div>
                     <div className="shrink-0 w-28">
-                      <p className="text-[10px] text-gray-400 mb-1">Monto</p>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={mc.amount}
-                        onChange={(e) => handleMetaAmount(target.id, e.target.value)}
-                        disabled={!mc.checked}
-                        className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
-                      />
+                      {metaMode === "amount" ? (
+                        <>
+                          <p className="text-[10px] text-gray-400 mb-1">Monto</p>
+                          <input
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={mc.amount}
+                            onChange={(e) => handleMetaAmount(target.id, e.target.value)}
+                            disabled={!mc.checked}
+                            className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
+                          />
+                        </>
+                      ) : (
+                        <>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              step="0.1"
+                              min="0"
+                              max="100"
+                              value={mc.pct}
+                              onChange={(e) => handleMetaPct(target.id, e.target.value)}
+                              disabled={!mc.checked}
+                              className={INPUT_SM + " pr-5 disabled:bg-gray-50 disabled:text-gray-400"}
+                            />
+                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 pointer-events-none">
+                              %
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-400 mt-0.5 text-right">
+                            = {formatCurrency(parseFloat(mc.amount) || 0, incomeCurrency)}
+                          </p>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -568,7 +667,7 @@ export default function DistribuirForm({
               </div>
             )}
 
-            {/* T4: other-currency targets — ahora interactuables */}
+            {/* T5: other-currency targets — con conversión MEP */}
             {otherCurrencyTargets.length > 0 && (
               <div className="pt-3 border-t border-dashed border-gray-200 space-y-3">
                 <div>
@@ -579,8 +678,31 @@ export default function DistribuirForm({
                     Registra tu intención de aporte — la transferencia real la hacés por separado.
                   </p>
                 </div>
+                {/* T5: tipo MEP para conversión */}
+                <div className="flex items-center gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5">
+                  <span className="text-[11px] text-amber-700 font-medium shrink-0">
+                    Tipo MEP (ARS/{otherCurrency}):
+                  </span>
+                  <input
+                    type="number"
+                    step="1"
+                    min="0"
+                    placeholder="ej. 1200"
+                    value={mepRate}
+                    onChange={(e) => setMepRate(e.target.value)}
+                    className="w-24 border border-amber-200 rounded px-2 py-0.5 text-xs text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-amber-400 text-right"
+                  />
+                </div>
                 {otherCurrencyTargets.map((target) => {
-                  const mc = metaChecks[target.id] ?? { checked: false, amount: "0" };
+                  const mc = metaChecks[target.id] ?? {
+                    checked: false, amount: "0", pct: "0", inputMode: "target" as const, incomeInput: "",
+                  };
+                  const inTargetMode = mc.inputMode !== "income";
+                  const rateVal = parseFloat(mepRate) || 0;
+                  const derivedTargetAmt =
+                    !inTargetMode && rateVal > 0 && mc.incomeInput
+                      ? Math.round((parseFloat(mc.incomeInput) || 0) / rateVal * 100) / 100
+                      : null;
                   return (
                     <div
                       key={target.id}
@@ -616,19 +738,75 @@ export default function DistribuirForm({
                             ({Math.round(target.progressPct)}%)
                           </p>
                         </div>
-                        <div className="shrink-0 w-28">
-                          <p className="text-[10px] text-gray-400 mb-1">
-                            Monto ({otherCurrency})
-                          </p>
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={mc.amount}
-                            onChange={(e) => handleMetaAmount(target.id, e.target.value)}
-                            disabled={!mc.checked}
-                            className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
-                          />
+                        <div className="shrink-0 w-32 space-y-1">
+                          {/* T5: toggle moneda de entrada */}
+                          <div className="flex rounded border border-gray-200 overflow-hidden text-[10px] font-medium">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMetaChecks((prev) => ({
+                                  ...prev,
+                                  [target.id]: { ...prev[target.id], inputMode: "target" },
+                                }))
+                              }
+                              className={`flex-1 py-0.5 ${
+                                inTargetMode
+                                  ? "bg-gray-900 text-white"
+                                  : "bg-white text-gray-500 hover:bg-gray-50"
+                              }`}
+                            >
+                              {otherCurrency}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setMetaChecks((prev) => ({
+                                  ...prev,
+                                  [target.id]: { ...prev[target.id], inputMode: "income" },
+                                }))
+                              }
+                              className={`flex-1 py-0.5 ${
+                                !inTargetMode
+                                  ? "bg-gray-900 text-white"
+                                  : "bg-white text-gray-500 hover:bg-gray-50"
+                              }`}
+                            >
+                              {incomeCurrency}
+                            </button>
+                          </div>
+                          {inTargetMode ? (
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={mc.amount}
+                              onChange={(e) => handleMetaAmount(target.id, e.target.value)}
+                              disabled={!mc.checked}
+                              className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
+                            />
+                          ) : (
+                            <>
+                              <input
+                                type="number"
+                                step="1"
+                                min="0"
+                                placeholder={incomeCurrency}
+                                value={mc.incomeInput}
+                                onChange={(e) => handleOtherIncomeInput(target.id, e.target.value)}
+                                disabled={!mc.checked}
+                                className={INPUT_SM + " disabled:bg-gray-50 disabled:text-gray-400"}
+                              />
+                              {derivedTargetAmt !== null ? (
+                                <p className="text-[10px] text-amber-700 text-right">
+                                  ≈ {formatCurrency(derivedTargetAmt, target.currency as Currency)}
+                                </p>
+                              ) : rateVal === 0 && mc.incomeInput && parseFloat(mc.incomeInput) > 0 ? (
+                                <p className="text-[10px] text-red-500 text-right">
+                                  Ingresá tipo MEP
+                                </p>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>

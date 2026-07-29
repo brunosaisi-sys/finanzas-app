@@ -240,7 +240,7 @@ export default function CuentaActions({
               ) : (
                 <div className="space-y-1.5">
                   <p className="text-[10px] text-red-600 leading-relaxed">
-                    ⚠ Los saldos de las cuentas NO se revertirán. Los gastos e ingresos asociados quedarán sin cuenta. Las reservas activas se liberarán.
+                    ⚠ Los saldos de las cuentas NO se revertirán. Los gastos e ingresos asociados quedarán sin cuenta. Las transferencias vinculadas se eliminarán. Las reservas activas se liberarán.
                   </p>
                   <div className="flex items-center gap-2">
                     <button

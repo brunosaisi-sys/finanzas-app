@@ -72,6 +72,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión I.1** (commit 558edc5): verificación E2E — tarjeta-banco, earmark caminos Ahora/Después con saldos reales confirmados, UX 390px.
 - **Sesión J** (commit 44a4019): distribución rediseñada — vista unificada, toggle `$/%` en 50/30/20, sinAsignar live en header, distribución parcial válida, botón "Saltear", "Solo registrar" en IncomeForm, sección teórica colapsable, banner dashboard N=7d.
 - **Sesión K** (commit pendiente): borrado forzado de cuentas (migración 019), /ingresos list + /ingresos/[id]/editar, fix redondeo sinAsignar (-$1 bug), metas en otra moneda interactuables, toggle $/% + saldo manual en fondo emergencia, categorías custom en 50/30/20, sesiones N+O documentadas.
+- **Sesión L** (commit pendiente — agrupa K+L): T1: root cause force_delete FK en account_transfers (NOT NULL, no se puede NULLear; FIX: DELETE en migración 019 — **PENDIENTE re-ejecución en Supabase**); T2: reversión distribuida incompleta — income_distribution_lines es tabla de reglas (no historial), Capa 4 no almacena por ingreso → stop, no se implementa reversión parcial; T3: delete de ingresos funcionaba, bug era timing de compilación dev; T4: toggle $/% en metas de ahorro (base = incomeAmount; pct se inicializa desde monto al cambiar de modo); T5: conversión MEP para metas en otra moneda (tipo MEP manual editable, toggle {otherCurrency}|{incomeCurrency} por meta, importe derivado calculado en tiempo de submit — no almacenado en estado); `src/lib/finance/mep.ts` creado (convertViaMep pura, sin hardcode de tasa).
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -115,6 +116,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   `buildGoalTarget` (`monthlyContribution = (target−accumulated)/monthsRemaining` dinámico,
   sube si está atrasado); `getAllSavingsTargets` (filtra vivienda con goal=0 y sinking=0;
   ordena por progressPct asc). **13 tests unitarios** en `savingsGoals.test.ts`, verdes.
+- `mep.ts` — `convertViaMep(amount, fromCurrency, toCurrency, mepRate)`: conversión pura entre ARS↔USD usando tipo MEP provisto por el usuario. Sin tasa hardcodeada — el usuario siempre ingresa el tipo del día.
 - `monthlyObligations.ts` — `calculateMonthlyObligations(assets, installments)`
   agrega sinking + maintenance + cuotas del mes; alimenta la pantalla de
   distribución de sueldo. Pasa `replacement_horizon_months` al motor.
@@ -245,7 +247,9 @@ Migraciones ejecutadas:
 - `src/lib/categories-defaults.ts` — Categorías de gasto por defecto
 - `ingresos/distribuir/_components/DistribuirForm.tsx` — 4 capas rediseñadas: Capa 1
   solo maintenance+cuotas (items tipo "sinking" filtrados); Capa 2 metas con checkboxes,
-  montos editables, mini progress bars (`metaChecks` state), other-currency informativo;
+  montos editables, mini progress bars (`metaChecks` state), toggle $/% global (base = incomeAmount,
+  pct se backfill al cambiar a % mode), other-currency con conversión MEP (toggle por meta
+  {otherCurrency}|{incomeCurrency}, tipo MEP editable global, importe derivado calculado al submit);
   Capa 3 fondo emergencia ARS; Capa 4 50/30/20 (flag "editado", "Restablecer");
   remanente = ingreso − capa1 − totalMetasSameCurrency − emergencyContrib
 - `objetivos/actions.ts` — `createGoal` (INSERT savings_goals), `addContribution`
@@ -339,14 +343,14 @@ page.locator("input[type='number'][min='1'][max='48']")
 - Posición AAPL: 150u @ PA $10 (incorrecto; debería ser 10u @ $150). Sin UI de delete
   en `/inversiones`. Queda hasta Sesión J.2. Ver `docs/lecciones-aprendidas.md §6`.
 
-**Migraciones pendientes de ejecución en Supabase dashboard:** ninguna.
+**Migraciones pendientes de ejecución en Supabase dashboard:** `019_force_delete_account.sql` (re-ejecución: agregado DELETE de account_transfers — ver nota arriba).
 
 **Migraciones recientes ejecutadas** (ver lista completa en sección "Base de datos" arriba):
 - `016_fix_cascade_fk.sql` — ✅ EJECUTADA (sesión housekeeping post-I.1). FK CASCADE → RESTRICT + `safe_delete_account` actualizado.
 - `017_confirm_earmark_funding.sql` — ✅ EJECUTADA. RPC atómica para completar earmarks sin funding.
 - `018_earns_yield.sql` — ✅ EJECUTADA. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` en `accounts`. Cocos Capital tiene earns_yield=true (seteado desde UI).
 
-- `019` — (archivo en repo: `019_force_delete_account.sql`; **PENDIENTE DE EJECUCIÓN en Supabase**) RPC `force_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: elimina una cuenta aunque tenga dependencias activas; libera y borra todos sus earmarks; NULLea referencias en expenses/incomes/savings_goals/savings_contributions/assets/income_distribution_lines; bloquea solo si tiene subcuentas. Invocado desde `CuentaActions` vía `forceDeleteAccount` server action, como segunda confirmación después de ver la lista de deps.
+- `019` — (archivo en repo: `019_force_delete_account.sql`; **PENDIENTE DE RE-EJECUCIÓN en Supabase — RPC actualizada**) RPC `force_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: elimina una cuenta aunque tenga dependencias activas; libera y borra todos sus earmarks; NULLea referencias en expenses/incomes/savings_goals/savings_contributions/assets/income_distribution_lines; **DELETE de account_transfers** (from_account_id OR to_account_id — NOT NULL, no se puede NULLear, raíz del bug T1 Sesión L); bloquea solo si tiene subcuentas. Invocado desde `CuentaActions` vía `forceDeleteAccount` server action, como segunda confirmación después de ver la lista de deps. **⚠ Ejecutar `CREATE OR REPLACE FUNCTION force_delete_account...` en Supabase SQL Editor para aplicar el fix de account_transfers.**
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 
