@@ -244,6 +244,25 @@ rollback total. Extensible: agregar `closing_day`/`due_day`/`earns_yield` al JSO
 
 ---
 
+## 16. Scripts de QA — token via Supabase Auth API, no cookies del browser
+
+**Qué pasó:** Los scripts de QA intentaban extraer el token de sesión de las cookies del browser tras el login con Playwright. La cookie `sb-<ref>-auth-token` tiene formato `base64-{JSON base64url}` y el parsing falló repetidamente en distintas sesiones.
+
+**Por qué:** El formato de la cookie puede cambiar entre versiones de `@supabase/ssr`. Parsear cookies del browser es frágil y dependiente de la implementación interna de la librería.
+
+**Qué hacer:** Obtener el token directamente del endpoint de Supabase Auth **antes** de abrir el browser, y reutilizarlo para todas las llamadas API del script:
+```javascript
+const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+  method: "POST",
+  headers: { apikey: ANON_KEY, "Content-Type": "application/json" },
+  body: JSON.stringify({ email: EMAIL, password: PASSWORD }),
+});
+const { access_token, user } = await res.json();
+```
+El browser sigue siendo necesario para los tests de UI, pero no para obtener el token de API.
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`
