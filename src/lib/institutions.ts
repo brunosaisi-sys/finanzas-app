@@ -65,5 +65,9 @@ export const INSTITUTION_GROUPS: { key: InstitutionGroup; label: string }[] = [
   { key: "broker", label: "Brokers / Inversiones" },
   { key: "efectivo", label: "Efectivo" },
   { key: "usd_reserva", label: "Dólares / Reservas" },
-  { key: "credito", label: "Tarjetas de crédito" },
+  // "credito" no aparece en el selector de nivel 1 — las tarjetas se agregan como
+  // hijas de un banco desde el paso bank_config del wizard.
 ];
+
+// Marcas de tarjetas disponibles para asociar a un banco durante la creación.
+export const CREDIT_CARDS = INSTITUTIONS.filter((i) => i.group === "credito");

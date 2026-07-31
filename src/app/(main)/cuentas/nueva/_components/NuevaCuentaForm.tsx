@@ -6,7 +6,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
 import { convertAccountToParent, createChildAccount } from "../../actions";
 import { formatCurrency } from "@/lib/format";
-import { INSTITUTIONS, INSTITUTION_GROUPS, type Institution } from "@/lib/institutions";
+import { INSTITUTIONS, INSTITUTION_GROUPS, CREDIT_CARDS, type Institution } from "@/lib/institutions";
 import type { AccountType, Currency } from "@/types";
 
 const BOLSILLO_SUGERENCIAS = ["Pesos", "Dólares", "Fondos", "Rendimientos"];
@@ -93,8 +93,6 @@ function BolsilloForm({
 
     if (!parentHasChildren) {
       result = await convertAccountToParent(parent.id, label.trim());
-      // earns_yield for first bolsillo: set after creation via direct update if needed.
-      // convertAccountToParent creates the child with default false — acceptable for now.
     } else {
       result = await createChildAccount(parent.id, {
         name: label.trim(),
@@ -223,7 +221,9 @@ function BolsilloForm({
   );
 }
 
-type Step = "pick" | "mode" | "form" | "bolsillos";
+// "bank_config" es nuevo: aparece al elegir un banco y permite configurar
+// sub-cuentas y tarjetas antes de guardar. El usuario puede omitir y avanzar a "mode".
+type Step = "pick" | "bank_config" | "mode" | "form" | "bolsillos";
 
 interface BolsilloDraft {
   label: string;
@@ -245,6 +245,11 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
   const [parentBankId, setParentBankId] = useState<string>("");
   const [earnsYield, setEarnsYield] = useState(false);
 
+  // Estado para el paso bank_config
+  const [bankSubPesos, setBankSubPesos] = useState(false);
+  const [bankSubDolares, setBankSubDolares] = useState(false);
+  const [bankCards, setBankCards] = useState<Set<string>>(new Set());
+
   const [containerName, setContainerName] = useState("");
   const [bolsillos, setBolsillos] = useState<BolsilloDraft[]>([
     { label: "", currency: "ARS", balance: "", earns_yield: false },
@@ -263,7 +268,20 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     setCurrency(inst.defaultCurrency);
     setType(inst.dbType);
     setBolsillos([{ label: "", currency: inst.defaultCurrency, balance: "", earns_yield: false }]);
-    setStep(inst.dbType === "credito" ? "form" : "mode");
+    // Resetear estado de bank_config al cambiar institución
+    setBankSubPesos(false);
+    setBankSubDolares(false);
+    setBankCards(new Set());
+    setError(null);
+    // Bancos van a bank_config; tarjetas de crédito a form (tienen closing/due);
+    // el resto a mode
+    if (inst.group === "banco") {
+      setStep("bank_config");
+    } else if (inst.dbType === "credito") {
+      setStep("form");
+    } else {
+      setStep("mode");
+    }
   }
 
   function pickCustom() {
@@ -274,6 +292,10 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     setCurrency("ARS");
     setType("banco");
     setBolsillos([{ label: "", currency: "ARS", balance: "", earns_yield: false }]);
+    setBankSubPesos(false);
+    setBankSubDolares(false);
+    setBankCards(new Set());
+    setError(null);
     setStep("mode");
   }
 
@@ -295,14 +317,8 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     setLoading(true);
 
     const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Sesión expirada. Recargá la página.");
-      setLoading(false);
-      return;
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setError("Sesión expirada. Recargá la página."); setLoading(false); return; }
 
     const { error } = await supabase.from("accounts").insert({
       user_id: user.id,
@@ -317,35 +333,82 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     });
 
     setLoading(false);
-    if (error) {
-      setError(error.message);
+    if (error) { setError(error.message); return; }
+    router.push("/cuentas");
+  }
+
+  // Paso bank_config: crea el banco con sub-cuentas y tarjetas opcionales
+  async function handleSubmitFromBankConfig() {
+    setError(null);
+    setLoading(true);
+
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setError("Sesión expirada. Recargá la página."); setLoading(false); return; }
+
+    const hasSubs = bankSubPesos || bankSubDolares || bankCards.size > 0;
+
+    if (!hasSubs) {
+      // Sin sub-selección: banco simple (hoja)
+      const { error } = await supabase.from("accounts").insert({
+        user_id: user.id,
+        name: name.trim(),
+        type,
+        currency,
+        balance: 0,
+      });
+      setLoading(false);
+      if (error) { setError(error.message); return; }
+      router.push("/cuentas");
       return;
     }
+
+    // Con sub-selección: crear padre, luego hijos
+    const { data: parentRow, error: parentError } = await supabase
+      .from("accounts")
+      .insert({
+        user_id: user.id,
+        name: name.trim(),
+        type,
+        currency,
+        balance: 0,
+      })
+      .select("id")
+      .single();
+
+    if (parentError || !parentRow) {
+      setError(parentError?.message ?? "No se pudo crear la cuenta");
+      setLoading(false);
+      return;
+    }
+
+    const children: Array<{ name: string; type: string; currency: string; balance: number }> = [];
+    if (bankSubPesos) children.push({ name: "Pesos", type: "banco", currency: "ARS", balance: 0 });
+    if (bankSubDolares) children.push({ name: "Dólares", type: "banco", currency: "USD", balance: 0 });
+    for (const cardId of bankCards) {
+      const card = CREDIT_CARDS.find((c) => c.id === cardId);
+      if (card) children.push({ name: card.name, type: "credito", currency: "ARS", balance: 0 });
+    }
+
+    const { error: childError } = await supabase.from("accounts").insert(
+      children.map((c) => ({ ...c, user_id: user.id, parent_id: parentRow.id }))
+    );
+
+    setLoading(false);
+    if (childError) { setError(childError.message); return; }
     router.push("/cuentas");
   }
 
   async function handleSubmitBolsillos() {
     setError(null);
     const validBolsillos = bolsillos.filter((b) => b.label.trim());
-    if (!containerName.trim()) {
-      setError("Ingresá un nombre para la cuenta");
-      return;
-    }
-    if (validBolsillos.length === 0) {
-      setError("Agregá al menos un bolsillo");
-      return;
-    }
+    if (!containerName.trim()) { setError("Ingresá un nombre para la cuenta"); return; }
+    if (validBolsillos.length === 0) { setError("Agregá al menos un bolsillo"); return; }
 
     setLoading(true);
     const supabase = createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) {
-      setError("Sesión expirada. Recargá la página.");
-      setLoading(false);
-      return;
-    }
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setError("Sesión expirada. Recargá la página."); setLoading(false); return; }
 
     const { data: parentRow, error: parentError } = await supabase
       .from("accounts")
@@ -378,19 +441,120 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     );
 
     setLoading(false);
-    if (childrenError) {
-      setError(childrenError.message);
-      return;
-    }
+    if (childrenError) { setError(childrenError.message); return; }
     router.push("/cuentas");
   }
 
-  if (step === "mode") {
+  // ── STEP: bank_config ─────────────────────────────────────────────────────────
+  if (step === "bank_config") {
     return (
       <div className="p-4 max-w-lg mx-auto">
         <div className="flex items-center gap-3 pt-2 mb-6">
           <button
             onClick={() => setStep("pick")}
+            className="text-gray-400 hover:text-gray-900 transition-colors"
+          >
+            ← Volver
+          </button>
+          <h1 className="text-xl font-semibold text-gray-900">{selected?.name}</h1>
+        </div>
+
+        <p className="text-sm text-gray-500 mb-5">
+          ¿Qué tenés en {selected?.name}? Podés configurarlo ahora o agregar todo después.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Sub-cuentas
+            </p>
+            <div className="flex gap-2">
+              {[
+                { id: "pesos", label: "Cuenta en pesos", value: bankSubPesos, set: setBankSubPesos },
+                { id: "dolares", label: "Cuenta en dólares", value: bankSubDolares, set: setBankSubDolares },
+              ].map(({ id, label, value, set }) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => set((v) => !v)}
+                  className={`flex-1 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                    value
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+              Tarjetas de crédito
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {CREDIT_CARDS.map((card) => (
+                <button
+                  key={card.id}
+                  type="button"
+                  onClick={() =>
+                    setBankCards((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(card.id)) next.delete(card.id);
+                      else next.add(card.id);
+                      return next;
+                    })
+                  }
+                  className={`px-4 py-2.5 rounded-xl text-sm font-medium border transition-colors ${
+                    bankCards.has(card.id)
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+                  }`}
+                >
+                  {card.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2 mt-4">{error}</p>
+        )}
+
+        <div className="space-y-3 mt-6">
+          <button
+            type="button"
+            onClick={handleSubmitFromBankConfig}
+            disabled={loading}
+            className="w-full bg-gray-900 text-white rounded-xl py-3 text-sm font-medium hover:bg-gray-700 disabled:opacity-40 transition-colors"
+          >
+            {loading
+              ? "Guardando..."
+              : bankSubPesos || bankSubDolares || bankCards.size > 0
+              ? `Guardar ${selected?.name} con ${bankSubPesos && bankSubDolares ? "2 sub-cuentas" : bankSubPesos ? "Pesos" : bankSubDolares ? "Dólares" : ""}${(bankSubPesos || bankSubDolares) && bankCards.size > 0 ? " + " : ""}${bankCards.size > 0 ? `${bankCards.size} tarjeta${bankCards.size !== 1 ? "s" : ""}` : ""}`
+              : `Agregar solo ${selected?.name}`}
+          </button>
+          <button
+            type="button"
+            onClick={() => setStep("mode")}
+            className="w-full text-center text-sm text-gray-500 hover:text-gray-900 transition-colors py-2"
+          >
+            Configurar con bolsillos personalizados →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── STEP: mode ────────────────────────────────────────────────────────────────
+  if (step === "mode") {
+    return (
+      <div className="p-4 max-w-lg mx-auto">
+        <div className="flex items-center gap-3 pt-2 mb-6">
+          <button
+            onClick={() => setStep(selected?.group === "banco" ? "bank_config" : "pick")}
             className="text-gray-400 hover:text-gray-900 transition-colors"
           >
             ← Volver
@@ -424,6 +588,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     );
   }
 
+  // ── STEP: bolsillos ───────────────────────────────────────────────────────────
   if (step === "bolsillos") {
     return (
       <div className="p-4 max-w-lg mx-auto">
@@ -555,6 +720,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     );
   }
 
+  // ── STEP: form ────────────────────────────────────────────────────────────────
   if (step === "form") {
     return (
       <div className="p-4 max-w-lg mx-auto">
@@ -723,6 +889,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     );
   }
 
+  // ── STEP: pick ────────────────────────────────────────────────────────────────
   return (
     <div className="p-4 max-w-lg mx-auto space-y-6">
       <div className="flex items-center gap-3 pt-2">

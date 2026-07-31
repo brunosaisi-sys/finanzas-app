@@ -73,6 +73,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión J** (commit 44a4019): distribución rediseñada — vista unificada, toggle `$/%` en 50/30/20, sinAsignar live en header, distribución parcial válida, botón "Saltear", "Solo registrar" en IncomeForm, sección teórica colapsable, banner dashboard N=7d.
 - **Sesión K** (commit pendiente): borrado forzado de cuentas (migración 019), /ingresos list + /ingresos/[id]/editar, fix redondeo sinAsignar (-$1 bug), metas en otra moneda interactuables, toggle $/% + saldo manual en fondo emergencia, categorías custom en 50/30/20, sesiones N+O documentadas.
 - **Sesión L** (commit pendiente — agrupa K+L): T1: root cause force_delete FK en account_transfers (NOT NULL, no se puede NULLear; FIX: DELETE en migración 019 — **PENDIENTE re-ejecución en Supabase**); T2: reversión distribuida incompleta — income_distribution_lines es tabla de reglas (no historial), Capa 4 no almacena por ingreso → stop, no se implementa reversión parcial; T3: delete de ingresos funcionaba, bug era timing de compilación dev; T4: toggle $/% en metas de ahorro (base = incomeAmount; pct se inicializa desde monto al cambiar de modo); T5: conversión MEP para metas en otra moneda (tipo MEP manual editable, toggle {otherCurrency}|{incomeCurrency} por meta, importe derivado calculado en tiempo de submit — no almacenado en estado); `src/lib/finance/mep.ts` creado (convertViaMep pura, sin hardcode de tasa).
+- **Sesión M** (commit pendiente): rediseño wizard de alta de cuentas — tarjetas de crédito salen del nivel 1; bancos tienen nuevo paso `bank_config` ("¿Qué tenés en [Banco]?") con chips opcionales para sub-cuentas (Pesos/Dólares) y tarjetas (Visa/MC/Amex/Naranja); al confirmar se crea el banco como contenedor padre con los hijos seleccionados usando `parent_id`; `AccountsOnboarding` (primera carga, solo visible con 0 cuentas) también actualizado con sub-panel expandible por banco seleccionado; billeteras/brokers/efectivo/USD siguen igual (sin bank_config); 15/15 tests Playwright verdes; tsc limpio; 49/49 tests unitarios verdes.
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -272,10 +273,25 @@ Migraciones ejecutadas:
   `updateHoldingPrice` server action + `router.refresh()`
 - `inversiones/actions.ts` — `updateHoldingPrice(holdingId, price)` server action con RLS
   (`eq("user_id", user.id)`)
-- `src/lib/institutions.ts` — grupo `"credito"` + 4 instituciones (Visa, Mastercard, Amex,
-  Naranja), `dbType: "credito"`, `defaultCurrency: "ARS"`. Bug B3 corregido en
-  `NuevaCuentaForm.tsx`: crédito salta el step "mode" y va directo al form, así
-  closing_day/due_day siempre se muestran (el step "bolsillos" no tenía esos campos)
+- `src/lib/institutions.ts` — `INSTITUTIONS` (array completo), `INSTITUTION_GROUPS` (grupos
+  visibles en el picker — excluye "credito" desde Sesión M), `CREDIT_CARDS` (marcas de
+  tarjeta: Visa, Mastercard, Amex, Naranja — usadas solo como hijas de bancos en bank_config).
+  Bug B3 corregido en `NuevaCuentaForm.tsx`: crédito salta el step "mode" y va directo al
+  form, así closing_day/due_day siempre se muestran (el step "bolsillos" no tenía esos campos)
+- **Flujos de alta de cuentas (dos caminos, distintos propósitos):**
+  1. **`AccountsOnboarding`** (`/cuentas/_components/AccountsOnboarding.tsx`): wizard de primera
+     carga, visible SOLO cuando el usuario tiene 0 cuentas. Multi-selección masiva. Bancos
+     tienen sub-panel opcional para agregar Pesos/Dólares y tarjetas de crédito asociadas.
+     Crea todo en una secuencia de inserts (padre primero, hijos después). Sin RPC — no mueve
+     dinero, por lo que 2 roundtrips al cliente son aceptables.
+  2. **`NuevaCuentaForm`** (`/cuentas/nueva`): alta individual, siempre disponible via "+ Agregar".
+     Flujo: `pick` → `bank_config` (solo bancos) → submit ó `mode` → `form`/`bolsillos`.
+     Crédito: pick → form (tiene closing/due day y "Banco asociado" para parent_id).
+     Cuenta personalizada: pick → mode → form/bolsillos (sin bank_config).
+  3. **`AddChildInline`** (en CuentasTree): alta cotidiana inline de bolsillos en cuentas
+     existentes. Usa `convertAccountToParent` (primera subdivisión, RPC atómica) o
+     `createChildAccount` (subdivisiones adicionales, INSERT heredando el tipo del padre).
+     No puede crear hijos tipo=credito (hereda el tipo del padre).
 - `inversiones/_components/FciRatesSection.tsx` — `FciRateCell` (async SC: fetch TNA por
   holding, fallback HoldingPriceEdit) + `FciPortfolioSummary` (totales portfolio); ambos
   envueltos en `<Suspense>` desde la page; elimina bloqueo de 4 fetches externos al render
