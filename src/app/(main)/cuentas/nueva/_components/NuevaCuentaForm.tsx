@@ -337,7 +337,8 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     router.push("/cuentas");
   }
 
-  // Paso bank_config: crea el banco con sub-cuentas y tarjetas opcionales
+  // Paso bank_config: crea el banco con sub-cuentas y tarjetas en una sola transacción atómica.
+  // Si hay hijos usa RPC create_account_with_children (rollback total si falla).
   async function handleSubmitFromBankConfig() {
     setError(null);
     setLoading(true);
@@ -349,7 +350,7 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     const hasSubs = bankSubPesos || bankSubDolares || bankCards.size > 0;
 
     if (!hasSubs) {
-      // Sin sub-selección: banco simple (hoja)
+      // Sin sub-selección: banco simple (hoja), un solo insert
       const { error } = await supabase.from("accounts").insert({
         user_id: user.id,
         name: name.trim(),
@@ -363,39 +364,21 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
       return;
     }
 
-    // Con sub-selección: crear padre, luego hijos
-    const { data: parentRow, error: parentError } = await supabase
-      .from("accounts")
-      .insert({
-        user_id: user.id,
-        name: name.trim(),
-        type,
-        currency,
-        balance: 0,
-      })
-      .select("id")
-      .single();
-
-    if (parentError || !parentRow) {
-      setError(parentError?.message ?? "No se pudo crear la cuenta");
-      setLoading(false);
-      return;
-    }
-
-    const children: Array<{ name: string; type: string; currency: string; balance: number }> = [];
-    if (bankSubPesos) children.push({ name: "Pesos", type: "banco", currency: "ARS", balance: 0 });
-    if (bankSubDolares) children.push({ name: "Dólares", type: "banco", currency: "USD", balance: 0 });
+    const children: Array<{ name: string; type: string; currency: string; balance: number; earns_yield: boolean }> = [];
+    if (bankSubPesos) children.push({ name: "Pesos", type: "banco", currency: "ARS", balance: 0, earns_yield: false });
+    if (bankSubDolares) children.push({ name: "Dólares", type: "banco", currency: "USD", balance: 0, earns_yield: false });
     for (const cardId of bankCards) {
       const card = CREDIT_CARDS.find((c) => c.id === cardId);
-      if (card) children.push({ name: card.name, type: "credito", currency: "ARS", balance: 0 });
+      if (card) children.push({ name: card.name, type: "credito", currency: "ARS", balance: 0, earns_yield: false });
     }
 
-    const { error: childError } = await supabase.from("accounts").insert(
-      children.map((c) => ({ ...c, user_id: user.id, parent_id: parentRow.id }))
-    );
+    const { error } = await supabase.rpc("create_account_with_children", {
+      p_parent: { name: name.trim(), type, currency, balance: 0, earns_yield: false },
+      p_children: children,
+    });
 
     setLoading(false);
-    if (childError) { setError(childError.message); return; }
+    if (error) { setError(error.message); return; }
     router.push("/cuentas");
   }
 
@@ -410,38 +393,21 @@ function InstitutionFlow({ bankAccounts }: { bankAccounts: { id: string; name: s
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setError("Sesión expirada. Recargá la página."); setLoading(false); return; }
 
-    const { data: parentRow, error: parentError } = await supabase
-      .from("accounts")
-      .insert({
-        user_id: user.id,
-        name: containerName.trim(),
-        type,
-        currency,
-        balance: 0,
-      })
-      .select("id")
-      .single();
-
-    if (parentError || !parentRow) {
-      setLoading(false);
-      setError(parentError?.message ?? "No se pudo crear la cuenta");
-      return;
-    }
-
-    const { error: childrenError } = await supabase.from("accounts").insert(
-      validBolsillos.map((b) => ({
-        user_id: user.id,
+    // RPC atómica: padre + todos los hijos en una sola transacción.
+    // Rollback total si cualquier insert falla.
+    const { error } = await supabase.rpc("create_account_with_children", {
+      p_parent: { name: containerName.trim(), type, currency, balance: 0, earns_yield: false },
+      p_children: validBolsillos.map((b) => ({
         name: b.label.trim(),
         type,
         currency: b.currency,
         balance: parseFloat(b.balance) || 0,
         earns_yield: b.earns_yield,
-        parent_id: parentRow.id,
-      }))
-    );
+      })),
+    });
 
     setLoading(false);
-    if (childrenError) { setError(childrenError.message); return; }
+    if (error) { setError(error.message); return; }
     router.push("/cuentas");
   }
 

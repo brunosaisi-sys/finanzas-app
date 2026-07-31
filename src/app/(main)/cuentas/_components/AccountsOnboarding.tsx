@@ -104,39 +104,22 @@ export default function AccountsOnboarding() {
       if (flatError) { setError(flatError.message); setLoading(false); return; }
     }
 
-    // 2. Bancos configurados: crear padre primero, luego hijos
+    // 2. Bancos configurados: RPC atómica padre + hijos (rollback total si falla alguno)
     for (const bank of configuredBanks) {
-      const { data: parentRow, error: parentError } = await supabase
-        .from("accounts")
-        .insert({
-          user_id: user.id,
-          name: bank.name,
-          type: bank.dbType,
-          currency: bank.defaultCurrency,
-          balance: 0,
-        })
-        .select("id")
-        .single();
-
-      if (parentError || !parentRow) {
-        setError(parentError?.message ?? "No se pudo crear el banco");
-        setLoading(false);
-        return;
-      }
-
       const sub = bankSubs.get(bank.id)!;
-      const children: Array<{ name: string; type: string; currency: string; balance: number }> = [];
-      if (sub.pesos) children.push({ name: "Pesos", type: "banco", currency: "ARS", balance: 0 });
-      if (sub.dolares) children.push({ name: "Dólares", type: "banco", currency: "USD", balance: 0 });
+      const children: Array<{ name: string; type: string; currency: string; balance: number; earns_yield: boolean }> = [];
+      if (sub.pesos) children.push({ name: "Pesos", type: "banco", currency: "ARS", balance: 0, earns_yield: false });
+      if (sub.dolares) children.push({ name: "Dólares", type: "banco", currency: "USD", balance: 0, earns_yield: false });
       for (const cardId of sub.cards) {
         const card = CREDIT_CARDS.find((c) => c.id === cardId);
-        if (card) children.push({ name: card.name, type: "credito", currency: "ARS", balance: 0 });
+        if (card) children.push({ name: card.name, type: "credito", currency: "ARS", balance: 0, earns_yield: false });
       }
 
-      const { error: childError } = await supabase.from("accounts").insert(
-        children.map((c) => ({ ...c, user_id: user.id, parent_id: parentRow.id }))
-      );
-      if (childError) { setError(childError.message); setLoading(false); return; }
+      const { error: rpcError } = await supabase.rpc("create_account_with_children", {
+        p_parent: { name: bank.name, type: bank.dbType, currency: bank.defaultCurrency, balance: 0, earns_yield: false },
+        p_children: children,
+      });
+      if (rpcError) { setError(rpcError.message); setLoading(false); return; }
     }
 
     setLoading(false);

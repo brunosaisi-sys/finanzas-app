@@ -54,10 +54,7 @@ de cierre o vencimiento de cualquier tarjeta activa.
   (b) cómo tratar gastos irregulares vs. recurrentes, (c) fuente teórica del método de
   cálculo — NO inventar fórmula de "recomendación" sin research previo con fuentes.
 
-- **Sesión O — Vista unificada de Movimientos:** pantalla nueva que muestre gastos e
-  ingresos juntos en orden cronológico, con edición desde ahí. Evaluar si reemplaza o
-  complementa `/gastos` existente. Decidir antes: ¿filtros por tipo/cuenta/período?
-  ¿Paginación o infinite scroll? ¿Requiere migración para indexar por fecha cross-tabla?
+- **Sesión O — Vista unificada de Movimientos:** ✅ IMPLEMENTADA como Sesión N (ver abajo).
 
 ### Sesiones cerradas
 
@@ -74,6 +71,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión K** (commit pendiente): borrado forzado de cuentas (migración 019), /ingresos list + /ingresos/[id]/editar, fix redondeo sinAsignar (-$1 bug), metas en otra moneda interactuables, toggle $/% + saldo manual en fondo emergencia, categorías custom en 50/30/20, sesiones N+O documentadas.
 - **Sesión L** (commit pendiente — agrupa K+L): T1: root cause force_delete FK en account_transfers (NOT NULL, no se puede NULLear; FIX: DELETE en migración 019 — **PENDIENTE re-ejecución en Supabase**); T2: reversión distribuida incompleta — income_distribution_lines es tabla de reglas (no historial), Capa 4 no almacena por ingreso → stop, no se implementa reversión parcial; T3: delete de ingresos funcionaba, bug era timing de compilación dev; T4: toggle $/% en metas de ahorro (base = incomeAmount; pct se inicializa desde monto al cambiar de modo); T5: conversión MEP para metas en otra moneda (tipo MEP manual editable, toggle {otherCurrency}|{incomeCurrency} por meta, importe derivado calculado en tiempo de submit — no almacenado en estado); `src/lib/finance/mep.ts` creado (convertViaMep pura, sin hardcode de tasa).
 - **Sesión M** (commit pendiente): rediseño wizard de alta de cuentas — tarjetas de crédito salen del nivel 1; bancos tienen nuevo paso `bank_config` ("¿Qué tenés en [Banco]?") con chips opcionales para sub-cuentas (Pesos/Dólares) y tarjetas (Visa/MC/Amex/Naranja); al confirmar se crea el banco como contenedor padre con los hijos seleccionados usando `parent_id`; `AccountsOnboarding` (primera carga, solo visible con 0 cuentas) también actualizado con sub-panel expandible por banco seleccionado; billeteras/brokers/efectivo/USD siguen igual (sin bank_config); 15/15 tests Playwright verdes; tsc limpio; 49/49 tests unitarios verdes.
+- **Sesión N** (commit pendiente — agrupa M+N): T1: RPC atómica `create_account_with_children` (migración 020, ✅ ejecutada en Supabase) — reemplaza los 2 inserts sueltos en `handleSubmitFromBankConfig`, `handleSubmitBolsillos`, y `AccountsOnboarding`; rollback total si falla cualquier hijo, earns_yield=false explícito en todos los hijos del wizard; T2: Vista `/movimientos` nueva — lista unificada gastos+ingresos cronológica con filtro por mes, cards de resumen, signos +/−, indicadores de color; BottomNav tab "Gastos" reemplazado por "Movimientos" (href=/movimientos); `/gastos` e `/ingresos` siguen accesibles via links internos y acciones rápidas; tsc limpio, 49/49 tests verdes. **QA pendiente**: `qa-sesion-n.mjs` implementado pero requiere completar (`getToken` funciona, faltó correr tests finales por corte de sesión).
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;

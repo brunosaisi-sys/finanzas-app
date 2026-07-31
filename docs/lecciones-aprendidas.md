@@ -225,3 +225,37 @@ seguido de `waitForLoadState("networkidle")` antes del chequeo. El reload garant
 DOM refleja el estado real de la DB, sin depender del timing de React.
 Alternativa: `page.waitForSelector(':text-is("X")', { state: "detached", timeout: 8000 })`,
 pero el goto es más simple y robusto.
+
+---
+
+## 14. Padre+hijos — siempre RPC atómica, nunca inserts sueltos
+
+**Qué pasó:** `handleSubmitFromBankConfig` y `handleSubmitBolsillos` creaban el padre con un
+INSERT y los hijos con otro INSERT separado. Si el segundo fallaba, quedaba un padre huérfano
+en la DB sin hijos y sin rollback.
+
+**Por qué:** Los inserts sueltos desde el cliente no son atómicos. Cada roundtrip es una
+transacción independiente. Si el segundo falla (RLS, CHECK, red), el primero ya committeó.
+
+**Qué hacer:** Siempre usar una RPC PL/pgSQL en una sola función para operaciones que
+crean padre + hijos. La función `create_account_with_children` (migración 020) es el patrón
+correcto: un `BEGIN` implícito de PL/pgSQL envuelve todos los INSERTs; cualquier error hace
+rollback total. Extensible: agregar `closing_day`/`due_day`/`earns_yield` al JSONB del hijo.
+
+---
+
+## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
+
+**Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`
+con `createBrowserClient` almacena la sesión en cookies HttpOnly, no en localStorage.
+
+**Por qué:** `@supabase/ssr` está diseñado para SSR: las cookies permiten que el servidor
+también lea la sesión. El resultado es que `Object.keys(localStorage)` no devuelve ninguna
+clave relacionada con auth.
+
+**Qué hacer en scripts de QA:**
+1. Usar `page.context().cookies()` de Playwright para leer las cookies desde Node.js.
+2. El nombre de la cookie es `sb-<project_ref>-auth-token`. El valor tiene prefijo `base64-` seguido del JSON base64-encoded.
+3. Para decodificar: `Buffer.from(val.slice(7), "base64").toString("utf8")` → JSON con `access_token`.
+4. Hacer los fetch a la API de Supabase directamente desde Node.js (no desde `page.evaluate`), pasando el token como header.
+5. El user_id se extrae del JWT payload: `JSON.parse(Buffer.from(token.split(".")[1], "base64").toString("utf8")).sub`.
