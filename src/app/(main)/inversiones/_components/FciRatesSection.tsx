@@ -1,50 +1,11 @@
 import { formatCurrency } from "@/lib/format";
+import { fetchAllFCIRates, matchFCIRate } from "@/lib/fciRates";
 import HoldingPriceEdit from "./HoldingPriceEdit";
-import type { Holding } from "@/types";
+import type { Holding, Currency } from "@/types";
 
 type HoldingRow = Holding & { accounts: { name: string } | null };
-type FciFondo = { fondo: string; tna: number; fecha: string };
 
-async function fetchAllFCIRates(): Promise<Map<string, { tna: number; fecha: string }>> {
-  const cats = ["mercadoDinero", "rentaFija", "rentaVariable", "rentaMixta"];
-  const map = new Map<string, { tna: number; fecha: string }>();
-
-  await Promise.allSettled(
-    cats.map(async (cat) => {
-      try {
-        const res = await fetch(
-          `https://api.argentinadatos.com/v1/finanzas/fci/${cat}/ultimo`,
-          { next: { revalidate: 21600 } }
-        );
-        if (!res.ok) return;
-        const data: FciFondo[] = await res.json();
-        for (const f of data) {
-          map.set(f.fondo.toLowerCase(), { tna: f.tna, fecha: f.fecha });
-        }
-      } catch {
-        // silent fail per category
-      }
-    })
-  );
-
-  return map;
-}
-
-function matchFCIRate(
-  holding: HoldingRow,
-  rates: Map<string, { tna: number; fecha: string }>
-): { tna: number; fecha: string } | null {
-  if (holding.asset_type !== "fci") return null;
-  const needle = (holding.ticker ?? holding.name).toLowerCase();
-  if (rates.has(needle)) return rates.get(needle)!;
-  const words = needle.split(/\s+/).filter((w) => w.length > 3);
-  for (const [key, val] of rates) {
-    if (words.length > 0 && words.some((w) => key.includes(w))) return val;
-  }
-  return null;
-}
-
-// Renders TNA badge + fallback price edit for a single holding.
+// Renders VCP badge + fallback price edit for a single holding.
 // Called after FCI rates are fetched; wrapped in Suspense by parent.
 export async function FciRateCell({ holding }: { holding: HoldingRow }) {
   const fciRates = await fetchAllFCIRates();
@@ -53,7 +14,7 @@ export async function FciRateCell({ holding }: { holding: HoldingRow }) {
   if (fciRate) {
     return (
       <p className="text-xs font-medium text-indigo-700 mt-0.5">
-        {fciRate.tna.toFixed(1)}% TNA
+        VCP {formatCurrency(fciRate.vcp, holding.currency as Currency)}
         <span className="text-gray-400 font-normal ml-1">
           ·{" "}
           {new Date(fciRate.fecha).toLocaleDateString("es-AR", {
@@ -74,13 +35,12 @@ export async function FciRateCell({ holding }: { holding: HoldingRow }) {
   );
 }
 
-// Resumen del portafolio con TNA — also async so it doesn't block holdings list.
+// Resumen del portafolio — usa current_price ya guardado en DB (actualizado por auto-sync).
 export async function FciPortfolioSummary({
   holdings,
 }: {
   holdings: HoldingRow[];
 }) {
-  // Portfolio summary only uses current_price already stored in DB — no external fetch.
   const withPrice = holdings.filter((h) => h.current_price != null);
   const totalValueARS = withPrice
     .filter((h) => h.currency === "ARS")

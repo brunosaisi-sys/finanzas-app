@@ -305,6 +305,47 @@ export async function forceDeleteAccount(
   return {};
 }
 
+// ─── Holding link / unlink ────────────────────────────────────────────────────
+// Migración 021: vincula/desvincula una cuenta a un holding FCI.
+// Al vincular, sincroniza accounts.balance = holding.quantity × current_price (si hay precio).
+// Al desvincular, el balance queda sin cambios (el último valor sincronizado).
+
+export async function linkHoldingToAccount(
+  accountId: string,
+  holdingId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("link_and_sync_holding", {
+    p_account_id: accountId,
+    p_holding_id: holdingId,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}
+
+export async function unlinkHoldingFromAccount(
+  accountId: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("unlink_holding_from_account", {
+    p_account_id: accountId,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}
+
 export async function createTransfer(input: {
   from_account_id: string;
   to_account_id: string;

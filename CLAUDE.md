@@ -71,7 +71,26 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión K** (commit pendiente): borrado forzado de cuentas (migración 019), /ingresos list + /ingresos/[id]/editar, fix redondeo sinAsignar (-$1 bug), metas en otra moneda interactuables, toggle $/% + saldo manual en fondo emergencia, categorías custom en 50/30/20, sesiones N+O documentadas.
 - **Sesión L** (commit pendiente — agrupa K+L): T1: root cause force_delete FK en account_transfers (NOT NULL, no se puede NULLear; FIX: DELETE en migración 019 — **PENDIENTE re-ejecución en Supabase**); T2: reversión distribuida incompleta — income_distribution_lines es tabla de reglas (no historial), Capa 4 no almacena por ingreso → stop, no se implementa reversión parcial; T3: delete de ingresos funcionaba, bug era timing de compilación dev; T4: toggle $/% en metas de ahorro (base = incomeAmount; pct se inicializa desde monto al cambiar de modo); T5: conversión MEP para metas en otra moneda (tipo MEP manual editable, toggle {otherCurrency}|{incomeCurrency} por meta, importe derivado calculado en tiempo de submit — no almacenado en estado); `src/lib/finance/mep.ts` creado (convertViaMep pura, sin hardcode de tasa).
 - **Sesión M** (commit pendiente): rediseño wizard de alta de cuentas — tarjetas de crédito salen del nivel 1; bancos tienen nuevo paso `bank_config` ("¿Qué tenés en [Banco]?") con chips opcionales para sub-cuentas (Pesos/Dólares) y tarjetas (Visa/MC/Amex/Naranja); al confirmar se crea el banco como contenedor padre con los hijos seleccionados usando `parent_id`; `AccountsOnboarding` (primera carga, solo visible con 0 cuentas) también actualizado con sub-panel expandible por banco seleccionado; billeteras/brokers/efectivo/USD siguen igual (sin bank_config); 15/15 tests Playwright verdes; tsc limpio; 49/49 tests unitarios verdes.
+- **Sesión J.1 — FCI vinculado a cuentas (commit pendiente):** B-sync implementado —
+  migración 021 ejecutada en Supabase (accounts.holding_id + 3 RPCs SECURITY INVOKER:
+  `sync_holding_balance`, `link_and_sync_holding`, `unlink_holding_from_account`);
+  `src/lib/fciRates.ts` con `fetchAllFCIRates`/`matchFCIRate` (usa VCP, no TNA — fix bug);
+  `FciRatesSection.tsx` corregido (mostraba TNA inexistente, ahora muestra VCP);
+  `inversiones/actions.ts` → `updateHoldingPrice` usa RPC atómica;
+  `cuentas/actions.ts` → `linkHoldingToAccount` + `unlinkHoldingFromAccount`;
+  `CuentaActions.tsx` → UI de vinculación holding en modo edición (earns_yield=true);
+  `CuentasTree.tsx` + `cuentas/page.tsx` → pasan `fciHoldings` y `holding_id` al árbol.
+  tsc limpio, 49/49 tests verdes. Sin push. PENDIENTE: auto-sync VCN en page load (ver
+  "Sesión J.1.5") y tests E2E del flujo completo. Earmark RPCs: ninguno tocado.
+
 - **Sesión N** (commit pendiente — agrupa M+N): T1: RPC atómica `create_account_with_children` (migración 020, ✅ ejecutada en Supabase) — reemplaza los 2 inserts sueltos en `handleSubmitFromBankConfig`, `handleSubmitBolsillos`, y `AccountsOnboarding`; rollback total si falla cualquier hijo, earns_yield=false explícito en todos los hijos del wizard; T2: Vista `/movimientos` nueva — lista unificada gastos+ingresos cronológica con filtro por mes, cards de resumen, signos +/−, indicadores de color; BottomNav tab "Gastos" reemplazado por "Movimientos" (href=/movimientos); `/gastos` e `/ingresos` siguen accesibles via links internos y acciones rápidas; tsc limpio, 49/49 tests verdes. **QA verificado con evidencia real** (Sesión N.2, 23/23 Playwright): T1-RPC-a BBVA+Pesos+Visa creados en DB vía RPC; T1-RPC-b earns_yield=false confirmado en DB; T1-RPC-c rollback confirmado (HTTP 400, padre AtomicTest99 no quedó en DB); T2 /movimientos completo — gasto/ingreso aparecen, signos +/−, filtro mes, links edición funcionan. Token obtenido via POST /auth/v1/token (no cookies — ver lección 16).
+
+- **Sesión J.1.5 — Auto-sync VCN en page load (PENDIENTE):** TAREA 3 del diseño B-sync
+  no implementada: en la carga de `/cuentas` e `/inversiones`, para cuentas con `holding_id`
+  y holdings tipo FCI, fetchear VCN del feed de ArgentinaDatos y llamar `sync_holding_balance`
+  si difiere del precio almacenado. Implementar en la próxima sesión de inversiones.
+  También pendiente: tests E2E del flujo completo (vincular holding → VCN actualiza saldo →
+  earmarks siguen igual). Ver TAREA 3 en `docs/diseno-fondos-rendimiento.md`.
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -365,6 +384,8 @@ page.locator("input[type='number'][min='1'][max='48']")
 - `018_earns_yield.sql` — ✅ EJECUTADA. Columna `earns_yield BOOLEAN NOT NULL DEFAULT false` en `accounts`. Cocos Capital tiene earns_yield=true (seteado desde UI).
 
 - `019` — (archivo en repo: `019_force_delete_account.sql`; **PENDIENTE DE RE-EJECUCIÓN en Supabase — RPC actualizada**) RPC `force_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: elimina una cuenta aunque tenga dependencias activas; libera y borra todos sus earmarks; NULLea referencias en expenses/incomes/savings_goals/savings_contributions/assets/income_distribution_lines; **DELETE de account_transfers** (from_account_id OR to_account_id — NOT NULL, no se puede NULLear, raíz del bug T1 Sesión L); bloquea solo si tiene subcuentas. Invocado desde `CuentaActions` vía `forceDeleteAccount` server action, como segunda confirmación después de ver la lista de deps. **⚠ Ejecutar `CREATE OR REPLACE FUNCTION force_delete_account...` en Supabase SQL Editor para aplicar el fix de account_transfers.**
+
+- `021` — (archivo en repo: `021_account_holding_link.sql`; **EJECUTADA en Supabase**) Columna `holding_id UUID REFERENCES holdings(id) ON DELETE SET NULL` en `accounts`; índice `idx_accounts_holding_id`; RPC `sync_holding_balance(p_holding_id, p_new_price)` — actualiza `holdings.current_price` Y `accounts.balance = quantity × new_price` atomicamente (SECURITY INVOKER); RPC `link_and_sync_holding(p_account_id, p_holding_id)` — vincula cuenta a holding y sincroniza balance si tiene precio; RPC `unlink_holding_from_account(p_account_id)` — desvincula (balance queda sin cambio).
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 

@@ -244,6 +244,16 @@ rollback total. Extensible: agregar `closing_day`/`due_day`/`earns_yield` al JSO
 
 ---
 
+## 17. ArgentinaDatos FCI — el campo es `vcp`, no `tna`
+
+**Qué pasó:** El tipo `FciFondo` en el código estaba definido como `{ fondo: string; tna: number; fecha: string }` pero la API de ArgentinaDatos retorna `{ fondo, horizonte, fecha, vcp, ccp, patrimonio }`. El campo `tna` NO existe en la respuesta.
+
+**Por qué:** La API cambió de formato (o el código nunca fue correcto). El resultado era que `FciRateCell` mostraba `HoldingPriceEdit` como fallback para todos los FCI (el matching fuzzy retornaba una entrada con `tna: undefined`, y `undefined.toFixed(1)` podría crashear si había match).
+
+**Qué hacer:** Usar `vcp` (Valor de Cuotaparte) para el valor de cada cuotaparte. `tna` ya no existe en el feed. Ver `src/lib/fciRates.ts` para el tipo correcto.
+
+---
+
 ## 16. Scripts de QA — token via Supabase Auth API, no cookies del browser
 
 **Qué pasó:** Los scripts de QA intentaban extraer el token de sesión de las cookies del browser tras el login con Playwright. La cookie `sb-<ref>-auth-token` tiene formato `base64-{JSON base64url}` y el parsing falló repetidamente en distintas sesiones.

@@ -17,6 +17,9 @@ export interface Account {
   // Flag manual: ¿esta cuenta genera rendimiento y puede ser destino de cobertura?
   // undefined antes de migración 018; false por default después.
   earns_yield?: boolean;
+  // Vínculo a un holding FCI (migración 021). Cuando está seteado, balance se
+  // sincroniza con holding.quantity × holding.current_price vía sync_holding_balance.
+  holding_id?: string | null;
   created_at: string;
 }
 

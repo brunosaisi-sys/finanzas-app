@@ -2,6 +2,8 @@
 
 import { createClient } from "@/lib/supabase/server";
 
+// Actualiza holding.current_price y sincroniza accounts.balance de la cuenta vinculada
+// (si tiene holding_id = holdingId). Atómico vía RPC sync_holding_balance (migración 021).
 export async function updateHoldingPrice(
   holdingId: string,
   price: number
@@ -12,11 +14,10 @@ export async function updateHoldingPrice(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  const { error } = await supabase
-    .from("holdings")
-    .update({ current_price: price })
-    .eq("id", holdingId)
-    .eq("user_id", user.id);
+  const { error } = await supabase.rpc("sync_holding_balance", {
+    p_holding_id: holdingId,
+    p_new_price: price,
+  });
 
   if (error) return { error: error.message };
   return {};

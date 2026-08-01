@@ -17,6 +17,7 @@ export default async function CuentasPage() {
     { data: accountsData },
     { data: earmarksData },
     { data: expenseDepsData },
+    { data: fciHoldingsData },
   ] = await Promise.all([
     supabase.from("accounts").select("*").order("created_at"),
     supabase
@@ -26,6 +27,12 @@ export default async function CuentasPage() {
     supabase
       .from("expenses")
       .select("account_id, covering_account_id, funding_account_id"),
+    // Fetch FCI holdings for the linking dropdown in CuentaActions
+    supabase
+      .from("holdings")
+      .select("id, name, ticker, asset_type")
+      .eq("asset_type", "fci")
+      .order("created_at"),
   ]);
 
   const accounts = (accountsData ?? []) as Account[];
@@ -54,7 +61,6 @@ export default async function CuentasPage() {
     }
   }
 
-  // Accounts that have expense or earmark dependencies
   const accountsWithDeps = new Set<string>();
   for (const e of expenseDepsData ?? []) {
     if (e.account_id) accountsWithDeps.add(e.account_id);
@@ -64,6 +70,17 @@ export default async function CuentasPage() {
   for (const e of earmarksData ?? []) {
     accountsWithDeps.add(e.account_id);
   }
+
+  // Build holding name map for display
+  const fciHoldingsList = (fciHoldingsData ?? []) as {
+    id: string;
+    name: string;
+    ticker: string | null;
+    asset_type: string;
+  }[];
+  const holdingNameMap = new Map(
+    fciHoldingsList.map((h) => [h.id, h.ticker ?? h.name])
+  );
 
   // Build serializable AccountNode array for the client component
   const accountNodes: AccountNode[] = accounts.map((a) => ({
@@ -78,6 +95,13 @@ export default async function CuentasPage() {
     earmarksMetas: earmarksMetasMap.get(a.id) ?? 0,
     earns_yield: a.earns_yield ?? false,
     hasExpenseDeps: accountsWithDeps.has(a.id),
+    holding_id: a.holding_id ?? null,
+    linkedHoldingName: a.holding_id ? (holdingNameMap.get(a.holding_id) ?? null) : null,
+  }));
+
+  const fciHoldings = fciHoldingsList.map((h) => ({
+    id: h.id,
+    name: h.ticker ?? h.name,
   }));
 
   return (
@@ -100,7 +124,7 @@ export default async function CuentasPage() {
         </div>
       </div>
 
-      <CuentasTree accounts={accountNodes} />
+      <CuentasTree accounts={accountNodes} fciHoldings={fciHoldings} />
 
       <div className="pb-24" />
     </div>

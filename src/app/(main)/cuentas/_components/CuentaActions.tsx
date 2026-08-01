@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { updateAccount, deleteAccount, forceDeleteAccount } from "../actions";
+import {
+  updateAccount,
+  deleteAccount,
+  forceDeleteAccount,
+  linkHoldingToAccount,
+  unlinkHoldingFromAccount,
+} from "../actions";
 import type { DepItem } from "../actions";
 import Link from "next/link";
 import type { AccountType, Currency } from "@/types";
@@ -15,6 +21,11 @@ const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
   { value: "credito", label: "Tarjeta de crédito" },
 ];
 
+export interface FciHoldingOption {
+  id: string;
+  name: string;
+}
+
 interface Props {
   accountId: string;
   accountName: string;
@@ -24,6 +35,9 @@ interface Props {
   earnsYield: boolean;
   canChangeType: boolean;
   isChild: boolean;
+  holdingId: string | null;
+  linkedHoldingName: string | null;
+  fciHoldings: FciHoldingOption[];
 }
 
 type Mode = "idle" | "edit" | "delete";
@@ -37,6 +51,9 @@ export default function CuentaActions({
   earnsYield,
   canChangeType,
   isChild,
+  holdingId,
+  linkedHoldingName,
+  fciHoldings,
 }: Props) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
@@ -44,6 +61,7 @@ export default function CuentaActions({
   const [balance, setBalance] = useState(String(currentBalance));
   const [type, setType] = useState<AccountType>(accountType);
   const [earnsYieldEdit, setEarnsYieldEdit] = useState(earnsYield);
+  const [holdingIdEdit, setHoldingIdEdit] = useState<string | null>(holdingId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteDeps, setDeleteDeps] = useState<DepItem[]>([]);
@@ -56,6 +74,7 @@ export default function CuentaActions({
     setBalance(String(currentBalance));
     setType(accountType);
     setEarnsYieldEdit(earnsYield);
+    setHoldingIdEdit(holdingId);
     setError(null);
     setMode("idle");
   }
@@ -64,6 +83,12 @@ export default function CuentaActions({
   const isCredit = type === "credito";
 
   if (mode === "edit") {
+    const holdingChanged = holdingIdEdit !== holdingId;
+    const currentHoldingName =
+      holdingIdEdit === holdingId
+        ? linkedHoldingName
+        : (fciHoldings.find((h) => h.id === holdingIdEdit)?.name ?? null);
+
     return (
       <div className="mt-2 space-y-2">
         <div className="space-y-1.5">
@@ -84,6 +109,11 @@ export default function CuentaActions({
               className="w-28 border border-gray-300 rounded-lg px-2 py-1 text-xs text-right focus:outline-none focus:ring-1 focus:ring-gray-900"
             />
             <span className="text-[10px] text-gray-400">{currency}</span>
+            {holdingIdEdit && (
+              <span className="text-[10px] text-indigo-500">
+                (se sobreescribe al sincronizar VCP)
+              </span>
+            )}
           </div>
           {typeEditable ? (
             <select
@@ -109,11 +139,66 @@ export default function CuentaActions({
               <input
                 type="checkbox"
                 checked={earnsYieldEdit}
-                onChange={(e) => setEarnsYieldEdit(e.target.checked)}
+                onChange={(e) => {
+                  setEarnsYieldEdit(e.target.checked);
+                  if (!e.target.checked) setHoldingIdEdit(null);
+                }}
                 className="rounded"
               />
               Genera rendimiento (puede recibir coberturas de gastos en cuotas)
             </label>
+          )}
+
+          {/* Sección de vinculación a holding FCI */}
+          {!isCredit && earnsYieldEdit && fciHoldings.length > 0 && (
+            <div className="pt-1 space-y-1">
+              <p className="text-[10px] text-gray-500 font-medium">
+                Posición FCI vinculada
+              </p>
+              {holdingIdEdit ? (
+                <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-2 py-1.5">
+                  <span className="text-[10px] text-indigo-700 flex-1">
+                    📈 {currentHoldingName ?? holdingIdEdit}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setHoldingIdEdit(null)}
+                    className="text-[10px] text-gray-400 hover:text-red-500 shrink-0"
+                  >
+                    Desvincular
+                  </button>
+                </div>
+              ) : (
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) setHoldingIdEdit(e.target.value);
+                  }}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900"
+                >
+                  <option value="">— Vincular a un fondo FCI —</option>
+                  {fciHoldings.map((h) => (
+                    <option key={h.id} value={h.id}>
+                      {h.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {holdingIdEdit && (
+                <p className="text-[10px] text-gray-400 leading-snug">
+                  El saldo se actualizará automáticamente cuando se sincronice el VCP del fondo.
+                </p>
+              )}
+            </div>
+          )}
+          {!isCredit && earnsYieldEdit && fciHoldings.length === 0 && (
+            <p className="text-[10px] text-gray-400">
+              No tenés posiciones FCI. Agregá una en{" "}
+              <Link href="/inversiones/nueva" className="underline">
+                /inversiones
+              </Link>{" "}
+              para vincularla.
+            </p>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -128,6 +213,8 @@ export default function CuentaActions({
               }
               setSaving(true);
               setError(null);
+
+              // 1. Actualizar nombre/saldo/tipo/earns_yield
               const result = await updateAccount(accountId, {
                 name,
                 balance: v,
@@ -137,11 +224,27 @@ export default function CuentaActions({
               if (result.error) {
                 setError(result.error);
                 setSaving(false);
-              } else {
-                setSaving(false);
-                setMode("idle");
-                router.refresh();
+                return;
               }
+
+              // 2. Manejar cambio de holding vinculado (si aplica)
+              if (!isCredit && earnsYieldEdit && holdingChanged) {
+                let linkResult: { error?: string };
+                if (holdingIdEdit) {
+                  linkResult = await linkHoldingToAccount(accountId, holdingIdEdit);
+                } else {
+                  linkResult = await unlinkHoldingFromAccount(accountId);
+                }
+                if (linkResult.error) {
+                  setError(linkResult.error);
+                  setSaving(false);
+                  return;
+                }
+              }
+
+              setSaving(false);
+              setMode("idle");
+              router.refresh();
             }}
             className="text-[11px] font-medium text-gray-900 disabled:opacity-40"
           >
@@ -227,7 +330,6 @@ export default function CuentaActions({
               )}
             </ul>
 
-            {/* Opción de borrado forzado — visible solo cuando hay deps */}
             <div className="mt-2 pt-2 border-t border-gray-100">
               {!forceConfirm ? (
                 <button
@@ -281,7 +383,7 @@ export default function CuentaActions({
   }
 
   return (
-    <div className="flex gap-3 mt-1 flex-wrap">
+    <div className="flex gap-3 mt-1 flex-wrap items-center">
       <button
         type="button"
         onClick={() => setMode("edit")}
@@ -296,6 +398,9 @@ export default function CuentaActions({
       >
         Eliminar
       </button>
+      {holdingId && (
+        <span className="text-[10px] text-indigo-500">📈 FCI</span>
+      )}
     </div>
   );
 }

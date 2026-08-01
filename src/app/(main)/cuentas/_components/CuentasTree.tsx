@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
 import CuentaActions from "./CuentaActions";
+import type { FciHoldingOption } from "./CuentaActions";
 import { convertAccountToParent, createChildAccount } from "../actions";
 import type { AccountType, Currency } from "@/types";
 
@@ -20,12 +21,15 @@ export interface AccountNode {
   earmarksCuotas: number;
   earmarksMetas: number;
   earns_yield: boolean;
-  // true si tiene gastos o earmarks activos (bloquea cambio de tipo)
   hasExpenseDeps: boolean;
+  // Migración 021: holding vinculado para sync de balance (B-sync)
+  holding_id: string | null;
+  linkedHoldingName: string | null;
 }
 
 interface Props {
   accounts: AccountNode[];
+  fciHoldings: FciHoldingOption[];
 }
 
 // ─── Tree computation helpers ─────────────────────────────────────────────────
@@ -42,7 +46,6 @@ function buildChildrenMap(accounts: AccountNode[]): Map<string, AccountNode[]> {
   return map;
 }
 
-// Suma todos los balances de descendientes hoja (excluyendo crédito de los totales).
 function getConsolidatedTotals(
   nodeId: string,
   childrenMap: Map<string, AccountNode[]>,
@@ -111,9 +114,6 @@ function DiscriminatedBalance({
 }
 
 // ─── AddChildInline ───────────────────────────────────────────────────────────
-// Patrón inline unificado para agregar subdivisiones a cualquier nivel.
-// Si la cuenta aún no tiene hijos: llama a convertAccountToParent (RPC atómica).
-// Si ya tiene hijos: llama a createChildAccount (INSERT directo).
 
 function AddChildInline({
   parentId,
@@ -242,7 +242,6 @@ function AddChildInline({
 }
 
 // ─── TreeNode ─────────────────────────────────────────────────────────────────
-// Renderiza un nodo del árbol y sus hijos de forma recursiva.
 
 function TreeNode({
   account,
@@ -252,14 +251,16 @@ function TreeNode({
   expandedIds,
   onToggle,
   onRefresh,
+  fciHoldings,
 }: {
   account: AccountNode;
-  depth: number; // 0 = institución, 1 = cuenta, 2 = subcuenta
+  depth: number;
   childrenMap: Map<string, AccountNode[]>;
   accountMap: Map<string, AccountNode>;
   expandedIds: Set<string>;
   onToggle: (id: string) => void;
   onRefresh: () => void;
+  fciHoldings: FciHoldingOption[];
 }) {
   const router = useRouter();
   const allChildren = childrenMap.get(account.id) ?? [];
@@ -269,26 +270,20 @@ function TreeNode({
   const isExpanded = expandedIds.has(account.id);
   const isChild = account.parent_id !== null;
   const canChangeType = !account.hasExpenseDeps && !isChild;
-
-  // Can this account have more subdivisions?
-  // credito accounts can't have children; all others can
   const canHaveChildren = account.type !== "credito";
 
   if (hasChildren) {
-    // Container node with children
     const consolidatedTotals = getConsolidatedTotals(
       account.id,
       childrenMap,
       accountMap
     );
-
     const indent = depth * 16;
     const headerBg =
       depth === 0 ? "bg-gray-50" : depth === 1 ? "bg-gray-50/60" : "bg-white";
 
     return (
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-        {/* Node header */}
         <div
           className={`flex items-start gap-3 px-4 py-3 ${headerBg}`}
           style={{ paddingLeft: `${16 + indent}px` }}
@@ -318,6 +313,9 @@ function TreeNode({
               earnsYield={account.earns_yield}
               canChangeType={canChangeType}
               isChild={isChild}
+              holdingId={account.holding_id}
+              linkedHoldingName={account.linkedHoldingName}
+              fciHoldings={fciHoldings}
             />
           </div>
           <div className="text-right shrink-0">
@@ -335,7 +333,6 @@ function TreeNode({
           </div>
         </div>
 
-        {/* Children */}
         {isExpanded && (
           <>
             {bolsilloChildren.map((child) => (
@@ -352,11 +349,11 @@ function TreeNode({
                   expandedIds={expandedIds}
                   onToggle={onToggle}
                   onRefresh={onRefresh}
+                  fciHoldings={fciHoldings}
                 />
               </div>
             ))}
 
-            {/* Credit card children */}
             {creditChildren.length > 0 && (
               <>
                 <div className="px-4 pt-2 pb-1 border-t border-gray-100">
@@ -374,13 +371,13 @@ function TreeNode({
                       expandedIds={expandedIds}
                       onToggle={onToggle}
                       onRefresh={onRefresh}
+                      fciHoldings={fciHoldings}
                     />
                   </div>
                 ))}
               </>
             )}
 
-            {/* Add subdivision inline */}
             {canHaveChildren && (
               <div className="px-4 pb-3 border-t border-gray-50">
                 <AddChildInline
@@ -400,12 +397,11 @@ function TreeNode({
     );
   }
 
-  // Leaf node (no children)
+  // Leaf node
   const indent = depth * 16;
   const isTopLevel = depth === 0;
 
   if (isTopLevel) {
-    // Top-level leaf: rendered as a card
     return (
       <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
         <div className="flex items-start justify-between px-4 py-3">
@@ -423,6 +419,9 @@ function TreeNode({
               earnsYield={account.earns_yield}
               canChangeType={canChangeType}
               isChild={isChild}
+              holdingId={account.holding_id}
+              linkedHoldingName={account.linkedHoldingName}
+              fciHoldings={fciHoldings}
             />
           </div>
           <DiscriminatedBalance
@@ -448,7 +447,6 @@ function TreeNode({
     );
   }
 
-  // Non-top-level leaf: rendered as a row
   return (
     <div
       className="flex items-start justify-between py-2.5 px-4"
@@ -474,6 +472,9 @@ function TreeNode({
           earnsYield={account.earns_yield}
           canChangeType={canChangeType}
           isChild={isChild}
+          holdingId={account.holding_id}
+          linkedHoldingName={account.linkedHoldingName}
+          fciHoldings={fciHoldings}
         />
         {canHaveChildren && (
           <AddChildInline
@@ -506,19 +507,16 @@ const TYPE_LABELS: Record<string, string> = {
 };
 const TYPE_ORDER = ["banco", "efectivo", "inversion", "usd_reserva"];
 
-export default function CuentasTree({ accounts }: Props) {
+export default function CuentasTree({ accounts, fciHoldings }: Props) {
   const router = useRouter();
 
   const accountMap = new Map(accounts.map((a) => [a.id, a]));
   const childrenMap = buildChildrenMap(accounts);
 
-  // All node IDs expanded by default
   const [expandedIds, setExpandedIds] = useState<Set<string>>(
     () => new Set(accounts.map((a) => a.id))
   );
 
-  // When accounts prop changes (e.g. after router.refresh()), expand any newly added accounts.
-  // This ensures containers created mid-session (convertAccountToParent) are visible immediately.
   useEffect(() => {
     setExpandedIds((prev) => {
       let changed = false;
@@ -549,10 +547,8 @@ export default function CuentasTree({ accounts }: Props) {
     router.refresh();
   }
 
-  // Root accounts (no parent_id)
   const roots = accounts.filter((a) => !a.parent_id);
 
-  // Group roots by type; credit card roots (orphan) are in their own section
   const grouped = TYPE_ORDER.map((type) => ({
     type,
     label: TYPE_LABELS[type],
@@ -579,6 +575,7 @@ export default function CuentasTree({ accounts }: Props) {
                 expandedIds={expandedIds}
                 onToggle={toggleExpand}
                 onRefresh={handleRefresh}
+                fciHoldings={fciHoldings}
               />
             ))}
           </div>
@@ -601,6 +598,7 @@ export default function CuentasTree({ accounts }: Props) {
                 expandedIds={expandedIds}
                 onToggle={toggleExpand}
                 onRefresh={handleRefresh}
+                fciHoldings={fciHoldings}
               />
             ))}
           </div>
