@@ -5,6 +5,7 @@ import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import HoldingPriceEdit from "./_components/HoldingPriceEdit";
 import { FciRateCell, FciPortfolioSummary } from "./_components/FciRatesSection";
+import { autoSyncFciHoldings } from "@/lib/fciAutoSync";
 import type { Holding } from "@/types";
 
 const ASSET_LABELS: Record<string, string> = {
@@ -33,6 +34,14 @@ export default async function InversionesPage() {
     .order("created_at", { ascending: false });
 
   const holdings = (data ?? []) as HoldingRow[];
+
+  // Auto-sync: actualiza current_price en DB si el VCP del feed difiere.
+  // El feed está cacheado 6h por Next.js — no se llama al RPC si el precio no cambió.
+  // También actualiza el array en memoria para que FciPortfolioSummary muestre valores frescos.
+  const updatedPrices = await autoSyncFciHoldings(supabase, holdings);
+  for (const h of holdings) {
+    if (updatedPrices.has(h.id)) h.current_price = updatedPrices.get(h.id)!;
+  }
 
   if (holdings.length === 0) {
     return (
@@ -124,12 +133,12 @@ export default async function InversionesPage() {
                       </p>
                     )}
 
-                    {/* FCI: TNA via Suspense — no bloquea el render de la lista */}
+                    {/* FCI: VCP via Suspense — no bloquea el render de la lista */}
                     {holding.asset_type === "fci" ? (
                       <Suspense
                         fallback={
                           <p className="text-xs text-gray-300 mt-0.5 animate-pulse">
-                            Cargando TNA…
+                            Cargando VCP…
                           </p>
                         }
                       >

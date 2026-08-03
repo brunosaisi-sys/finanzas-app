@@ -244,6 +244,17 @@ rollback total. Extensible: agregar `closing_day`/`due_day`/`earns_yield` al JSO
 
 ---
 
+## 18. PostgREST — HTTP 404 por firma incompatible ≠ función inexistente
+
+**Qué pasó:** Al verificar que los RPCs de earmark existían en Supabase (llamándolos con body `{}`),
+PostgREST devolvió HTTP 404 para todos ellos, aunque se había confirmado que funcionaban correctamente durante el mismo test.
+
+**Por qué:** PostgREST resuelve la función PL/pgSQL buscando un overload que coincida con los argumentos provistos. Si la firma no matchea (ej. `{}` cuando la función requiere `p_expense_id UUID`), devuelve HTTP 404 ("Could not find the function...") — el mismo código que si la función no existiera. No lanza 400 ni 422.
+
+**Qué hacer:** Para verificar que un RPC existe, llamarlo con argumentos válidos (aunque incorrectos) y aceptar 400/422 como "existe", rechazar solo 404. O mejor: confirmar su existencia verificando que la app lo usa en el test real (ej. `delete_expense_with_balance` retornó OK durante cleanup → existe ✅). No confiar en llamadas con `{}` como test de existencia.
+
+---
+
 ## 17. ArgentinaDatos FCI — el campo es `vcp`, no `tna`
 
 **Qué pasó:** El tipo `FciFondo` en el código estaba definido como `{ fondo: string; tna: number; fecha: string }` pero la API de ArgentinaDatos retorna `{ fondo, horizonte, fecha, vcp, ccp, patrimonio }`. El campo `tna` NO existe en la respuesta.

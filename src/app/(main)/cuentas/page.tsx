@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import AccountsOnboarding from "./_components/AccountsOnboarding";
 import CuentasTree from "./_components/CuentasTree";
+import { autoSyncFciHoldings } from "@/lib/fciAutoSync";
 import type { Account } from "@/types";
 import type { AccountNode } from "./_components/CuentasTree";
 
@@ -27,10 +28,10 @@ export default async function CuentasPage() {
     supabase
       .from("expenses")
       .select("account_id, covering_account_id, funding_account_id"),
-    // Fetch FCI holdings for the linking dropdown in CuentaActions
+    // Fetch FCI holdings — quantity+current_price usados para auto-sync de balance
     supabase
       .from("holdings")
-      .select("id, name, ticker, asset_type")
+      .select("id, name, ticker, asset_type, quantity, current_price")
       .eq("asset_type", "fci")
       .order("created_at"),
   ]);
@@ -77,27 +78,46 @@ export default async function CuentasPage() {
     name: string;
     ticker: string | null;
     asset_type: string;
+    quantity: number;
+    current_price: number | null;
   }[];
   const holdingNameMap = new Map(
     fciHoldingsList.map((h) => [h.id, h.ticker ?? h.name])
   );
 
+  // Auto-sync: si el VCP del feed difiere del current_price almacenado,
+  // llama sync_holding_balance RPC que actualiza holdings + accounts.balance de forma atómica.
+  // Throttle natural: el feed está cacheado 6h. El RPC no se llama si el precio no cambió.
+  const updatedPrices = await autoSyncFciHoldings(supabase, fciHoldingsList);
+  // Mapa quantity para calcular el nuevo saldo en memoria (evita re-fetch)
+  const holdingQuantityMap = new Map(fciHoldingsList.map((h) => [h.id, h.quantity]));
+
   // Build serializable AccountNode array for the client component
-  const accountNodes: AccountNode[] = accounts.map((a) => ({
-    id: a.id,
-    name: a.name,
-    type: a.type,
-    currency: a.currency,
-    balance: Number(a.balance),
-    parent_id: a.parent_id ?? null,
-    earmarksTotal: earmarksTotalMap.get(a.id) ?? 0,
-    earmarksCuotas: earmarksCuotasMap.get(a.id) ?? 0,
-    earmarksMetas: earmarksMetasMap.get(a.id) ?? 0,
-    earns_yield: a.earns_yield ?? false,
-    hasExpenseDeps: accountsWithDeps.has(a.id),
-    holding_id: a.holding_id ?? null,
-    linkedHoldingName: a.holding_id ? (holdingNameMap.get(a.holding_id) ?? null) : null,
-  }));
+  const accountNodes: AccountNode[] = accounts.map((a) => {
+    let balance = Number(a.balance);
+    // Corrección en memoria: si este holding fue sincronizado, aplicar el nuevo saldo
+    // sin esperar un segundo page load.
+    if (a.holding_id && updatedPrices.has(a.holding_id)) {
+      const newVcp = updatedPrices.get(a.holding_id)!;
+      const qty = holdingQuantityMap.get(a.holding_id) ?? 0;
+      balance = qty * newVcp;
+    }
+    return {
+      id: a.id,
+      name: a.name,
+      type: a.type,
+      currency: a.currency,
+      balance,
+      parent_id: a.parent_id ?? null,
+      earmarksTotal: earmarksTotalMap.get(a.id) ?? 0,
+      earmarksCuotas: earmarksCuotasMap.get(a.id) ?? 0,
+      earmarksMetas: earmarksMetasMap.get(a.id) ?? 0,
+      earns_yield: a.earns_yield ?? false,
+      hasExpenseDeps: accountsWithDeps.has(a.id),
+      holding_id: a.holding_id ?? null,
+      linkedHoldingName: a.holding_id ? (holdingNameMap.get(a.holding_id) ?? null) : null,
+    };
+  });
 
   const fciHoldings = fciHoldingsList.map((h) => ({
     id: h.id,

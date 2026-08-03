@@ -71,7 +71,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 - **Sesión K** (commit pendiente): borrado forzado de cuentas (migración 019), /ingresos list + /ingresos/[id]/editar, fix redondeo sinAsignar (-$1 bug), metas en otra moneda interactuables, toggle $/% + saldo manual en fondo emergencia, categorías custom en 50/30/20, sesiones N+O documentadas.
 - **Sesión L** (commit pendiente — agrupa K+L): T1: root cause force_delete FK en account_transfers (NOT NULL, no se puede NULLear; FIX: DELETE en migración 019 — **PENDIENTE re-ejecución en Supabase**); T2: reversión distribuida incompleta — income_distribution_lines es tabla de reglas (no historial), Capa 4 no almacena por ingreso → stop, no se implementa reversión parcial; T3: delete de ingresos funcionaba, bug era timing de compilación dev; T4: toggle $/% en metas de ahorro (base = incomeAmount; pct se inicializa desde monto al cambiar de modo); T5: conversión MEP para metas en otra moneda (tipo MEP manual editable, toggle {otherCurrency}|{incomeCurrency} por meta, importe derivado calculado en tiempo de submit — no almacenado en estado); `src/lib/finance/mep.ts` creado (convertViaMep pura, sin hardcode de tasa).
 - **Sesión M** (commit pendiente): rediseño wizard de alta de cuentas — tarjetas de crédito salen del nivel 1; bancos tienen nuevo paso `bank_config` ("¿Qué tenés en [Banco]?") con chips opcionales para sub-cuentas (Pesos/Dólares) y tarjetas (Visa/MC/Amex/Naranja); al confirmar se crea el banco como contenedor padre con los hijos seleccionados usando `parent_id`; `AccountsOnboarding` (primera carga, solo visible con 0 cuentas) también actualizado con sub-panel expandible por banco seleccionado; billeteras/brokers/efectivo/USD siguen igual (sin bank_config); 15/15 tests Playwright verdes; tsc limpio; 49/49 tests unitarios verdes.
-- **Sesión J.1 — FCI vinculado a cuentas (commit pendiente):** B-sync implementado —
+- **Sesión J.1 + J.1.5 — FCI vinculado + auto-sync (commit pendiente):** B-sync completo —
   migración 021 ejecutada en Supabase (accounts.holding_id + 3 RPCs SECURITY INVOKER:
   `sync_holding_balance`, `link_and_sync_holding`, `unlink_holding_from_account`);
   `src/lib/fciRates.ts` con `fetchAllFCIRates`/`matchFCIRate` (usa VCP, no TNA — fix bug);
@@ -85,12 +85,19 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
 
 - **Sesión N** (commit pendiente — agrupa M+N): T1: RPC atómica `create_account_with_children` (migración 020, ✅ ejecutada en Supabase) — reemplaza los 2 inserts sueltos en `handleSubmitFromBankConfig`, `handleSubmitBolsillos`, y `AccountsOnboarding`; rollback total si falla cualquier hijo, earns_yield=false explícito en todos los hijos del wizard; T2: Vista `/movimientos` nueva — lista unificada gastos+ingresos cronológica con filtro por mes, cards de resumen, signos +/−, indicadores de color; BottomNav tab "Gastos" reemplazado por "Movimientos" (href=/movimientos); `/gastos` e `/ingresos` siguen accesibles via links internos y acciones rápidas; tsc limpio, 49/49 tests verdes. **QA verificado con evidencia real** (Sesión N.2, 23/23 Playwright): T1-RPC-a BBVA+Pesos+Visa creados en DB vía RPC; T1-RPC-b earns_yield=false confirmado en DB; T1-RPC-c rollback confirmado (HTTP 400, padre AtomicTest99 no quedó en DB); T2 /movimientos completo — gasto/ingreso aparecen, signos +/−, filtro mes, links edición funcionan. Token obtenido via POST /auth/v1/token (no cookies — ver lección 16).
 
-- **Sesión J.1.5 — Auto-sync VCN en page load (PENDIENTE):** TAREA 3 del diseño B-sync
-  no implementada: en la carga de `/cuentas` e `/inversiones`, para cuentas con `holding_id`
-  y holdings tipo FCI, fetchear VCN del feed de ArgentinaDatos y llamar `sync_holding_balance`
-  si difiere del precio almacenado. Implementar en la próxima sesión de inversiones.
-  También pendiente: tests E2E del flujo completo (vincular holding → VCN actualiza saldo →
-  earmarks siguen igual). Ver TAREA 3 en `docs/diseno-fondos-rendimiento.md`.
+- **Sesión J.1.5 — Auto-sync VCN en page load (✅ COMPLETA):**
+  `src/lib/fciAutoSync.ts` → `autoSyncFciHoldings(supabase, holdings)`: compara VCP del
+  feed de ArgentinaDatos con `holdings.current_price`; si difieren, llama RPC
+  `sync_holding_balance` (atómica: actualiza holding + account.balance en una transacción).
+  Integrado en `/cuentas/page.tsx` y `/inversiones/page.tsx` (server-side, antes del render).
+  Corrección en memoria: si el sync actúa durante el page load, el `AccountNode.balance`
+  ya refleja el nuevo valor (sin requerir un segundo load).
+  Throttle: la caché de 6h de `fetchAllFCIRates` (`next: { revalidate: 21600 }`) más la
+  condición `vcp !== current_price` evitan RPCs innecesarios — suficiente para single-user.
+  E2E confirmado en Supabase: `holding.current_price = 2298.873`, `account.balance = 22,988,730`
+  (= 10,000 cuotapartes × VCP real del feed). Earmark sobre cuenta vinculada: mismo mecanismo
+  que sin holding (balance no cambia, solo el disponible) — ✅ confirmado.
+  tsc limpio, 49/49 tests verdes.
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -309,9 +316,9 @@ Migraciones ejecutadas:
      existentes. Usa `convertAccountToParent` (primera subdivisión, RPC atómica) o
      `createChildAccount` (subdivisiones adicionales, INSERT heredando el tipo del padre).
      No puede crear hijos tipo=credito (hereda el tipo del padre).
-- `inversiones/_components/FciRatesSection.tsx` — `FciRateCell` (async SC: fetch TNA por
-  holding, fallback HoldingPriceEdit) + `FciPortfolioSummary` (totales portfolio); ambos
-  envueltos en `<Suspense>` desde la page; elimina bloqueo de 4 fetches externos al render
+- `inversiones/_components/FciRatesSection.tsx` — `FciRateCell` (async SC: muestra VCP del
+  feed de ArgentinaDatos, fallback HoldingPriceEdit) + `FciPortfolioSummary` (totales portfolio);
+  ambos envueltos en `<Suspense>` desde la page; elimina bloqueo de 4 fetches externos al render
 - `src/types/index.ts` — `AccountType` incluye `"credito"`; `Account` tiene
   `closing_day/due_day: number | null`; `Asset` tiene `car_segment: CarSegment | null`,
   `bought_used: boolean | null`, `savings_goal_mode: SavingsGoalMode | null`,
