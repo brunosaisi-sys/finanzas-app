@@ -99,6 +99,33 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   que sin holding (balance no cambia, solo el disponible) — ✅ confirmado.
   tsc limpio, 49/49 tests verdes.
 
+- **Sesión J.1.6 — Fix vinculación FCI real + UX (commit pendiente):**
+  T1: "Cocos Rendimiento FCI" (ticker COCORMA) SÍ está en el feed de ArgentinaDatos, categoría
+  `rentaMixta`, con 4 clases: `Cocos Rendimiento - Clase A/B/C/D` (nombre exacto tal como
+  aparece en el feed). Para vincular sin ambigüedad, nombrar el holding igual al nombre
+  exacto del feed (con la clase) — así pega el match exacto en `matchFCIRate` sin pasar
+  por el fuzzy match.
+  Bug encontrado y corregido en el camino: `matchFCIRate` usaba `.some()` en el fuzzy match
+  de palabras — como la gestora Cocos tiene ~20 fondos distintos que comparten la palabra
+  "cocos" ("Ahorro", "Acciones", "Dólares Plus", "Dólar Money Market", "Renta Dólar",
+  "Rendimiento"...), un holding mal nombrado podía sincronizarse con el VCP de un fondo
+  totalmente distinto. Cambiado a `.every()` (todas las palabras deben matchear). Ver
+  `docs/lecciones-aprendidas.md §19`.
+  T2: decisión de UX — **no se permite guardar posiciones con cantidad=0.** El modelo de
+  holdings computa `balance = quantity × precio`; una posición en 0 nunca aporta información
+  y contradice el flujo correcto (cargar la inversión real primero). Se mantiene el bloqueo,
+  pero se detectó que el atributo HTML `min` en los inputs de Cantidad/Precio interceptaba
+  el submit ANTES de que corriera la validación JS, mostrando solo el tooltip nativo del
+  navegador sin explicación. Se sacó `min` de ambos inputs en `HoldingForm.tsx` y se
+  reescribieron los mensajes de error para explicar el porqué y guiar al flujo correcto.
+  Ver `docs/lecciones-aprendidas.md §20`.
+  T3: agregado texto aclaratorio en `CuentaActions.tsx` — al tildar "Genera rendimiento"
+  sin holding vinculado aún: "Esto solo marca la cuenta. Para que el saldo se actualice
+  solo con el mercado, cargá tu inversión real en /inversiones y después vinculala acá."
+  E2E con Playwright headed confirmado: cantidad=0 bloquea con mensaje claro, cantidad
+  válida sigue funcionando (regresión), texto aclaratorio visible en cuenta "Cocos Capital"
+  (earns_yield=true, sin holding). tsc limpio, build limpio, 49/49 tests verdes.
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver

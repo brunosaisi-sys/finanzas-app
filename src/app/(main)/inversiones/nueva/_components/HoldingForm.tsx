@@ -43,11 +43,13 @@ export default function HoldingForm({ accounts }: Props) {
     const parsedQty = parseFloat(quantity.replace(",", "."));
     const parsedPrice = parseFloat(avgBuyPrice.replace(",", "."));
     if (isNaN(parsedQty) || parsedQty <= 0) {
-      setError("Cantidad inválida");
+      setError(
+        "La cantidad debe ser mayor a 0. Si todavía no invertiste, no hace falta cargar la posición todavía — volvé cuando tengas la cantidad real de unidades o cuotapartes."
+      );
       return;
     }
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      setError("Precio de compra inválido");
+      setError("El precio de compra debe ser mayor a 0.");
       return;
     }
 
@@ -145,7 +147,6 @@ export default function HoldingForm({ accounts }: Props) {
             type="number"
             inputMode="decimal"
             required
-            min="0.000001"
             step="any"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
@@ -185,7 +186,6 @@ export default function HoldingForm({ accounts }: Props) {
           type="number"
           inputMode="decimal"
           required
-          min="0.01"
           step="any"
           value={avgBuyPrice}
           onChange={(e) => setAvgBuyPrice(e.target.value)}

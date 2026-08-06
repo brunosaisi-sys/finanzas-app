@@ -255,6 +255,50 @@ PostgREST devolvió HTTP 404 para todos ellos, aunque se había confirmado que f
 
 ---
 
+## 19. matchFCIRate — `.some()` en fuzzy match causaba matchear el fondo equivocado
+
+**Qué pasó:** Al confirmar que "Cocos Rendimiento FCI" está en el feed (`rentaMixta`, como
+"Cocos Rendimiento - Clase A/B/C/D"), se detectó que la gestora Cocos tiene ~20 fondos
+distintos en el feed ("Cocos Ahorro", "Cocos Acciones", "Cocos Dólares Plus", "Cocos Dólar
+Money Market", "Cocos Renta Dólar", "Cocos Rendimiento", etc.) repartidos en las 4 categorías.
+El fuzzy match de `matchFCIRate` usaba `words.some(w => key.includes(w))`: bastaba con que
+UNA palabra del nombre del holding (ej. "cocos") matcheara, así que un holding llamado
+"Cocos Rendimiento FCI" podía terminar sincronizado con el VCP de "Cocos Ahorro" u otro fondo
+completamente distinto, dependiendo del orden de resolución de las 4 fetches en paralelo.
+
+**Por qué:** `.some()` retorna true con que una sola palabra matchee. Con nombres de gestoras
+que tienen muchos fondos ("Cocos X", "Cocos Y", "Cocos Z"), la primera palabra genérica
+("cocos") ya es suficiente para un falso positivo — el resultado es no determinístico entre
+cargas de página.
+
+**Qué hacer:** Cambiado a `words.every(w => key.includes(w))` en `src/lib/fciRates.ts` —
+ahora TODAS las palabras significativas del nombre deben matchear. Sigue habiendo ambigüedad
+entre clases del mismo fondo (A/B/C/D, mismo VCP aproximado), pero ya no cruza a un fondo
+distinto. Para eliminar la ambigüedad de clase, nombrar el holding con el nombre exacto del
+feed incluyendo la clase (ej. "Cocos Rendimiento - Clase A") — así el match exacto
+(`rates.has(needle)`) gana sin pasar por el fuzzy match.
+
+---
+
+## 20. Atributo HTML `min` bloquea el submit antes de que corra la validación JS
+
+**Qué pasó:** En `HoldingForm.tsx`, el input de Cantidad tenía `min="0.000001"` y el de
+Precio `min="0.01"`. Al escribir "0" y enviar, el navegador bloqueaba el submit con su
+propio tooltip de validación nativa (constraint validation) — el `onSubmit` de React
+nunca llegaba a ejecutarse, así que el mensaje de error personalizado ("Cantidad inválida")
+nunca se mostraba. El usuario veía un bloqueo sin explicación clara del navegador.
+
+**Por qué:** Cuando un `<input type="number">` tiene `min` y el valor no lo cumple, el
+formulario HTML5 detiene el submit en el browser antes de disparar el evento `onSubmit`.
+
+**Qué hacer:** Si se quiere mostrar un mensaje de error propio y explicativo (con guía de
+qué hacer, no solo "inválido"), no usar `min`/`max` nativos en inputs cuyo submit dispara
+lógica de negocio custom — dejar que el JS valide y muestre el mensaje. Se sacó `min` de
+Cantidad y Precio en `HoldingForm.tsx`; la validación (`parsedQty <= 0`) sigue existiendo
+en JS con mensajes más claros.
+
+---
+
 ## 17. ArgentinaDatos FCI — el campo es `vcp`, no `tna`
 
 **Qué pasó:** El tipo `FciFondo` en el código estaba definido como `{ fondo: string; tna: number; fecha: string }` pero la API de ArgentinaDatos retorna `{ fondo, horizonte, fecha, vcp, ccp, patrimonio }`. El campo `tna` NO existe en la respuesta.

@@ -148,6 +148,16 @@ export default function CuentaActions({
               Genera rendimiento (puede recibir coberturas de gastos en cuotas)
             </label>
           )}
+          {!isCredit && earnsYieldEdit && !holdingIdEdit && (
+            <p className="text-[10px] text-gray-400 leading-snug">
+              Esto solo marca la cuenta. Para que el saldo se actualice solo
+              con el mercado, cargá tu inversión real en{" "}
+              <Link href="/inversiones" className="underline">
+                /inversiones
+              </Link>{" "}
+              y después vinculala acá.
+            </p>
+          )}
 
           {/* Sección de vinculación a holding FCI */}
           {!isCredit && earnsYieldEdit && fciHoldings.length > 0 && (
