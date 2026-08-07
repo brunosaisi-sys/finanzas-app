@@ -4,6 +4,13 @@ import Link from "next/link";
 import AccountsOnboarding from "./_components/AccountsOnboarding";
 import CuentasTree from "./_components/CuentasTree";
 import { autoSyncFciHoldings } from "@/lib/fciAutoSync";
+import {
+  findFciInstitutionForAccountName,
+  fetchAllFciFundsRaw,
+  groupFundsForInstitution,
+  type FciFundGroup,
+} from "@/lib/fciCatalog";
+import { calcHoldingReturn, type PricePoint } from "@/lib/finance/holdingReturn";
 import type { Account } from "@/types";
 import type { AccountNode } from "./_components/CuentasTree";
 
@@ -92,6 +99,73 @@ export default async function CuentasPage() {
   // Mapa quantity para calcular el nuevo saldo en memoria (evita re-fetch)
   const holdingQuantityMap = new Map(fciHoldingsList.map((h) => [h.id, h.quantity]));
 
+  // ─── Catálogo de fondos por institución (Sesión J.1.7, TAREA 2) ─────────────
+  // Solo para cuentas sin holding vinculado aún, cuya institución matchea una de
+  // las 5 verificadas (ver docs/lecciones-aprendidas.md §21). Un solo fetch del
+  // feed completo, reutilizado para todas las cuentas que lo necesiten.
+  const institutionsNeeded = new Map<string, string>(); // institutionId -> accountId (una cuenta representativa alcanza)
+  for (const a of accounts) {
+    if (a.type === "credito" || a.holding_id) continue;
+    const instId = findFciInstitutionForAccountName(a.name);
+    if (instId) institutionsNeeded.set(instId, a.id);
+  }
+
+  const fciCatalogByInstitution = new Map<string, FciFundGroup[]>();
+  if (institutionsNeeded.size > 0) {
+    const raw = await fetchAllFciFundsRaw();
+    for (const instId of institutionsNeeded.keys()) {
+      fciCatalogByInstitution.set(instId, groupFundsForInstitution(raw, instId));
+    }
+
+    // Rendimiento 30d: solo si el usuario ya tiene un holding con el nombre EXACTO
+    // de la clase representativa Y ese holding ya acumuló histórico propio
+    // (holding_price_history, migración 022). Best-effort: si la tabla o el
+    // holding no existen todavía, simplemente no se muestra rendimiento.
+    const allRepNames = Array.from(fciCatalogByInstitution.values())
+      .flat()
+      .map((f) => f.representativeName);
+
+    if (allRepNames.length > 0) {
+      const { data: matchingHoldings } = await supabase
+        .from("holdings")
+        .select("id, name")
+        .eq("asset_type", "fci")
+        .in("name", allRepNames);
+
+      if (matchingHoldings && matchingHoldings.length > 0) {
+        const holdingIdByName = new Map(
+          matchingHoldings.map((h) => [h.name, h.id as string])
+        );
+        try {
+          const { data: historyRows } = await supabase
+            .from("holding_price_history")
+            .select("holding_id, price, recorded_at")
+            .in(
+              "holding_id",
+              matchingHoldings.map((h) => h.id)
+            );
+          const historyByHolding = new Map<string, PricePoint[]>();
+          for (const row of historyRows ?? []) {
+            const arr = historyByHolding.get(row.holding_id) ?? [];
+            arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
+            historyByHolding.set(row.holding_id, arr);
+          }
+          for (const groups of fciCatalogByInstitution.values()) {
+            for (const g of groups) {
+              const hId = holdingIdByName.get(g.representativeName);
+              if (!hId) continue;
+              const history = historyByHolding.get(hId);
+              if (!history) continue;
+              g.return30d = calcHoldingReturn(history);
+            }
+          }
+        } catch {
+          // holding_price_history todavía no existe (migración 022 pendiente) — sin rendimiento, no bloquea
+        }
+      }
+    }
+  }
+
   // Build serializable AccountNode array for the client component
   const accountNodes: AccountNode[] = accounts.map((a) => {
     let balance = Number(a.balance);
@@ -116,6 +190,12 @@ export default async function CuentasPage() {
       hasExpenseDeps: accountsWithDeps.has(a.id),
       holding_id: a.holding_id ?? null,
       linkedHoldingName: a.holding_id ? (holdingNameMap.get(a.holding_id) ?? null) : null,
+      fciCatalog:
+        a.type !== "credito" && !a.holding_id
+          ? (fciCatalogByInstitution.get(
+              findFciInstitutionForAccountName(a.name) ?? ""
+            ) ?? [])
+          : [],
     };
   });
 

@@ -12,6 +12,7 @@ import {
 import type { DepItem } from "../actions";
 import Link from "next/link";
 import type { AccountType, Currency } from "@/types";
+import FciFundSelector, { type FciFundOption } from "./FciFundSelector";
 
 const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
   { value: "banco", label: "Banco / Billetera" },
@@ -38,6 +39,7 @@ interface Props {
   holdingId: string | null;
   linkedHoldingName: string | null;
   fciHoldings: FciHoldingOption[];
+  fciCatalog: FciFundOption[];
 }
 
 type Mode = "idle" | "edit" | "delete";
@@ -54,6 +56,7 @@ export default function CuentaActions({
   holdingId,
   linkedHoldingName,
   fciHoldings,
+  fciCatalog,
 }: Props) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("idle");
@@ -62,6 +65,7 @@ export default function CuentaActions({
   const [type, setType] = useState<AccountType>(accountType);
   const [earnsYieldEdit, setEarnsYieldEdit] = useState(earnsYield);
   const [holdingIdEdit, setHoldingIdEdit] = useState<string | null>(holdingId);
+  const [showManualLink, setShowManualLink] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deleteDeps, setDeleteDeps] = useState<DepItem[]>([]);
@@ -148,7 +152,7 @@ export default function CuentaActions({
               Genera rendimiento (puede recibir coberturas de gastos en cuotas)
             </label>
           )}
-          {!isCredit && earnsYieldEdit && !holdingIdEdit && (
+          {!isCredit && earnsYieldEdit && !holdingIdEdit && fciCatalog.length === 0 && (
             <p className="text-[10px] text-gray-400 leading-snug">
               Esto solo marca la cuenta. Para que el saldo se actualice solo
               con el mercado, cargá tu inversión real en{" "}
@@ -158,27 +162,70 @@ export default function CuentaActions({
               y después vinculala acá.
             </p>
           )}
+          {!isCredit && earnsYieldEdit && !holdingIdEdit && fciCatalog.length > 0 && (
+            <p className="text-[10px] text-gray-400 leading-snug">
+              Esto solo marca la cuenta. Elegí tu fondo abajo y listo — se crea
+              y se vincula en un solo paso.
+            </p>
+          )}
 
           {/* Sección de vinculación a holding FCI */}
-          {!isCredit && earnsYieldEdit && fciHoldings.length > 0 && (
+          {!isCredit && earnsYieldEdit && holdingIdEdit && (
             <div className="pt-1 space-y-1">
               <p className="text-[10px] text-gray-500 font-medium">
                 Posición FCI vinculada
               </p>
-              {holdingIdEdit ? (
-                <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-2 py-1.5">
-                  <span className="text-[10px] text-indigo-700 flex-1">
-                    📈 {currentHoldingName ?? holdingIdEdit}
-                  </span>
+              <div className="flex items-center gap-2 bg-indigo-50 rounded-lg px-2 py-1.5">
+                <span className="text-[10px] text-indigo-700 flex-1">
+                  📈 {currentHoldingName ?? holdingIdEdit}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setHoldingIdEdit(null)}
+                  className="text-[10px] text-gray-400 hover:text-red-500 shrink-0"
+                >
+                  Desvincular
+                </button>
+              </div>
+              <p className="text-[10px] text-gray-400 leading-snug">
+                El saldo se actualizará automáticamente cuando se sincronice el VCP del fondo.
+              </p>
+            </div>
+          )}
+
+          {/* Selector de fondos por institución (Sesión J.1.7) — reemplaza elegir
+              un holding ya creado a mano, para las instituciones con catálogo
+              verificado (ver docs/lecciones-aprendidas.md §21). */}
+          {!isCredit && earnsYieldEdit && !holdingIdEdit && fciCatalog.length > 0 && (
+            <FciFundSelector
+              accountId={accountId}
+              funds={fciCatalog}
+              onLinked={() => {
+                setMode("idle");
+                router.refresh();
+              }}
+            />
+          )}
+
+          {!isCredit &&
+            earnsYieldEdit &&
+            !holdingIdEdit &&
+            fciCatalog.length > 0 &&
+            fciHoldings.length > 0 &&
+            (showManualLink ? (
+              <div className="pt-1 space-y-1">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] text-gray-500 font-medium">
+                    Vincular un holding ya cargado a mano
+                  </p>
                   <button
                     type="button"
-                    onClick={() => setHoldingIdEdit(null)}
-                    className="text-[10px] text-gray-400 hover:text-red-500 shrink-0"
+                    onClick={() => setShowManualLink(false)}
+                    className="text-[10px] text-gray-400 hover:text-gray-700"
                   >
-                    Desvincular
+                    Cancelar
                   </button>
                 </div>
-              ) : (
                 <select
                   value=""
                   onChange={(e) => {
@@ -193,22 +240,50 @@ export default function CuentaActions({
                     </option>
                   ))}
                 </select>
-              )}
-              {holdingIdEdit && (
-                <p className="text-[10px] text-gray-400 leading-snug">
-                  El saldo se actualizará automáticamente cuando se sincronice el VCP del fondo.
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowManualLink(true)}
+                className="text-[10px] text-gray-400 hover:text-gray-700 underline"
+              >
+                ¿Ya tenés un holding cargado a mano? Vincularlo directo
+              </button>
+            ))}
+
+          {/* Sin catálogo verificado para esta institución: fallback al flujo manual */}
+          {!isCredit && earnsYieldEdit && !holdingIdEdit && fciCatalog.length === 0 && (
+            <div className="pt-1 space-y-1">
+              {fciHoldings.length > 0 ? (
+                <>
+                  <p className="text-[10px] text-gray-500 font-medium">
+                    Posición FCI vinculada
+                  </p>
+                  <select
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) setHoldingIdEdit(e.target.value);
+                    }}
+                    className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-gray-900"
+                  >
+                    <option value="">— Vincular a un fondo FCI —</option>
+                    {fciHoldings.map((h) => (
+                      <option key={h.id} value={h.id}>
+                        {h.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              ) : (
+                <p className="text-[10px] text-gray-400">
+                  No tenés posiciones FCI. Agregá una en{" "}
+                  <Link href="/inversiones/nueva" className="underline">
+                    /inversiones
+                  </Link>{" "}
+                  para vincularla.
                 </p>
               )}
             </div>
-          )}
-          {!isCredit && earnsYieldEdit && fciHoldings.length === 0 && (
-            <p className="text-[10px] text-gray-400">
-              No tenés posiciones FCI. Agregá una en{" "}
-              <Link href="/inversiones/nueva" className="underline">
-                /inversiones
-              </Link>{" "}
-              para vincularla.
-            </p>
           )}
         </div>
         <div className="flex items-center gap-2">

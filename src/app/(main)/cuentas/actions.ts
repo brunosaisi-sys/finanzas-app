@@ -346,6 +346,64 @@ export async function unlinkHoldingFromAccount(
   return {};
 }
 
+// ─── Selector de fondos FCI por institución (Sesión J.1.7, TAREA 2d) ─────────
+// Crea el holding automáticamente (cantidad = monto/vcp) y lo vincula a la cuenta
+// en una sola RPC atómica (migración 023) — evita el riesgo de un holding huérfano
+// si el insert y el link fueran pasos sueltos (misma lógica que lección §14).
+export async function createAndLinkFciHolding(
+  accountId: string,
+  fundName: string,
+  amount: number,
+  vcp: number,
+  currency: Currency,
+  feedDate: string
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  if (isNaN(amount) || amount <= 0) {
+    return { error: "El monto debe ser mayor a 0." };
+  }
+  if (!vcp || vcp <= 0) {
+    return { error: "Precio de cuotaparte inválido para este fondo." };
+  }
+
+  const quantity = amount / vcp;
+  const today = new Date().toISOString().split("T")[0];
+
+  const { data: holdingId, error } = await supabase.rpc(
+    "create_and_link_fci_holding",
+    {
+      p_account_id: accountId,
+      p_name: fundName,
+      p_quantity: quantity,
+      p_price: vcp,
+      p_currency: currency,
+      p_purchase_date: today,
+    }
+  );
+
+  if (error) return { error: error.message };
+
+  // Histórico aditivo — no bloquea el flujo si la tabla todavía no existe
+  // (migración 022 pendiente) o si falla por cualquier otro motivo.
+  if (holdingId) {
+    try {
+      await supabase.from("holding_price_history").upsert(
+        { holding_id: holdingId, price: vcp, recorded_at: feedDate },
+        { onConflict: "holding_id,recorded_at" }
+      );
+    } catch {
+      // no interrumpe el flujo
+    }
+  }
+
+  return {};
+}
+
 export async function createTransfer(input: {
   from_account_id: string;
   to_account_id: string;

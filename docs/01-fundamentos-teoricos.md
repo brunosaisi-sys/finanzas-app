@@ -379,6 +379,40 @@ En esta app, los precios se actualizan manualmente. Por lo tanto:
 - **Rediseño de formulario:** mover Precio antes de Cantidad para evitar la ambigüedad que
   generó la posición AAPL incorrecta (ver `docs/lecciones-aprendidas.md §6`).
 
+### 8.5 Retorno simple desde histórico propio — insumo de datos para TWR (Sesión J.1.7)
+
+> Implementado en `src/lib/finance/holdingReturn.ts`. Es un paso intermedio hacia el
+> TWR completo de §8.2, no un reemplazo.
+
+Antes de Sesión J.1.7 la app no guardaba serie temporal de precios — solo pisaba
+`holdings.current_price`. La migración 022 agrega `holding_price_history` (aditiva,
+no reemplaza `current_price`), poblada automáticamente cada vez que `autoSyncFciHoldings`
+sincroniza un precio nuevo desde el feed de ArgentinaDatos, usando la fecha REAL de
+cotización del feed (campo `fecha`), no la fecha en que corrió el sync.
+
+Con esa serie temporal ya se puede calcular un **retorno simple punto-a-punto** (no TWR
+todavía, porque TWR requiere encadenar sub-períodos delimitados por flujos de aportes/
+retiros — ver §8.2 — y esos flujos todavía no se registran en ninguna tabla):
+
+```
+retorno_N_dias = (precio_hoy − precio_hace_N_dias) / precio_hace_N_dias
+```
+
+Donde `precio_hace_N_dias` es el precio **más antiguo disponible dentro de la ventana**
+de N días (default 30), no necesariamente el de hace exactamente N días — los datos
+solo existen para las fechas en que corrió un sync real.
+
+**Regla dura:** si no hay al menos dos puntos de precio, o el punto más antiguo cae
+fuera de la ventana de N días (holding recién vinculado, feed sin historial suficiente
+todavía), la función devuelve `null` explícitamente. Nunca estima ni interpola un
+número — es preferible no mostrar rendimiento a mostrar uno inventado.
+
+**Camino hacia TWR real (Sesión J.2):** cuando exista una tabla de eventos de flujo del
+holding (`holding_events`, ver `docs/diseno-fondos-rendimiento.md` TAREA 3), el mismo
+histórico de precios sirve para calcular `VMI_i`/`VMF_i` de cada sub-período delimitado
+por esos flujos, y el retorno simple de esta sección queda subsumido por el
+encadenamiento geométrico de §8.2.
+
 ---
 
 ## 7. Bibliografía / fuentes a citar en la app

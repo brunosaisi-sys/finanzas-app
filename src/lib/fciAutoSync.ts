@@ -3,6 +3,14 @@
 // El RPC solo se llama si vcp != current_price → cero escrituras innecesarias.
 // Para una app single-user, esto es suficiente (no se necesita columna last_synced_at).
 // Documentado en CLAUDE.md §Sesión J.1.5.
+//
+// Sesión J.1.7: además del sync de balance, registra el precio en
+// holding_price_history con la fecha REAL de cotización del feed (rate.fecha),
+// no la fecha de hoy — así el histórico refleja cuándo cotizó el fondo, no cuándo
+// corrió el sync. Aditivo: no reemplaza holdings.current_price. Si la tabla todavía
+// no existe (migración 022 pendiente de ejecución manual en Supabase — no hay
+// service_role key disponible, ver lecciones-aprendidas §9), el insert falla en
+// silencio y el sync de balance sigue funcionando igual.
 
 import { fetchAllFCIRates, matchFCIRate } from "./fciRates";
 
@@ -14,8 +22,15 @@ type FciHoldingForSync = {
   current_price: number | null;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseLike = { rpc: (fn: string, args?: Record<string, unknown>) => PromiseLike<{ error: unknown; data?: unknown }> };
+type SupabaseLike = {
+  rpc: (fn: string, args?: Record<string, unknown>) => PromiseLike<{ error: unknown; data?: unknown }>;
+  from: (table: string) => {
+    upsert: (
+      values: Record<string, unknown>,
+      options?: Record<string, unknown>
+    ) => PromiseLike<{ error: unknown }>;
+  };
+};
 
 /**
  * Compara VCP del feed de ArgentinaDatos con current_price almacenado.
@@ -51,6 +66,20 @@ export async function autoSyncFciHoldings(
       });
       if (!error) {
         updatedPrices.set(holding.id, rate.vcp);
+
+        // Histórico aditivo — no bloquea ni revierte el sync de balance si falla.
+        try {
+          await supabase.from("holding_price_history").upsert(
+            {
+              holding_id: holding.id,
+              price: rate.vcp,
+              recorded_at: rate.fecha,
+            },
+            { onConflict: "holding_id,recorded_at" }
+          );
+        } catch {
+          // Tabla aún no creada (migración 022 pendiente) u otro error — no interrumpe el flujo.
+        }
       }
     })
   );

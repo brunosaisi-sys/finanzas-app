@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/format";
 import CuentaActions from "./CuentaActions";
 import type { FciHoldingOption } from "./CuentaActions";
+import type { FciFundOption } from "./FciFundSelector";
 import { convertAccountToParent, createChildAccount } from "../actions";
 import type { AccountType, Currency } from "@/types";
 
@@ -25,6 +26,9 @@ export interface AccountNode {
   // Migración 021: holding vinculado para sync de balance (B-sync)
   holding_id: string | null;
   linkedHoldingName: string | null;
+  // Sesión J.1.7: catálogo de fondos de la institución (vacío si no se detectó
+  // ninguna de las 5 instituciones verificadas — ver lecciones-aprendidas §21)
+  fciCatalog: FciFundOption[];
 }
 
 interface Props {
@@ -316,6 +320,7 @@ function TreeNode({
               holdingId={account.holding_id}
               linkedHoldingName={account.linkedHoldingName}
               fciHoldings={fciHoldings}
+              fciCatalog={account.fciCatalog}
             />
           </div>
           <div className="text-right shrink-0">
@@ -422,6 +427,7 @@ function TreeNode({
               holdingId={account.holding_id}
               linkedHoldingName={account.linkedHoldingName}
               fciHoldings={fciHoldings}
+              fciCatalog={account.fciCatalog}
             />
           </div>
           <DiscriminatedBalance
@@ -475,6 +481,7 @@ function TreeNode({
           holdingId={account.holding_id}
           linkedHoldingName={account.linkedHoldingName}
           fciHoldings={fciHoldings}
+          fciCatalog={account.fciCatalog}
         />
         {canHaveChildren && (
           <AddChildInline

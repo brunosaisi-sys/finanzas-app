@@ -328,6 +328,44 @@ El browser sigue siendo necesario para los tests de UI, pero no para obtener el 
 
 ---
 
+## 21. Catálogo de fondos por institución — solo 5 de ~32 instituciones matchean, y "mercado" da falso positivo
+
+**Qué pasó:** Al investigar (Sesión J.1.7, TAREA 2b) qué instituciones del catálogo de la
+app (`institutions.ts`) tienen fondos identificables en el feed de ArgentinaDatos, se
+bajaron los 4067 fondos de las 4 categorías y se cruzaron contra los ~32 nombres de
+`INSTITUTIONS`. Resultado verificado (no asumido): de bancos tradicionales (Galicia,
+BBVA, Santander, Nación, Provincia, Macro, ICBC, Patagonia, Supervielle, Comafi,
+Hipotecario, Itaú, Brubank, Openbank) y de la mayoría de billeteras/brokers (Ualá,
+Personal Pay, Naranja X, Cuenta DNI, MODO, Lemon, Belo, Prex, Ripio, Bitso, Rava, PPI),
+**ninguno matchea por nombre**. Solo 5 instituciones sí: **Cocos Capital** (24 fondos,
+prefijo "Cocos"), **Balanz** (209 fondos, prefijo "Balanz"), **Bull Market Brokers**
+(16 fondos, prefijo "Bull Market"), **InvertirOnline/IOL** (13 fondos, prefijo "IOL"),
+**Mercado Pago** (1 fondo: "Mercado Fondo").
+
+Un intento inicial con substring simple `"mercado"` devolvió 69 falsos positivos:
+"Multimercado" es un nombre de familia de fondos usado por Consultatio, Delta, Galileo,
+Parakeet y Toronto Trust — gestoras sin ninguna relación con Mercado Pago.
+`"provincia"` y `"nacion"` también dieron falsos positivos ("Renta Nacional", "MEGAQM
+Provincial" — palabras genéricas, no nombres de banco).
+
+**Por qué:** El feed de ArgentinaDatos no expone un campo "gestora"/administradora —
+solo el string `fondo`. Un substring en cualquier posición del nombre matchea nombres
+de fondo que comparten una palabra común sin relación real con la institución. Además,
+bancos tradicionales gestionan sus FCI bajo una marca de sociedad gerente distinta a su
+nombre de consumidor (ej. Galicia → "Fima", BBVA → "1822 Raíces" — ambos nombres
+aparecen en el feed con patrones consistentes con esa asociación pública, pero no hay
+forma de CONFIRMARLO mecánicamente desde este feed sin una fuente adicional que
+mapee gestora→banco).
+
+**Qué hacer:** `src/lib/fciCatalog.ts` usa matching por **prefijo** (`nombre.startsWith(keyword)`),
+no substring, y solo para las 5 instituciones verificadas (`INSTITUTION_FCI_PREFIXES`).
+No se agregaron bancos tradicionales al catálogo automático — es una limitación real,
+documentada, no una omisión. Si en el futuro se quiere soportar Galicia/BBVA/etc., hace
+falta una fuente externa que confirme la asociación gestora↔banco (o que el usuario la
+confirme manualmente) antes de automatizar el match.
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

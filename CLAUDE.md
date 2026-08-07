@@ -126,6 +126,50 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   válida sigue funcionando (regresión), texto aclaratorio visible en cuenta "Cocos Capital"
   (earns_yield=true, sin holding). tsc limpio, build limpio, 49/49 tests verdes.
 
+- **Sesión J.1.7 — Histórico de precios + selector de fondos por institución (commit pendiente):**
+  T1: migración 022 (`holding_price_history`, aditiva, no reemplaza `current_price`) —
+  código listo, **⚠ pendiente de ejecución manual en Supabase** (ver nota más arriba).
+  `autoSyncFciHoldings` (`src/lib/fciAutoSync.ts`) ahora también upsertea el histórico con
+  la fecha REAL del feed (`rate.fecha`), no la fecha del sync; falla en silencio si la
+  tabla no existe todavía. `src/lib/finance/holdingReturn.ts` → `calcHoldingReturn(history,
+  windowDays=30)`: retorno simple punto-a-punto contra el precio más antiguo dentro de la
+  ventana; `null` explícito si no hay suficiente historial (nunca estima). Documentado en
+  `docs/01-fundamentos-teoricos.md §8.5` como insumo de datos para el TWR real de Sesión
+  J.2. 7 tests unitarios verdes.
+  T2: `src/lib/fciCatalog.ts` — agrupa clases (A/B/C/D) de un mismo fondo por institución,
+  elige representante por mayor patrimonio. Investigación verificada (no asumida): de
+  ~32 instituciones en `institutions.ts`, solo **5 matchean** fondos en el feed de
+  ArgentinaDatos por prefijo de nombre: Cocos Capital, Balanz, Bull Market Brokers,
+  InvertirOnline/IOL, Mercado Pago. Ningún banco tradicional matchea (usan sociedades
+  gerentes con nombre distinto — Fima/Galicia, 1822 Raíces/BBVA — no verificable desde
+  este feed). Detalle completo en `docs/lecciones-aprendidas.md §21`.
+  T2c/d: nuevo componente `cuentas/_components/FciFundSelector.tsx` reemplaza el dropdown
+  de "elegir holding ya creado" como flujo PRIMARIO en `/cuentas` para las 5 instituciones
+  con catálogo verificado — el usuario elige el fondo (nombre limpio, moneda, riesgo por
+  categoría, rendimiento 30d si hay histórico propio) e ingresa el monto invertido;
+  cuotapartes = monto/vcp, holding creado y vinculado en un solo paso vía RPC atómica
+  nueva `create_and_link_fci_holding` (migración 023, **⚠ pendiente de ejecución**).
+  Para instituciones sin catálogo (o si el usuario ya tiene un holding cargado a mano)
+  el flujo manual de vincular un holding existente se preserva como fallback/escape hatch
+  (`showManualLink` en `CuentaActions.tsx`).
+  T2e: `/inversiones/nueva` y `HoldingForm.tsx` sin tocar — confirmado por `git status` y
+  regresión E2E en vivo.
+  T3: DB de test verificada — cero holdings FCI actualmente (ninguno mal vinculado).
+  Para la cuenta real del usuario: si `/inversiones` muestra un holding FCI con "Sin
+  precio" o nombre distinto al exacto del feed, no hace falta arreglarlo a mano — usar el
+  nuevo selector en `/cuentas` (editar cuenta → tildar "Genera rendimiento" → elegir el
+  fondo → ingresar el monto real) crea un holding nuevo con el nombre exacto y lo vincula;
+  el holding viejo queda huérfano y se puede borrar aparte, no afecta el balance porque
+  solo los holdings vinculados a una cuenta lo alimentan.
+  **QA E2E confirmado con Playwright headed contra el feed real:** selector visible y
+  reemplaza el dropdown viejo; "Cocos Rendimiento" aparece en la lista; monto → preview
+  de cuotapartes correcto; click "Vincular" falla con error controlado (RPC no existe
+  todavía) — comportamiento esperado, no un crash. **Verificación completa end-to-end
+  (holding creado en DB con cantidad correcta + rendimiento 30d con histórico simulado)
+  queda PENDIENTE hasta que el usuario ejecute las migraciones 022 y 023.**
+  tsc limpio, build limpio (26 rutas), 64/64 tests unitarios verdes (15 nuevos: 7
+  `holdingReturn.test.ts` + 8 `fciCatalog.test.ts`).
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -412,6 +456,16 @@ page.locator("input[type='number'][min='1'][max='48']")
 
 **Migraciones pendientes de ejecución en Supabase dashboard:** `019_force_delete_account.sql` (re-ejecución: agregado DELETE de account_transfers — ver nota arriba).
 
+⚠️ **ACCIÓN REQUERIDA antes de que Sesión J.1.7 funcione end-to-end:** ejecutar en el SQL
+Editor de Supabase, en este orden:
+1. `022_holding_price_history.sql` (tabla + RLS)
+2. `023_create_and_link_fci_holding.sql` (RPC)
+Sin `service_role_key` en `.env.local` (solo hay `anon_key`, ver lecciones-aprendidas §9),
+Claude Code no puede ejecutar DDL — hay que correrlo a mano. Hasta entonces, en `/cuentas`
+el selector de fondos se ve y funciona (lee el feed real de ArgentinaDatos), pero el botón
+"Vincular" falla con un error controlado (RPC no encontrada) — comportamiento esperado,
+confirmado en QA de la sesión.
+
 **Migraciones recientes ejecutadas** (ver lista completa en sección "Base de datos" arriba):
 - `016_fix_cascade_fk.sql` — ✅ EJECUTADA (sesión housekeeping post-I.1). FK CASCADE → RESTRICT + `safe_delete_account` actualizado.
 - `017_confirm_earmark_funding.sql` — ✅ EJECUTADA. RPC atómica para completar earmarks sin funding.
@@ -420,6 +474,8 @@ page.locator("input[type='number'][min='1'][max='48']")
 - `019` — (archivo en repo: `019_force_delete_account.sql`; **PENDIENTE DE RE-EJECUCIÓN en Supabase — RPC actualizada**) RPC `force_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: elimina una cuenta aunque tenga dependencias activas; libera y borra todos sus earmarks; NULLea referencias en expenses/incomes/savings_goals/savings_contributions/assets/income_distribution_lines; **DELETE de account_transfers** (from_account_id OR to_account_id — NOT NULL, no se puede NULLear, raíz del bug T1 Sesión L); bloquea solo si tiene subcuentas. Invocado desde `CuentaActions` vía `forceDeleteAccount` server action, como segunda confirmación después de ver la lista de deps. **⚠ Ejecutar `CREATE OR REPLACE FUNCTION force_delete_account...` en Supabase SQL Editor para aplicar el fix de account_transfers.**
 
 - `021` — (archivo en repo: `021_account_holding_link.sql`; **EJECUTADA en Supabase**) Columna `holding_id UUID REFERENCES holdings(id) ON DELETE SET NULL` en `accounts`; índice `idx_accounts_holding_id`; RPC `sync_holding_balance(p_holding_id, p_new_price)` — actualiza `holdings.current_price` Y `accounts.balance = quantity × new_price` atomicamente (SECURITY INVOKER); RPC `link_and_sync_holding(p_account_id, p_holding_id)` — vincula cuenta a holding y sincroniza balance si tiene precio; RPC `unlink_holding_from_account(p_account_id)` — desvincula (balance queda sin cambio).
+- `022` — (archivo en repo: `022_holding_price_history.sql`; **⚠ PENDIENTE DE EJECUCIÓN en Supabase**) Tabla `holding_price_history` (id, holding_id FK holdings ON DELETE CASCADE, price, recorded_at DATE, created_at; UNIQUE(holding_id, recorded_at)); índice `idx_holding_price_history_holding_date`; RLS vía EXISTS a `holdings.user_id` (mismo patrón que `fund_transactions` en migración 001, no tiene user_id propio). Aditiva: no reemplaza `holdings.current_price`.
+- `023` — (archivo en repo: `023_create_and_link_fci_holding.sql`; **⚠ PENDIENTE DE EJECUCIÓN en Supabase**) RPC `create_and_link_fci_holding(p_account_id, p_name, p_quantity, p_price, p_currency, p_purchase_date) RETURNS UUID SECURITY INVOKER`: inserta el holding y vincula+sincroniza la cuenta (`holding_id`, `balance = quantity × price`) en una sola transacción — evita el riesgo de holding huérfano de un insert+link sueltos (mismo principio que lección §14). Guardas `p_quantity > 0` y `p_price > 0` dentro del RPC (no solo en el server action de Next.js).
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 
