@@ -366,6 +366,52 @@ confirme manualmente) antes de automatizar el match.
 
 ---
 
+## 22. "Bug reportado" que ya no reproduce — verificar contra DB real antes de tocar código
+
+**Qué pasó:** El usuario reportó que el selector "Cuenta / Broker" de `/inversiones/nueva`
+no listaba bolsillos (ej. "Cocos Capital — Fondos"). Al leer `HoldingForm.tsx`, el código
+ya usaba `getLeafAccounts()` + `accountDisplayName()` — el mismo patrón correcto usado en
+otros selectores del proyecto. En vez de asumir que el bug ya estaba resuelto (o asumir
+que sí existía y tocar código innecesariamente), se reprodujo el escenario exacto en la DB
+de test (creó un bolsillo "Fondos" hijo de "Cocos Capital") y se verificó con Playwright:
+el selector SÍ lista "Cocos Capital — Fondos" correctamente.
+
+**Por qué:** El código probablemente ya fue corregido en una sesión anterior (el patrón
+`getLeafAccounts` se introdujo en Sesión G.2 para el árbol de cuentas) y el usuario no
+había vuelto a probarlo, o el bug real ocurrió en un estado de la cuenta que no se pudo
+reproducir con la info disponible.
+
+**Qué hacer:** Ante un bug reportado, reproducir contra datos reales (o un fixture que
+imite el escenario exacto) ANTES de tocar código. Si no reproduce, decirlo explícitamente
+con la evidencia (no "ya debería andar" sin probarlo) en vez de aplicar un fix especulativo
+a código que ya es correcto — evita cambios innecesarios y falsa sensación de haber
+arreglado algo que nunca estuvo roto.
+
+---
+
+## 23. data912.com — CEDEAR ≠ acción local; GGAL no tiene CEDEAR
+
+**Qué pasó:** Al probar el nuevo selector de CEDEARs (Sesión J.1.8) con el ticker "GGAL"
+(Grupo Galicia) como primer caso de prueba, no matcheó nada — un `curl` de verificación
+mostró que "GGAL" no aparece en absoluto en `https://data912.com/live/arg_cedears` (944
+símbolos totales, ninguno con ese prefijo).
+
+**Por qué:** Un CEDEAR es un certificado que representa una acción que cotiza en el
+EXTERIOR (mayormente NYSE/NASDAQ) y no cotiza en BYMA directamente — existe justamente
+para que el inversor argentino acceda a esa acción extranjera en pesos. Grupo Galicia es
+una empresa argentina que ya cotiza directamente en BYMA (tipo "Acción argentina" en esta
+app, no "CEDEAR") — no tiene sentido que exista un CEDEAR de una acción que ya cotiza
+localmente. El feed de `arg_cedears` sí tiene, por ejemplo, "AAPL", "KO", "ABEV" (Apple,
+Coca-Cola, Ambev — todas extranjeras).
+
+**Qué hacer:** El catálogo de CEDEARs (`cedearCatalog.ts`) solo aplica al `asset_type`
+`"cedear"`, nunca a `"accion"` (acción argentina) — son mercados y feeds distintos, y no
+hay superposición esperable entre ambos. No hay bug que corregir: el comportamiento
+("GGAL no aparece") es correcto. Para pruebas de QA del selector CEDEAR, usar tickers que
+sí sean CEDEARs reales (AAPL, KO, MSFT, etc.), nunca acciones locales.
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

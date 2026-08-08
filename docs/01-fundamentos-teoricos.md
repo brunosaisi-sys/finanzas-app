@@ -413,6 +413,29 @@ histórico de precios sirve para calcular `VMI_i`/`VMF_i` de cada sub-período d
 por esos flujos, y el retorno simple de esta sección queda subsumido por el
 encadenamiento geométrico de §8.2.
 
+### 8.6 Precio de compra derivado desde % de ganancia — aproximación (Sesión J.1.8)
+
+> Implementado en `HoldingForm.tsx` como modo alternativo al precio de compra exacto.
+
+Cuando el usuario no recuerda el precio de compra exacto pero sabe cuánto ganó o perdió
+en términos porcentuales (y conoce el precio actual), se puede despejar el precio de
+compra implícito de la misma fórmula de retorno simple de §8.2 (`Ri = (VMF−VMI)/VMI`),
+tomando `VMF` = precio actual y `VMI` = precio de compra buscado:
+
+```
+precio_compra = precio_actual / (1 + pct_ganancia/100)
+```
+
+**Regla dura:** este modo requiere que el usuario conozca el precio actual — si no lo
+tiene tampoco, no hay forma de derivar nada y el modo no aplica (se mantiene el campo
+manual). `pct_ganancia` debe ser estrictamente mayor a −100% (una pérdida del 100% o más
+implicaría precio actual ≤ 0, matemáticamente indeterminado o sin sentido económico).
+
+**Es una aproximación, no el dato exacto** — se lo marca así explícitamente en la UI. El
+precio de compra real puede diferir si hubo múltiples compras a precios distintos (ver
+roadmap Sesión J.4, `docs/lecciones-aprendidas.md`); este modo asume una única compra al
+precio implícito calculado.
+
 ---
 
 ## 7. Bibliografía / fuentes a citar en la app

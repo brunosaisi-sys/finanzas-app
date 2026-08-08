@@ -170,11 +170,67 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   tsc limpio, build limpio (26 rutas), 64/64 tests unitarios verdes (15 nuevos: 7
   `holdingReturn.test.ts` + 8 `fciCatalog.test.ts`).
 
+- **Sesión J.1.8 — Fixes de `/inversiones/nueva` + catálogo de CEDEARs (commit pendiente):**
+  T4 (Cuenta/Broker no listaba bolsillos): **NO reprodujo.** `HoldingForm.tsx` ya usaba
+  `getLeafAccounts`/`accountDisplayName` correctamente. Verificado recreando el escenario
+  exacto en DB de test (bolsillo "Fondos" hijo de "Cocos Capital") + Playwright — el
+  selector lista "Cocos Capital — Fondos" sin problema. Ver `docs/lecciones-aprendidas.md
+  §22`. Sin cambios de código para esta tarea.
+  T1: Moneda ya no aparece pegada a Cantidad — se movió a la fila de "Precio promedio de
+  compra" (o "Precio actual" en modo %), reforzando que la moneda es un atributo del
+  precio, no de la cantidad de unidades. Cálculo de valor total sin cambios (sigue siendo
+  cantidad × precio).
+  T2: nuevo toggle "Precio exacto" / "Sé cuánto gané (%)" en `HoldingForm.tsx`. En modo %:
+  pide precio actual (obligatorio) + % de ganancia/pérdida, deriva
+  `precio_compra = precio_actual / (1 + pct/100)` con preview en vivo, marcado
+  explícitamente como aproximación. Guarda contra `pct ≤ -100` (indeterminado). Fórmula
+  documentada en `docs/01-fundamentos-teoricos.md §8.6` como despeje algebraico de la
+  misma `Ri` de §8.2 — sin fuente nueva que agregar. Sin `min` nativo en los inputs nuevos
+  (lección §20).
+  T3: `curl` real confirmó `https://data912.com/live/arg_cedears` (944 símbolos únicos) y
+  `.../usa_stocks` (3159 símbolos) responden 200 con campos
+  `{symbol, q_bid, px_bid, px_ask, q_ask, v, q_op, c, pct_change}` — `c` = último precio
+  operado. **Integrado** para `asset_type="cedear"`: `src/lib/cedearCatalog.ts`
+  (`fetchCedearQuotes`/`findCedearQuote`, matching por **ticker exacto** — sin ambigüedad,
+  a diferencia del catálogo FCI que necesitó heurísticas de nombre libre) +
+  datalist de símbolos en el campo Ticker de `HoldingForm.tsx`; al tipear un ticker
+  que matchea, autocompleta "Precio actual" (usuario puede sobreescribir, IAS 16.51).
+  Fetch server-side en `inversiones/nueva/page.tsx` (data912 no expone CORS, igual que
+  el patrón ya usado para `fetchAllFciFundsRaw`). `usa_stocks` NO se integró: sería
+  semánticamente incorrecto usarlo para `asset_type="accion"` (acciones locales BYMA)
+  porque son mercados distintos — ver lección §23 (GGAL no tiene CEDEAR).
+  T5: documentado como Sesión J.1.9 en el roadmap (no implementado) — historial de
+  compras a distinto precio + promedio ponderado automático, requiere tabla nueva y se
+  diseñará junto con `holding_events` de Sesión J.2.
+  **QA E2E con Playwright headed, 7/7 checks verdes:** T4 confirmado sin bug; T1 layout
+  verificado por posición (Moneda en la misma fila que Precio, lejos de Cantidad); T2
+  probado con caso real (precio actual $1000, ganancia 25% → precio de compra derivado
+  $800, holding guardado y verificado en DB con `avg_buy_price=800`); T3 probado con
+  ticker real "AAPL" → precio autocompletado ($24800 ARS, valor real del feed en el
+  momento del test). tsc limpio, build limpio (26 rutas), 70/70 tests unitarios verdes
+  (6 nuevos en `cedearCatalog.test.ts`).
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
-  `docs/lecciones-aprendidas.md §6`). INVESTIGAR feed de precios BYMA/CEDEARs.
-  **PENDIENTE DE DECISIÓN HUMANA:** cotización con retraso (gratis) vs. romper costo cero.
+  `docs/lecciones-aprendidas.md §6`).
+  ~~INVESTIGAR feed de precios BYMA/CEDEARs.~~ ✅ Hecho en Sesión J.1.8: `data912.com`
+  confirmado viable e integrado para CEDEARs (ver entrada de sesión más abajo). Queda
+  pendiente solo la decisión de si algún día se busca tiempo real (rompería costo cero) —
+  hoy no hace falta, dato educativo cada ~2hs alcanza para el caso de uso.
+- **Sesión J.1.9 — Historial de compras y precio promedio ponderado automático (documentar,
+  NO implementar todavía):** el usuario quiere poder cargar "compré 1 CEDEAR a $1000 y
+  después otro a $1500" y que la app calcule sola el precio promedio ponderado, en vez de
+  que él haga la cuenta a mano y cargue el campo `avg_buy_price` ya existente (que se llama
+  "precio PROMEDIO de compra" precisamente para permitir ese cálculo manual mientras tanto).
+  Esto NO es un ajuste de formulario — requiere pasar de "una posición con un precio" a "una
+  posición con historial de compras" (tabla nueva de transacciones de compra por holding,
+  similar en espíritu a `holding_price_history` de Sesión J.1.7 pero para compras del
+  usuario, no cotizaciones del feed). Impacta directamente el cálculo de TWR de §8.2 (cada
+  compra nueva es un evento de flujo que delimita un sub-período) — conviene diseñarlo junto
+  con `holding_events` de Sesión J.2, no antes ni por separado. Sin fuente teórica nueva que
+  agregar a fundamentos: el promedio ponderado es aritmética estándar
+  (`Σ(cantidad_i × precio_i) / Σcantidad_i`), no requiere una sección nueva en §8.
 - **Sesión K — Gráficos:** inversiones, gastos e ingresos con Recharts; carrusel
   navegable en dashboard; gráfico propio dentro de cada sección.
 - **Sesión L — PWA:** manifest, service worker, íconos, instalable en iPhone; atajo de
@@ -284,7 +340,7 @@ Migraciones ejecutadas:
 | `/categorias` | Onboarding de categorías con defaults |
 | `/cuotas` | Cuotas pendientes agrupadas por tarjeta+mes; nombre tarjeta, "Vence el día X", "Pagar todas (N)", advertencia si sin closing/due |
 | `/inversiones` | Holdings con P&L; FCI lazy-load: TNA via `FciRateCell` (async SC en Suspense, sin bloquear render inicial); `HoldingPriceEdit` para precio manual en acciones/CEDEARs |
-| `/inversiones/nueva` | Formulario nueva posición |
+| `/inversiones/nueva` | Formulario nueva posición: Cantidad separada de Moneda (moneda se muestra junto al precio); toggle "Precio exacto"/"% de ganancia" (deriva precio de compra); tipo CEDEAR con datalist de tickers reales (data912) que autocompleta precio actual |
 | `/bienes` | Lista de bienes con sinking + maintenance + Meta por bien; modo manual muestra badge "manual" |
 | `/bienes/nuevo` | Formulario con defaults por categoría; sección "Detalles del auto" (segmento/bought_used/tasas+fuente); sección "Objetivo de ahorro" (toggle calculado/manual) |
 | `/bienes/[id]/editar` | Igual que nuevo + pre-llena todos los campos incluyendo car_segment/savings_goal |
@@ -368,6 +424,11 @@ Migraciones ejecutadas:
   `updateHoldingPrice` server action + `router.refresh()`
 - `inversiones/actions.ts` — `updateHoldingPrice(holdingId, price)` server action con RLS
   (`eq("user_id", user.id)`)
+- `src/lib/cedearCatalog.ts` — `fetchCedearQuotes()` (fetch server-side a
+  `data912.com/live/arg_cedears`, `next: { revalidate: 7200 }`), `findCedearQuote(quotes,
+  ticker)` (matching por ticker EXACTO, sin fuzzy — cada símbolo del feed ya es el mismo
+  ticker que el usuario tipearía). Usado en `HoldingForm.tsx` para autocompletar precio
+  actual de CEDEARs. 6 tests en `cedearCatalog.test.ts`.
 - `src/lib/institutions.ts` — `INSTITUTIONS` (array completo), `INSTITUTION_GROUPS` (grupos
   visibles en el picker — excluye "credito" desde Sesión M), `CREDIT_CARDS` (marcas de
   tarjeta: Visa, Mastercard, Amex, Naranja — usadas solo como hijas de bancos en bank_config).
@@ -402,11 +463,14 @@ Migraciones ejecutadas:
 
 **Nota de build local:** `npm run build` falla por Turbopack + `fonts.gstatic.com` sin acceso a red (pre-existente; no es un bug de código). En entorno sin internet, usar `npx tsc --noEmit` como verificación de tipos. En Vercel el build pasa normalmente.
 
-- **49 tests totales** (Jest + ts-jest):
+- **70 tests totales** (Jest + ts-jest):
   - 36 en `sinkingFund.test.ts` (9 nuevos en `84c3a1a`: calcCarResidualValue por segmento,
     0 meses, sanity check 65%-90%; calcAssetFunds modelo auto; CAR_DEPRECIATION_SEGMENTS.popular)
   - 13 en `savingsGoals.test.ts` (asset calculado/manual, goal con progreso/atrasado/completado/
     expirado, filtrado vivienda, ordenamiento, maintenance excluido de sinking)
+  - 7 en `holdingReturn.test.ts` (Sesión J.1.7 — retorno simple desde histórico)
+  - 8 en `fciCatalog.test.ts` (Sesión J.1.7 — agrupación de fondos por institución)
+  - 6 en `cedearCatalog.test.ts` (Sesión J.1.8 — matching exacto por ticker CEDEAR)
 - `docs/test-cases.md` — 9 casos funcionales documentados con valores esperados
 - `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)
 - `screenshot.mjs` — Script Playwright para capturas autenticadas

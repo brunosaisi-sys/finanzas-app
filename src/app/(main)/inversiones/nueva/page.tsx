@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import HoldingForm from "./_components/HoldingForm";
+import { fetchCedearQuotes } from "@/lib/cedearCatalog";
 
 export default async function NuevaInversionPage() {
   const supabase = await createClient();
@@ -10,10 +11,10 @@ export default async function NuevaInversionPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { data: accounts } = await supabase
-    .from("accounts")
-    .select("id, name, parent_id")
-    .order("name");
+  const [{ data: accounts }, cedearQuotes] = await Promise.all([
+    supabase.from("accounts").select("id, name, parent_id").order("name"),
+    fetchCedearQuotes(),
+  ]);
 
   return (
     <div className="p-4 max-w-lg mx-auto">
@@ -26,7 +27,7 @@ export default async function NuevaInversionPage() {
         </Link>
         <h1 className="text-xl font-semibold text-gray-900">Nueva posición</h1>
       </div>
-      <HoldingForm accounts={accounts ?? []} />
+      <HoldingForm accounts={accounts ?? []} cedearQuotes={cedearQuotes} />
     </div>
   );
 }
