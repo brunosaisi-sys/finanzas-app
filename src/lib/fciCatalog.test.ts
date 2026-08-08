@@ -65,4 +65,13 @@ describe("findFciInstitutionForAccountName", () => {
   it("matchea subcuentas con sufijo (ej. bolsillos)", () => {
     expect(findFciInstitutionForAccountName("Cocos Capital — Pesos")).toBe("cocos");
   });
+
+  it("matchea un bolsillo de nombre genérico solo si se le pasa la cadena de ancestros completa", () => {
+    // Bug reportado: un bolsillo llamado "Fondos" (no "Cocos Fondos") cuelga de
+    // "Cocos Capital". El nombre propio solo ("Fondos") no debe matchear nada —
+    // hace falta el string ya armado con accountDisplayName ("Cocos Capital — Fondos").
+    expect(findFciInstitutionForAccountName("Fondos")).toBeNull();
+    expect(findFciInstitutionForAccountName("Cocos Capital — Fondos")).toBe("cocos");
+    expect(findFciInstitutionForAccountName("Mercado Pago — Fondos")).toBe("mercadopago");
+  });
 });

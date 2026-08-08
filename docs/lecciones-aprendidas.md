@@ -412,6 +412,31 @@ sí sean CEDEARs reales (AAPL, KO, MSFT, etc.), nunca acciones locales.
 
 ---
 
+## 24. findFciInstitutionForAccountName — matching solo por nombre propio, ignora la jerarquía
+
+**Qué pasó:** El usuario reportó (con captura real) que al editar el bolsillo "Fondos"
+(hijo de "Cocos Capital", `earns_yield=true`), en vez del selector de fondos de Cocos
+aparecía el mensaje genérico "No tenés posiciones FCI".
+
+**Por qué:** `cuentas/page.tsx` llamaba `findFciInstitutionForAccountName(a.name)` — solo
+el nombre propio del bolsillo. Un bolsillo con nombre genérico ("Fondos", "Pesos",
+"Dólares") nunca contiene la palabra clave de la institución (ej. "cocos"), aunque su
+padre sí la tenga. El matching en sí (`INSTITUTION_ACCOUNT_NAME_HINTS`, `.includes()`)
+estaba bien diseñado para recibir un string con el nombre de la institución incluido —
+el problema era el input que recibía, no la función de matching.
+
+**Qué hacer:** Pasar `accountDisplayName(a, accounts)` (que ya arma "Institución —
+Bolsillo" caminando la cadena de ancestros, `src/lib/accounts.ts`) en vez de `a.name`, en
+las dos llamadas de `cuentas/page.tsx`. `findFciInstitutionForAccountName` no necesitó
+ningún cambio — confirmado con test unitario (`fciCatalog.test.ts`, caso "Fondos" solo →
+`null`, "Cocos Capital — Fondos" → `"cocos"`) en vez de asumir que funcionaría. Investigado
+si el mismo patrón (matching por nombre propio, ignorando jerarquía) aparecía en otro
+lugar del código: no — es el único punto donde se intenta inferir la institución de una
+cuenta EXISTENTE a partir de su nombre; los flujos de alta (`AccountsOnboarding`,
+`NuevaCuentaForm`) conocen el `institutionId` de forma explícita, no lo infieren.
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

@@ -170,7 +170,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   tsc limpio, build limpio (26 rutas), 64/64 tests unitarios verdes (15 nuevos: 7
   `holdingReturn.test.ts` + 8 `fciCatalog.test.ts`).
 
-- **Sesión J.1.8 — Fixes de `/inversiones/nueva` + catálogo de CEDEARs (commit pendiente):**
+- **Sesión J.1.8 — Fixes de `/inversiones/nueva` + catálogo de CEDEARs (commit `b8e95a7`):**
   T4 (Cuenta/Broker no listaba bolsillos): **NO reprodujo.** `HoldingForm.tsx` ya usaba
   `getLeafAccounts`/`accountDisplayName` correctamente. Verificado recreando el escenario
   exacto en DB de test (bolsillo "Fondos" hijo de "Cocos Capital") + Playwright — el
@@ -209,6 +209,25 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   ticker real "AAPL" → precio autocompletado ($24800 ARS, valor real del feed en el
   momento del test). tsc limpio, build limpio (26 rutas), 70/70 tests unitarios verdes
   (6 nuevos en `cedearCatalog.test.ts`).
+
+- **Sesión J.1.10 — Fix: selector de fondos por institución no matcheaba bolsillos de
+  nombre genérico (commit pendiente):** bug reportado y confirmado con captura real:
+  editando el bolsillo "Fondos" (hijo de "Cocos Capital", `earns_yield=true`), aparecía
+  "No tenés posiciones FCI" en vez del selector de Cocos. Causa: `cuentas/page.tsx`
+  llamaba `findFciInstitutionForAccountName(a.name)` — solo el nombre propio del
+  bolsillo, que no contiene la palabra clave de la institución cuando es genérico
+  ("Fondos", "Pesos"). Fix: pasar `accountDisplayName(a, accounts)` (ya arma
+  "Institución — Bolsillo" caminando ancestros) en las dos llamadas del archivo.
+  `findFciInstitutionForAccountName` en sí no necesitó cambios — su `.includes()` ya
+  funcionaba con el string completo, confirmado con test nuevo en `fciCatalog.test.ts`
+  (no asumido). Búsqueda de otros lugares con el mismo patrón (matching por nombre propio
+  ignorando jerarquía): no se encontró ninguno — es el único punto que infiere la
+  institución de una cuenta ya existente a partir de su nombre. Ver
+  `docs/lecciones-aprendidas.md §24`.
+  **QA E2E con Playwright headed confirmado:** bolsillo "Fondos" bajo "Cocos Capital" y
+  bolsillo "Ahorro" bajo "Mercado Pago" (creado para la prueba) — ambos muestran ahora
+  el selector real de fondos de su institución, no el mensaje genérico. tsc limpio, build
+  limpio (26 rutas), 71/71 tests unitarios verdes (1 nuevo en `fciCatalog.test.ts`).
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -463,13 +482,14 @@ Migraciones ejecutadas:
 
 **Nota de build local:** `npm run build` falla por Turbopack + `fonts.gstatic.com` sin acceso a red (pre-existente; no es un bug de código). En entorno sin internet, usar `npx tsc --noEmit` como verificación de tipos. En Vercel el build pasa normalmente.
 
-- **70 tests totales** (Jest + ts-jest):
+- **71 tests totales** (Jest + ts-jest):
   - 36 en `sinkingFund.test.ts` (9 nuevos en `84c3a1a`: calcCarResidualValue por segmento,
     0 meses, sanity check 65%-90%; calcAssetFunds modelo auto; CAR_DEPRECIATION_SEGMENTS.popular)
   - 13 en `savingsGoals.test.ts` (asset calculado/manual, goal con progreso/atrasado/completado/
     expirado, filtrado vivienda, ordenamiento, maintenance excluido de sinking)
   - 7 en `holdingReturn.test.ts` (Sesión J.1.7 — retorno simple desde histórico)
-  - 8 en `fciCatalog.test.ts` (Sesión J.1.7 — agrupación de fondos por institución)
+  - 9 en `fciCatalog.test.ts` (Sesión J.1.7 — agrupación de fondos por institución; +1 en
+    Sesión J.1.10 — bolsillo genérico requiere cadena de ancestros completa)
   - 6 en `cedearCatalog.test.ts` (Sesión J.1.8 — matching exacto por ticker CEDEAR)
 - `docs/test-cases.md` — 9 casos funcionales documentados con valores esperados
 - `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)

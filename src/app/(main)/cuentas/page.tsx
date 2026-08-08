@@ -11,6 +11,7 @@ import {
   type FciFundGroup,
 } from "@/lib/fciCatalog";
 import { calcHoldingReturn, type PricePoint } from "@/lib/finance/holdingReturn";
+import { accountDisplayName } from "@/lib/accounts";
 import type { Account } from "@/types";
 import type { AccountNode } from "./_components/CuentasTree";
 
@@ -103,10 +104,14 @@ export default async function CuentasPage() {
   // Solo para cuentas sin holding vinculado aún, cuya institución matchea una de
   // las 5 verificadas (ver docs/lecciones-aprendidas.md §21). Un solo fetch del
   // feed completo, reutilizado para todas las cuentas que lo necesiten.
+  // El matching se hace contra la cadena completa de ancestros (accountDisplayName,
+  // ej. "Cocos Capital — Fondos"), no solo el nombre propio — un bolsillo con nombre
+  // genérico ("Fondos") no lleva el nombre de la institución, solo su padre lo tiene
+  // (Sesión J.1.10, fix bug reportado por el usuario).
   const institutionsNeeded = new Map<string, string>(); // institutionId -> accountId (una cuenta representativa alcanza)
   for (const a of accounts) {
     if (a.type === "credito" || a.holding_id) continue;
-    const instId = findFciInstitutionForAccountName(a.name);
+    const instId = findFciInstitutionForAccountName(accountDisplayName(a, accounts));
     if (instId) institutionsNeeded.set(instId, a.id);
   }
 
@@ -193,7 +198,7 @@ export default async function CuentasPage() {
       fciCatalog:
         a.type !== "credito" && !a.holding_id
           ? (fciCatalogByInstitution.get(
-              findFciInstitutionForAccountName(a.name) ?? ""
+              findFciInstitutionForAccountName(accountDisplayName(a, accounts)) ?? ""
             ) ?? [])
           : [],
     };
