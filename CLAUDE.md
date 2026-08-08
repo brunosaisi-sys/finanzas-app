@@ -211,7 +211,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   (6 nuevos en `cedearCatalog.test.ts`).
 
 - **Sesión J.1.10 — Fix: selector de fondos por institución no matcheaba bolsillos de
-  nombre genérico (commit pendiente):** bug reportado y confirmado con captura real:
+  nombre genérico (commit `0e2ea51`):** bug reportado y confirmado con captura real:
   editando el bolsillo "Fondos" (hijo de "Cocos Capital", `earns_yield=true`), aparecía
   "No tenés posiciones FCI" en vez del selector de Cocos. Causa: `cuentas/page.tsx`
   llamaba `findFciInstitutionForAccountName(a.name)` — solo el nombre propio del
@@ -228,6 +228,32 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   bolsillo "Ahorro" bajo "Mercado Pago" (creado para la prueba) — ambos muestran ahora
   el selector real de fondos de su institución, no el mensaje genérico. tsc limpio, build
   limpio (26 rutas), 71/71 tests unitarios verdes (1 nuevo en `fciCatalog.test.ts`).
+
+- **Sesión J.1.11 — Fix: holding FCI vinculado no aparecía en /inversiones + rendimiento
+  30d en la vista de cuenta vinculada (commit pendiente):** el usuario reportó que un
+  holding creado y vinculado exitosamente desde `/cuentas` (RPC `create_and_link_fci_holding`,
+  migración 023) no aparecía en `/inversiones`. Causa real (no era matching de institución
+  ni nada relacionado con el bolsillo específico): `inversiones/page.tsx` hacía
+  `select("*, accounts(name)")`, un embed implícito que desde la migración 021 es
+  AMBIGUO — hay dos FKs entre `holdings` y `accounts` (`holdings.account_id` y
+  `accounts.holding_id`). PostgREST responde `HTTP 300 PGRST201` y, como el código no
+  chequeaba `error`, la página quedaba en el empty-state para **todos** los holdings del
+  usuario (confirmado en vivo: hasta el holding de AAPL de una sesión anterior había
+  dejado de aparecer). Fix: `accounts!holdings_account_id_fkey(name)` (FK explícita) en
+  vez del embed implícito. Ver `docs/lecciones-aprendidas.md §25`. TAREA 2: la vista de
+  cuenta ya vinculada ("Posición FCI vinculada" en `CuentaActions.tsx`) ahora muestra el
+  rendimiento 30d (`calcHoldingReturn`, §8.5 fundamentos) junto al nombre del fondo —
+  antes ese cálculo solo corría dentro de `institutionsNeeded.size > 0`, así que una
+  cuenta ya vinculada (que no necesita catálogo) nunca lo recibía; se movió a un cálculo
+  independiente sobre todos los holdings FCI del usuario.
+  **QA E2E con Playwright headed confirmado:** vinculado un fondo real de Cocos vía la UI,
+  simulado histórico de precios (3 puntos, `holding_price_history`), verificado en la
+  MISMA corrida que (a) el holding aparece en `/inversiones` con su cuenta y P&L, y (b)
+  el badge "+8.6% · 30d" aparece en la vista de cuenta vinculada en `/cuentas`. tsc
+  limpio, build limpio (26 rutas), 71/71 tests unitarios verdes (sin tests nuevos — el
+  fix es una query de PostgREST no testeable en unitarios sin una instancia real;
+  verificado en vivo contra REST y UI, no solo leyendo el código). Datos de prueba y
+  scripts temporales eliminados tras la verificación.
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;

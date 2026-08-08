@@ -115,6 +115,40 @@ export default async function CuentasPage() {
     if (instId) institutionsNeeded.set(instId, a.id);
   }
 
+  // Rendimiento 30d de cada holding FCI a partir de su histórico propio
+  // (holding_price_history, migración 022). Se calcula para TODOS los holdings FCI
+  // del usuario — no solo los que matchean el catálogo de una institución — porque
+  // también hace falta para la cuenta que YA tiene un holding vinculado (Sesión
+  // J.1.11, TAREA 2: antes esto solo se calculaba dentro de `institutionsNeeded.size
+  // > 0`, así que una cuenta ya vinculada, que no necesita catálogo, nunca recibía
+  // su rendimiento). Best-effort: si la tabla no existe todavía (migración 022
+  // pendiente) o no hay suficiente histórico, no se muestra rendimiento — nunca se
+  // inventa un valor (docs/01-fundamentos-teoricos.md §8.5).
+  const holdingReturnByHoldingId = new Map<string, number | null>();
+  if (fciHoldingsList.length > 0) {
+    try {
+      const { data: historyRows } = await supabase
+        .from("holding_price_history")
+        .select("holding_id, price, recorded_at")
+        .in(
+          "holding_id",
+          fciHoldingsList.map((h) => h.id)
+        );
+      const historyByHolding = new Map<string, PricePoint[]>();
+      for (const row of historyRows ?? []) {
+        const arr = historyByHolding.get(row.holding_id) ?? [];
+        arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
+        historyByHolding.set(row.holding_id, arr);
+      }
+      for (const h of fciHoldingsList) {
+        const history = historyByHolding.get(h.id);
+        if (history) holdingReturnByHoldingId.set(h.id, calcHoldingReturn(history));
+      }
+    } catch {
+      // holding_price_history todavía no existe (migración 022 pendiente) — sin rendimiento, no bloquea
+    }
+  }
+
   const fciCatalogByInstitution = new Map<string, FciFundGroup[]>();
   if (institutionsNeeded.size > 0) {
     const raw = await fetchAllFciFundsRaw();
@@ -122,51 +156,13 @@ export default async function CuentasPage() {
       fciCatalogByInstitution.set(instId, groupFundsForInstitution(raw, instId));
     }
 
-    // Rendimiento 30d: solo si el usuario ya tiene un holding con el nombre EXACTO
-    // de la clase representativa Y ese holding ya acumuló histórico propio
-    // (holding_price_history, migración 022). Best-effort: si la tabla o el
-    // holding no existen todavía, simplemente no se muestra rendimiento.
-    const allRepNames = Array.from(fciCatalogByInstitution.values())
-      .flat()
-      .map((f) => f.representativeName);
-
-    if (allRepNames.length > 0) {
-      const { data: matchingHoldings } = await supabase
-        .from("holdings")
-        .select("id, name")
-        .eq("asset_type", "fci")
-        .in("name", allRepNames);
-
-      if (matchingHoldings && matchingHoldings.length > 0) {
-        const holdingIdByName = new Map(
-          matchingHoldings.map((h) => [h.name, h.id as string])
-        );
-        try {
-          const { data: historyRows } = await supabase
-            .from("holding_price_history")
-            .select("holding_id, price, recorded_at")
-            .in(
-              "holding_id",
-              matchingHoldings.map((h) => h.id)
-            );
-          const historyByHolding = new Map<string, PricePoint[]>();
-          for (const row of historyRows ?? []) {
-            const arr = historyByHolding.get(row.holding_id) ?? [];
-            arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
-            historyByHolding.set(row.holding_id, arr);
-          }
-          for (const groups of fciCatalogByInstitution.values()) {
-            for (const g of groups) {
-              const hId = holdingIdByName.get(g.representativeName);
-              if (!hId) continue;
-              const history = historyByHolding.get(hId);
-              if (!history) continue;
-              g.return30d = calcHoldingReturn(history);
-            }
-          }
-        } catch {
-          // holding_price_history todavía no existe (migración 022 pendiente) — sin rendimiento, no bloquea
-        }
+    // Rendimiento 30d en el catálogo: solo si el usuario ya tiene, en cualquier
+    // cuenta, un holding con el nombre EXACTO de la clase representativa.
+    const holdingIdByName = new Map(fciHoldingsList.map((h) => [h.name, h.id]));
+    for (const groups of fciCatalogByInstitution.values()) {
+      for (const g of groups) {
+        const hId = holdingIdByName.get(g.representativeName);
+        if (hId) g.return30d = holdingReturnByHoldingId.get(hId) ?? null;
       }
     }
   }
@@ -195,6 +191,9 @@ export default async function CuentasPage() {
       hasExpenseDeps: accountsWithDeps.has(a.id),
       holding_id: a.holding_id ?? null,
       linkedHoldingName: a.holding_id ? (holdingNameMap.get(a.holding_id) ?? null) : null,
+      linkedHoldingReturn30d: a.holding_id
+        ? (holdingReturnByHoldingId.get(a.holding_id) ?? null)
+        : null,
       fciCatalog:
         a.type !== "credito" && !a.holding_id
           ? (fciCatalogByInstitution.get(

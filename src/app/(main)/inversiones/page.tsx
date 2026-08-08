@@ -28,9 +28,15 @@ export default async function InversionesPage() {
 
   // Solo carga holdings desde Supabase — renderiza inmediatamente.
   // FCI rates se cargan en paralelo por holding via Suspense.
+  // El embed de accounts debe desambiguarse: desde la migración 021 hay dos FKs
+  // entre holdings y accounts (holdings.account_id -> accounts.id, y
+  // accounts.holding_id -> holdings.id), y PostgREST no puede elegir sola cuál
+  // usar para "accounts(name)" — devuelve error PGRST201, que quedaba silenciado
+  // porque no se chequeaba `error`, dejando data=null y la página vacía para
+  // TODOS los holdings, no solo el vinculado desde un bolsillo (Sesión J.1.11).
   const { data } = await supabase
     .from("holdings")
-    .select("*, accounts(name)")
+    .select("*, accounts!holdings_account_id_fkey(name)")
     .order("created_at", { ascending: false });
 
   const holdings = (data ?? []) as HoldingRow[];

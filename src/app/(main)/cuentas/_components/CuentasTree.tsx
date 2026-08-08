@@ -26,6 +26,9 @@ export interface AccountNode {
   // Migración 021: holding vinculado para sync de balance (B-sync)
   holding_id: string | null;
   linkedHoldingName: string | null;
+  // Sesión J.1.11: rendimiento 30d del holding ya vinculado (holding_price_history,
+  // migración 022). null explícito si no hay suficiente histórico todavía.
+  linkedHoldingReturn30d: number | null;
   // Sesión J.1.7: catálogo de fondos de la institución (vacío si no se detectó
   // ninguna de las 5 instituciones verificadas — ver lecciones-aprendidas §21)
   fciCatalog: FciFundOption[];
@@ -319,6 +322,7 @@ function TreeNode({
               isChild={isChild}
               holdingId={account.holding_id}
               linkedHoldingName={account.linkedHoldingName}
+              linkedHoldingReturn30d={account.linkedHoldingReturn30d}
               fciHoldings={fciHoldings}
               fciCatalog={account.fciCatalog}
             />
@@ -426,6 +430,7 @@ function TreeNode({
               isChild={isChild}
               holdingId={account.holding_id}
               linkedHoldingName={account.linkedHoldingName}
+              linkedHoldingReturn30d={account.linkedHoldingReturn30d}
               fciHoldings={fciHoldings}
               fciCatalog={account.fciCatalog}
             />
@@ -480,6 +485,7 @@ function TreeNode({
           isChild={isChild}
           holdingId={account.holding_id}
           linkedHoldingName={account.linkedHoldingName}
+          linkedHoldingReturn30d={account.linkedHoldingReturn30d}
           fciHoldings={fciHoldings}
           fciCatalog={account.fciCatalog}
         />

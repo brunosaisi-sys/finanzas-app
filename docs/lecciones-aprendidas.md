@@ -437,6 +437,40 @@ cuenta EXISTENTE a partir de su nombre; los flujos de alta (`AccountsOnboarding`
 
 ---
 
+## 25. PostgREST — dos FKs entre las mismas tablas hacen el embed implícito ambiguo, y el error queda silenciado si no se chequea `error`
+
+**Qué pasó:** El usuario vinculó un bolsillo de Cocos Capital a un holding FCI real (RPC
+`create_and_link_fci_holding`, migración 023). El saldo se veía bien en `/cuentas`, pero el
+holding NO aparecía en `/inversiones` — mostraba "Sin posiciones cargadas" a pesar de que
+la fila existía en `holdings`. Al investigar se descubrió que esto no era un problema del
+holding nuevo en particular: **ningún** holding aparecía, incluyendo uno de acciones (AAPL)
+creado en una sesión anterior — la página estaba rota para todos los holdings del usuario.
+
+**Por qué:** `inversiones/page.tsx` hacía `supabase.from("holdings").select("*, accounts(name)")`.
+Desde la migración 021 (`accounts.holding_id → holdings.id`) coexisten DOS relaciones FK
+entre `holdings` y `accounts`: `holdings.account_id → accounts.id` (dueño del holding) y
+`accounts.holding_id → holdings.id` (cuenta que sincroniza su balance desde ese holding).
+PostgREST no puede elegir sola cuál usar para un embed implícito como `accounts(name)` y
+responde `HTTP 300 PGRST201` ("more than one relationship was found"). El código hacía
+`const { data } = await supabase...` sin chequear `error`, así que la falla quedaba
+silenciada: `data` llegaba `null`, `(data ?? [])` convertía eso en un array vacío, y la
+página renderizaba el empty-state como si el usuario no tuviera ninguna posición cargada.
+Confirmado en vivo con REST directo a PostgREST (no solo leyendo el código): el mismo
+`select=*,accounts(name)` devuelve 300 con el detalle de las dos relaciones candidatas;
+`select=id,name,accounts!holdings_account_id_fkey(name)` (FK explícita) devuelve 200 con
+ambos holdings.
+
+**Qué hacer:** Cuando una tabla tiene más de un camino FK hacia la misma tabla relacionada,
+desambiguar SIEMPRE el embed con la sintaxis `tabla!nombre_de_la_fk(...)` en vez del embed
+implícito `tabla(...)`. Y, regla más general: nunca descartar `error` de una llamada
+`supabase.from(...).select(...)` sin al menos loguearlo — un embed ambiguo, un typo de
+columna, o un problema de RLS se ven todos igual desde la UI ("no hay datos") si `error` se
+ignora en silencio. Antes de asumir "no hay filas", probar la query cruda vía REST
+(`{url}/rest/v1/tabla?select=...` con el token del usuario) para distinguir "no hay datos"
+de "la query falló".
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

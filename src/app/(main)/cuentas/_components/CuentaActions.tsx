@@ -38,6 +38,7 @@ interface Props {
   isChild: boolean;
   holdingId: string | null;
   linkedHoldingName: string | null;
+  linkedHoldingReturn30d: number | null;
   fciHoldings: FciHoldingOption[];
   fciCatalog: FciFundOption[];
 }
@@ -55,6 +56,7 @@ export default function CuentaActions({
   isChild,
   holdingId,
   linkedHoldingName,
+  linkedHoldingReturn30d,
   fciHoldings,
   fciCatalog,
 }: Props) {
@@ -179,6 +181,20 @@ export default function CuentaActions({
                 <span className="text-[10px] text-indigo-700 flex-1">
                   📈 {currentHoldingName ?? holdingIdEdit}
                 </span>
+                {/* Rendimiento 30d — solo para el holding YA vinculado (no al
+                    previsualizar otro holding en el selector manual), y solo si
+                    hay histórico suficiente (holding_price_history, migración 022).
+                    Sesión J.1.11, TAREA 2. */}
+                {holdingIdEdit === holdingId && linkedHoldingReturn30d != null && (
+                  <span
+                    className={`text-[10px] font-medium tabular-nums shrink-0 ${
+                      linkedHoldingReturn30d >= 0 ? "text-green-600" : "text-red-600"
+                    }`}
+                  >
+                    {linkedHoldingReturn30d >= 0 ? "+" : ""}
+                    {(linkedHoldingReturn30d * 100).toFixed(1)}% · 30d
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => setHoldingIdEdit(null)}
