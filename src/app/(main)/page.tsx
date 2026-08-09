@@ -4,7 +4,22 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import { formatCurrency, formatARS, formatUSD } from "@/lib/format";
 import { getLeafAccounts } from "@/lib/accounts";
-import type { Account } from "@/types";
+import type { Account, Currency } from "@/types";
+
+// Sesión J.1.12, TAREA 5 — la ocurrencia de un día de mes (closing_day/due_day,
+// 1–28) más cercana a hoy, mirando mes anterior/actual/siguiente. Necesario porque
+// "próximo vencimiento" puede en realidad ser el de un par de días atrás (ventana
+// ±7 días del brief) — no siempre el que todavía no pasó este mes.
+function closestOccurrence(day: number, today: Date): Date {
+  const candidates = [-1, 0, 1].map(
+    (offset) => new Date(today.getFullYear(), today.getMonth() + offset, day)
+  );
+  return candidates.reduce((best, d) =>
+    Math.abs(d.getTime() - today.getTime()) < Math.abs(best.getTime() - today.getTime())
+      ? d
+      : best
+  );
+}
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -83,6 +98,83 @@ export default async function DashboardPage() {
     }
   }
 
+  // Sesión J.1.12, TAREA 5a/5b — tarjetas sin closing_day/due_day configurado.
+  // A diferencia del banner de arriba (que avisa cuando se acerca una fecha YA
+  // configurada), este aviso es persistente: no depende de la fecha de hoy, se
+  // muestra siempre que falte el dato, hasta que el usuario lo complete. Se
+  // infiere en cada carga comparando el estado actual de la cuenta — no hace
+  // falta una tabla nueva para trackear "ya se avisó este mes" (decisión tomada
+  // en el brief: preferir esta opción si alcanza, y alcanza).
+  const creditCardsMissingConfig = leafAccounts.filter(
+    (a) => (a as Account).type === "credito" && (a.closing_day == null || a.due_day == null)
+  ) as Account[];
+
+  // TAREA 5c/5d — resumen "cuánto vas a pagar" para tarjetas SÍ configuradas cuyo
+  // próximo/último vencimiento cae dentro de ±7 días de hoy. Reutiliza el mismo
+  // agrupamiento por cuenta+mes que /cuotas (no reinventa la lógica de cuotas).
+  // "Ya pagué" reusa installments.paid — el mismo estado que actualiza
+  // pay_installments_batch — no se agrega ningún campo nuevo.
+  const UPCOMING_WINDOW_DAYS = 7;
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const paymentSummaryCandidates = leafAccounts
+    .filter(
+      (a): a is Account =>
+        (a as Account).type === "credito" &&
+        (a as Account).closing_day != null &&
+        (a as Account).due_day != null
+    )
+    .map((card) => {
+      const dueDate = closestOccurrence(card.due_day!, todayMidnight);
+      const diffDays = Math.round(
+        (dueDate.getTime() - todayMidnight.getTime()) / 86400000
+      );
+      return { card, dueDate, diffDays };
+    })
+    .filter((c) => Math.abs(c.diffDays) <= UPCOMING_WINDOW_DAYS);
+
+  type PaymentSummary = {
+    cardId: string;
+    cardName: string;
+    dueDate: Date;
+    total: number;
+    currency: Currency;
+    pendingCount: number;
+    totalCount: number;
+  };
+  let paymentSummaries: PaymentSummary[] = [];
+  if (paymentSummaryCandidates.length > 0) {
+    const { data: summaryInstallments } = await supabase
+      .from("installments")
+      .select(
+        "id, amount, due_date, paid, expenses ( account_id, currency )"
+      );
+    type SummaryInstRow = {
+      amount: number;
+      due_date: string;
+      paid: boolean;
+      expenses: { account_id: string | null; currency: string } | null;
+    };
+    const rows = (summaryInstallments ?? []) as unknown as SummaryInstRow[];
+
+    paymentSummaries = paymentSummaryCandidates.map(({ card, dueDate }) => {
+      const targetYearMonth = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, "0")}`;
+      const cardRows = rows.filter(
+        (r) =>
+          r.expenses?.account_id === card.id &&
+          r.due_date.slice(0, 7) === targetYearMonth
+      );
+      return {
+        cardId: card.id,
+        cardName: card.name,
+        dueDate,
+        total: cardRows.reduce((sum, r) => sum + Number(r.amount), 0),
+        currency: (cardRows[0]?.expenses?.currency ?? "ARS") as Currency,
+        pendingCount: cardRows.filter((r) => !r.paid).length,
+        totalCount: cardRows.length,
+      };
+    }).filter((s) => s.totalCount > 0);
+  }
+
   const arsExpenses = (monthExpenses ?? [])
     .filter((e) => e.currency === "ARS")
     .reduce((sum, e) => sum + Number(e.amount), 0);
@@ -102,6 +194,75 @@ export default async function DashboardPage() {
         </div>
         <LogoutButton />
       </div>
+
+      {/* Tarjetas sin cierre/vencimiento configurado — aviso persistente, no es
+          un banner de fecha próxima (Sesión J.1.12, TAREA 5b). */}
+      {creditCardsMissingConfig.length > 0 && (
+        <section className="space-y-2">
+          {creditCardsMissingConfig.map((card) => (
+            <Link
+              key={card.id}
+              href="/cuentas"
+              className="block bg-red-50 border border-red-200 rounded-xl px-4 py-3"
+            >
+              <div className="flex items-start gap-3">
+                <span className="text-base shrink-0">⚠️</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-red-900">
+                    Falta configurar {card.name}
+                  </p>
+                  <p className="text-xs text-red-700">
+                    Completá el día de cierre y vencimiento para ver cuánto vas a
+                    pagar cada mes →
+                  </p>
+                </div>
+              </div>
+            </Link>
+          ))}
+        </section>
+      )}
+
+      {/* Resumen de pago para tarjetas configuradas con vencimiento cercano
+          (±7 días — Sesión J.1.12, TAREA 5c/5d). */}
+      {paymentSummaries.length > 0 && (
+        <section className="space-y-2">
+          {paymentSummaries.map((s) => {
+            const allPaid = s.pendingCount === 0;
+            return (
+              <Link
+                key={s.cardId}
+                href="/cuotas"
+                className={`block border rounded-xl px-4 py-3 ${
+                  allPaid
+                    ? "bg-green-50 border-green-200"
+                    : "bg-indigo-50 border-indigo-200"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p
+                      className={`text-sm font-medium ${allPaid ? "text-green-900" : "text-indigo-900"}`}
+                    >
+                      {s.cardName} · vence{" "}
+                      {s.dueDate.toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
+                    </p>
+                    <p className={`text-xs ${allPaid ? "text-green-700" : "text-indigo-700"}`}>
+                      {allPaid
+                        ? "Ya pagaste todas las cuotas de este vencimiento ✓"
+                        : `${s.pendingCount} de ${s.totalCount} cuota${s.totalCount !== 1 ? "s" : ""} sin pagar`}
+                    </p>
+                  </div>
+                  <p
+                    className={`text-sm font-semibold tabular-nums shrink-0 ${allPaid ? "text-green-900" : "text-indigo-900"}`}
+                  >
+                    {formatCurrency(s.total, s.currency)}
+                  </p>
+                </div>
+              </Link>
+            );
+          })}
+        </section>
+      )}
 
       {/* Recordatorios de cierre/vencimiento de tarjetas */}
       {reminders.length > 0 && (

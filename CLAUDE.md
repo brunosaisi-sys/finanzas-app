@@ -230,7 +230,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   limpio (26 rutas), 71/71 tests unitarios verdes (1 nuevo en `fciCatalog.test.ts`).
 
 - **Sesión J.1.11 — Fix: holding FCI vinculado no aparecía en /inversiones + rendimiento
-  30d en la vista de cuenta vinculada (commit pendiente):** el usuario reportó que un
+  30d en la vista de cuenta vinculada (commit `ff28f43`):** el usuario reportó que un
   holding creado y vinculado exitosamente desde `/cuentas` (RPC `create_and_link_fci_holding`,
   migración 023) no aparecía en `/inversiones`. Causa real (no era matching de institución
   ni nada relacionado con el bolsillo específico): `inversiones/page.tsx` hacía
@@ -254,6 +254,67 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   fix es una query de PostgREST no testeable en unitarios sin una instancia real;
   verificado en vivo contra REST y UI, no solo leyendo el código). Datos de prueba y
   scripts temporales eliminados tras la verificación.
+
+- **Sesión J.1.12 — 5 bugs/gaps reportados por uso real (commit pendiente):**
+  T1 (SPY -74%): investigado con `curl` real + Playwright — el matching de CEDEAR es
+  exacto (`findCedearQuote`, sin ambigüedad SPY/SPYC/SPYD), no reprodujo como bug de
+  código. Causa real: BYMA hizo un split del CEDEAR de SPY (ratio 20:1→60:1, 29 mayo–1
+  junio 2026, fuente pública) antes de la compra del usuario — `holdings.quantity`
+  nunca se actualizó, así que la app compara precio pre-split contra post-split. Sin
+  fix de código (gap real pero fuera de alcance: no hay forma de editar
+  quantity/avg_buy_price post-creación). Ver `docs/lecciones-aprendidas.md §26`.
+  T2 (auto-sync de histórico): auditoría de código encontró que el insert a
+  `holding_price_history` en `fciAutoSync.ts` vivía dentro del throttle de balance
+  (`current_price !== vcp`), así que un día sin cambio de VCP nunca generaba fila,
+  aunque fue una cotización real. Separado: el histórico ahora se registra siempre
+  que el feed reporte VCP, el throttle quedó solo para el RPC de balance. Ver
+  `docs/lecciones-aprendidas.md §27`.
+  T3 (reset de contraseña): no existía ninguna ruta para completarlo — causa raíz
+  confirmada por ausencia de código, no por config de Supabase. Agregado: `/forgot-password`
+  (pide email, llama `resetPasswordForEmail`), `/reset-password` (formulario de
+  contraseña nueva, protegido — redirige a `/forgot-password` si no hay sesión de
+  recuperación activa), `/auth/callback` extendido con parámetro `next` (reutilizable
+  para signup y para recovery). Link "¿Olvidaste tu contraseña?" agregado en `/login`.
+  **⚠ Acción pendiente en el dashboard de Supabase** (no resoluble por código): agregar
+  `{origin}/auth/callback` a Authentication → URL Configuration → Redirect URLs, para
+  `http://localhost:3000` y para el dominio de producción en Vercel.
+  T4 (selector Mercado Pago no priorizaba catálogo): la lógica de prioridad en
+  `CuentaActions.tsx` ya está bien (catálogo primero, dropdown manual como fallback
+  solo si `fciCatalog.length === 0`) y el matching de institución/prefijo de fondo
+  también es correcto (verificado con `curl` contra el feed real). **No reprodujo**
+  con Playwright headed recreando la estructura exacta reportada. Hipótesis más
+  probable (no confirmada): `fetchAllFciFundsRaw` hace 4 fetches en paralelo con
+  errores silenciados por categoría; Mercado Pago tiene un solo fondo en una sola
+  categoría (a diferencia de Cocos/Balanz/Bull Market/IOL, repartidos en varias), así
+  que un solo fetch fallido transitorio vacía TODO su catálogo de forma asimétrica.
+  Fix defensivo aplicado: un reintento por categoría (`fetchFciCategoryWithRetry` en
+  `fciCatalog.ts`). Ver `docs/lecciones-aprendidas.md §28`.
+  T5 (recordatorio mensual de tarjetas — **implementado, no solo diseñado**): estado
+  previo confirmado — `closing_day`/`due_day` ya existen (migración 009), banner de
+  aviso de fecha próxima (N=3 días) ya existía en el dashboard. Decisión de diseño
+  (sin tabla nueva, tal como prefería el brief): se infiere en cada carga comparando
+  con la fecha actual. Agregado en `(main)/page.tsx`: (a) aviso persistente rojo
+  "Falta configurar {tarjeta}" para toda tarjeta sin `closing_day`/`due_day` — se
+  muestra siempre que falte el dato, no depende de la fecha, distinto del banner
+  ámbar existente (que sí es por fecha próxima); (b) resumen "cuánto vas a pagar" para
+  tarjetas SÍ configuradas cuya ocurrencia de `due_day` más cercana (mes anterior,
+  actual o siguiente — `closestOccurrence`) cae dentro de ±7 días de hoy, sumando las
+  cuotas de `installments` para ese mes (mismo agrupamiento por cuenta+mes que
+  `/cuotas`, sin reinventar lógica); (c) "ya pagué" reusa `installments.paid` (el
+  mismo estado que actualiza `pay_installments_batch`) — sin campo nuevo. Verificado
+  en vivo con Playwright: tarjeta sin config → aviso rojo; tarjeta con vencimiento hoy
+  y 1 cuota sin pagar → resumen indigo "1 de 1 cuota sin pagar $15.000"; cuota
+  marcada paid → resumen cambia a verde "Ya pagaste todas las cuotas ✓".
+  **QA E2E con Playwright headed, con datos reales del feed (no simulados):** holding
+  SPY creado con precio autocompletado exacto ($20.410, igual al feed en vivo);
+  Mercado Pago con catálogo visible incluso con un holding FCI de otra institución ya
+  en la DB; dashboard con los 3 estados de TAREA 5 confirmados. tsc limpio, build
+  limpio (29 rutas — 2 nuevas: `/forgot-password`, `/reset-password`), 71/71 tests
+  unitarios verdes (sin tests nuevos — todos los cambios de esta sesión son de
+  integración server/feed/DB, no lógica financiera pura). Datos y cuentas de prueba
+  creados durante la sesión (SPY, Mercado Pago+Pesos, Cocos Ahorro test, Mastercard
+  Test QA + gasto + cuota) fueron eliminados; DB verificada de vuelta a fixtures
+  originales (Cocos Capital, Visa Test SD, holding AAPL).
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -375,7 +436,9 @@ Migraciones ejecutadas:
 | Ruta | Descripción |
 |------|-------------|
 | `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Inversiones |
-| `/login` | Auth email + password (Supabase Auth) |
+| `/login` | Auth email + password (Supabase Auth); link "¿Olvidaste tu contraseña?" |
+| `/forgot-password` | Pide email, llama `resetPasswordForEmail` (Supabase Auth) |
+| `/reset-password` | Formulario de contraseña nueva; protegido — redirige a `/forgot-password` si no hay sesión de recuperación activa |
 | `/cuentas` | Lista de cuentas agrupada; editar nombre/saldo/tipo + eliminar inline (CuentaActions); cuentas padre con Editar/Eliminar; tarjetas de crédito con parent_id bajo banco; vista discriminada Total/Cuotas/Metas/Libre |
 | `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre); tarjeta de crédito: selector opcional de banco padre |
 | `/cuentas/transferencia` | Transferencia entre cuentas vía RPC atómico; aviso si monedas distintas |

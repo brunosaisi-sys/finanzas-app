@@ -471,6 +471,100 @@ de "la query falló".
 
 ---
 
+## 26. CEDEAR split — no confundir "pérdida absurda" con bug de matching de ticker
+
+**Qué pasó:** El usuario reportó que su holding de SPY mostraba una pérdida de -74%
+(avg_buy_price ≈ $79.507, precio actual ≈ $20.410) — una caída que no tiene sentido
+para un CEDEAR del S&P 500. Se investigó con `curl` real contra `data912.com`:
+`SPY`, `SPYC` y `SPYD` son símbolos completamente distintos (`SPY: $20.410`,
+`SPYC: $12,93`, `SPYD: $13,41`) y `findCedearQuote` usa match EXACTO por símbolo,
+no fuzzy — confirmado además creando un holding SPY real vía Playwright: el precio
+autocompletado coincidió exactamente con el del feed. La hipótesis de ambigüedad de
+ticker (como la de lección §19, pero para CEDEARs) **no reprodujo**.
+
+**Por qué:** La causa real no es de código: BYMA hizo un split del CEDEAR de SPY
+(ratio 20:1 → 60:1, ejecutado entre el 29 de mayo y el 1 de junio de 2026, fuente
+pública) — por cada CEDEAR el usuario recibió 2 adicionales (triplicó su cantidad)
+y el precio unitario cayó a un tercio, sin cambiar el valor total invertido. El
+usuario compró antes del split. `holdings.quantity` nunca se actualizó para
+reflejar las unidades nuevas, así que la app compara `avg_buy_price` pre-split ×
+cantidad pre-split contra `current_price` post-split — una pérdida ficticia, no
+real. El modelo de holdings actual no tiene ningún mecanismo para trackear eventos
+corporativos (splits, cambios de ratio) — es el mismo gap ya identificado para
+historial de compras en Sesión J.1.9 (`holding_events`, pendiente de diseño junto
+con TWR en Sesión J.2), y `data912` tampoco expone historial de splits.
+
+**Qué hacer:** Ante una ganancia/pérdida que "no tiene sentido" en un instrumento
+conocido, no asumir bug de matching sin antes (a) confirmar que el matching es
+exacto (ya lo es para CEDEARs — `cedearCatalog.ts`) y (b) buscar si hubo un evento
+corporativo real reciente ("CEDEAR `<ticker>` split ratio") antes de tocar código.
+No se implementó ningún fix de código para este caso — hoy `/inversiones` no tiene
+forma de editar `quantity`/`avg_buy_price` de un holding ya creado (solo
+`current_price`, vía `HoldingPriceEdit`), así que el usuario no puede autocorregir
+un split desde la UI. Gap documentado, no implementado esta sesión (fuera del
+alcance: "si el bug es de matching, corregir; si la causa es otra, documentar").
+
+---
+
+## 27. fciAutoSync — el histórico de precios quedaba acoplado al throttle del balance
+
+**Qué pasó:** Al auditar el auto-sync de `holding_price_history` (verificación de
+que el histórico se llena con fechas reales), se encontró que el `insert` a esa
+tabla vivía DENTRO de la rama `if (!error)` del sync de balance, que a su vez solo
+corre `if (holding.current_price !== rate.vcp)`. Resultado: un día en que el VCP
+del feed no cambia (común en fondos de bajo riesgo / mercado de dinero) nunca
+generaba fila de histórico, aunque fue un día real de cotización con su propia
+fecha (`rate.fecha`).
+
+**Por qué:** El código conflacionaba dos propósitos con un solo chequeo: (1)
+throttle de escritura del RPC `sync_holding_balance` (correcto: solo llamar si el
+precio cambió, para no escribir de más) y (2) registro histórico (un precio sin
+cambios sigue siendo un punto de datos válido — 0% de variación ese día — no "nada
+que registrar"). Menos puntos reales acumulados en `holding_price_history` implica
+más chance de que `calcHoldingReturn` devuelva `null` por falta de historial,
+incluso cuando técnicamente pasaron suficientes días.
+
+**Qué hacer:** Separar el registro histórico del throttle de balance. En
+`src/lib/fciAutoSync.ts` (Sesión J.1.12) el `upsert` a `holding_price_history`
+corre siempre que el feed reporte VCP para el holding, sin condicionarlo al cambio
+de precio; el chequeo `current_price !== rate.vcp` quedó solo para decidir si
+llamar al RPC de balance.
+
+---
+
+## 28. Catálogo FCI por institución — fragilidad asimétrica ante fallos parciales del feed
+
+**Qué pasó:** El usuario reportó que al editar un bolsillo de Mercado Pago
+aparecía el dropdown genérico de vincular un holding existente, en vez del
+catálogo de fondos de la institución (que sí funcionó para Cocos). Se intentó
+reproducir de forma determinística con Playwright headed, recreando la estructura
+exacta reportada (cuenta padre "Mercado Pago" + bolsillo hijo "Pesos",
+`earns_yield=true`, con un holding FCI de otra institución —Cocos— ya en la DB) —
+**el catálogo apareció correctamente, sin reproducir el bug.**
+
+**Por qué (hipótesis más probable — no confirmada con evidencia determinística,
+no hay logs de producción accesibles desde este entorno):** `fetchAllFciFundsRaw`
+hace 4 fetches en paralelo (uno por categoría FCI) y silencia errores POR
+CATEGORÍA para no bloquear el resto del catálogo. Mercado Pago tiene un solo fondo
+("Mercado Fondo") en UNA sola categoría (`mercadoDinero`) — a diferencia de
+Cocos/Balanz/Bull Market/IOL, que están repartidos en varias categorías. Un solo
+fetch fallido (timeout o 5xx transitorio) a esa categoría específica vacía TODO el
+catálogo de Mercado Pago, mientras que a las demás instituciones les alcanza con
+las categorías que sí respondieron — una asimetría real de robustez, no un bug de
+lógica de matching (el matching en sí, verificado con `curl` contra el feed
+vigente, es correcto: el prefijo "mercado fondo" matchea las 4 clases A-D).
+
+**Qué hacer:** Documentado como hipótesis, no como certeza (no se pudo confirmar
+determinísticamente — principio "no inventar explicaciones" del proyecto). Se
+aplicó un fix defensivo de bajo riesgo: un reintento por categoría
+(`fetchFciCategoryWithRetry` en `src/lib/fciCatalog.ts`, Sesión J.1.12), que
+reduce la fragilidad sin ocultar un fallo persistente real del feed. Si el catálogo
+de Mercado Pago vuelve a aparecer vacío después de este fix, es señal fuerte de que
+la causa es otra y hace falta revisar con logs reales del entorno de producción
+(Vercel).
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

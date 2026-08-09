@@ -11,6 +11,13 @@
 // no existe (migración 022 pendiente de ejecución manual en Supabase — no hay
 // service_role key disponible, ver lecciones-aprendidas §9), el insert falla en
 // silencio y el sync de balance sigue funcionando igual.
+//
+// Sesión J.1.12: el insert a holding_price_history se independizó del chequeo
+// "vcp != current_price". Antes vivía adentro de esa rama, así que un día con VCP
+// sin cambios (común en fondos de baja volatilidad) nunca generaba fila — el
+// histórico quedaba con huecos reales que podían dejar calcHoldingReturn sin
+// suficientes puntos. El throttle de escrituras sigue existiendo solo para el RPC
+// de balance (sync_holding_balance), no para el registro histórico.
 
 import { fetchAllFCIRates, matchFCIRate } from "./fciRates";
 
@@ -58,7 +65,27 @@ export async function autoSyncFciHoldings(
     fciHoldings.map(async (holding) => {
       const rate = matchFCIRate(holding, rates);
       if (!rate) return;
-      if (holding.current_price === rate.vcp) return; // Sin cambio — no llamar al RPC
+
+      // Histórico: se registra siempre que el feed reporte VCP para este holding,
+      // sin importar si el precio cambió desde el último sync. Antes este insert
+      // vivía dentro del "si cambió el precio" del sync de balance, así que un día
+      // con VCP sin cambios (común en fondos de baja volatilidad) nunca generaba
+      // fila — el histórico quedaba con huecos reales, no solo por caché del feed
+      // (Sesión J.1.12, TAREA 2). Aditivo: no bloquea ni revierte el sync de balance.
+      try {
+        await supabase.from("holding_price_history").upsert(
+          {
+            holding_id: holding.id,
+            price: rate.vcp,
+            recorded_at: rate.fecha,
+          },
+          { onConflict: "holding_id,recorded_at" }
+        );
+      } catch {
+        // Tabla aún no creada (migración 022 pendiente) u otro error — no interrumpe el flujo.
+      }
+
+      if (holding.current_price === rate.vcp) return; // Balance sin cambio — no llamar al RPC
 
       const { error } = await supabase.rpc("sync_holding_balance", {
         p_holding_id: holding.id,
@@ -66,20 +93,6 @@ export async function autoSyncFciHoldings(
       });
       if (!error) {
         updatedPrices.set(holding.id, rate.vcp);
-
-        // Histórico aditivo — no bloquea ni revierte el sync de balance si falla.
-        try {
-          await supabase.from("holding_price_history").upsert(
-            {
-              holding_id: holding.id,
-              price: rate.vcp,
-              recorded_at: rate.fecha,
-            },
-            { onConflict: "holding_id,recorded_at" }
-          );
-        } catch {
-          // Tabla aún no creada (migración 022 pendiente) u otro error — no interrumpe el flujo.
-        }
       }
     })
   );

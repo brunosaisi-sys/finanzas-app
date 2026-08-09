@@ -75,29 +75,46 @@ type RawFciFund = {
   categoria: FciCategory;
 };
 
+type RawCategoryFund = {
+  fondo: string;
+  vcp: number | null;
+  fecha: string | null;
+  patrimonio: number | null;
+};
+
+// Un intento + un reintento por categoría. Mercado Pago tiene un solo fondo en
+// UNA sola categoría (mercadoDinero) — a diferencia de Cocos/Balanz/Bull Market/IOL,
+// que aparecen repartidos en varias, así que un solo fetch fallido de esa categoría
+// vacía TODO su catálogo (fciCatalog.length === 0), mientras que a las otras
+// instituciones les alcanza con las categorías que sí respondieron. Reportado por
+// el usuario como "Mercado Pago no muestra su catálogo, Cocos sí" — no se pudo
+// reproducir de forma determinística (la causa más probable es un fallo transitorio
+// puntual del feed, no un bug de matching — ver docs/lecciones-aprendidas.md §26).
+// Un reintento reduce la fragilidad sin ocultar un fallo persistente del feed.
+async function fetchFciCategoryWithRetry(cat: FciCategory): Promise<RawCategoryFund[]> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const res = await fetch(
+        `https://api.argentinadatos.com/v1/finanzas/fci/${cat}/ultimo`,
+        { next: { revalidate: 21600 } }
+      );
+      if (res.ok) return await res.json();
+    } catch {
+      // intento fallido — se reintenta una vez más antes de rendirse
+    }
+  }
+  return [];
+}
+
 // Un solo fetch de las 4 categorías — se reutiliza para agrupar N instituciones
 // sin repetir requests (Next.js cachea 6h por URL, pero evitamos incluso eso).
 export async function fetchAllFciFundsRaw(): Promise<RawFciFund[]> {
   const all: RawFciFund[] = [];
   await Promise.allSettled(
     FCI_CATEGORIES.map(async (cat) => {
-      try {
-        const res = await fetch(
-          `https://api.argentinadatos.com/v1/finanzas/fci/${cat}/ultimo`,
-          { next: { revalidate: 21600 } }
-        );
-        if (!res.ok) return;
-        const data: Array<{
-          fondo: string;
-          vcp: number | null;
-          fecha: string | null;
-          patrimonio: number | null;
-        }> = await res.json();
-        for (const f of data) {
-          all.push({ ...f, categoria: cat });
-        }
-      } catch {
-        // silent per category — no bloquear el resto del catálogo
+      const data = await fetchFciCategoryWithRetry(cat);
+      for (const f of data) {
+        all.push({ ...f, categoria: cat });
       }
     })
   );
