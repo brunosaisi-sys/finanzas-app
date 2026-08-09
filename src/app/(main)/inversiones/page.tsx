@@ -4,8 +4,10 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
 import HoldingPriceEdit from "./_components/HoldingPriceEdit";
+import HoldingPositionEdit from "./_components/HoldingPositionEdit";
 import { FciRateCell, FciPortfolioSummary } from "./_components/FciRatesSection";
 import { autoSyncFciHoldings } from "@/lib/fciAutoSync";
+import { calcHoldingReturn, calcAnnualizedReturn, type PricePoint } from "@/lib/finance/holdingReturn";
 import type { Holding } from "@/types";
 
 const ASSET_LABELS: Record<string, string> = {
@@ -47,6 +49,34 @@ export default async function InversionesPage() {
   const updatedPrices = await autoSyncFciHoldings(supabase, holdings);
   for (const h of holdings) {
     if (updatedPrices.has(h.id)) h.current_price = updatedPrices.get(h.id)!;
+  }
+
+  // Retorno 30d + TNA estimada (§8.5/§8.7 fundamentos) a partir del histórico
+  // propio de cada holding — hoy solo FCI acumula histórico real (auto-sync);
+  // acciones/CEDEARs con precio manual no tienen suficientes puntos y
+  // simplemente no muestran nada (Sesión J.1.13, TAREA 6, regla dura: nunca
+  // inventar el número). Best-effort: si holding_price_history no existe
+  // todavía, no bloquea el render de la lista.
+  const return30dByHolding = new Map<string, number | null>();
+  if (holdings.length > 0) {
+    try {
+      const { data: historyRows } = await supabase
+        .from("holding_price_history")
+        .select("holding_id, price, recorded_at")
+        .in("holding_id", holdings.map((h) => h.id));
+      const historyByHolding = new Map<string, PricePoint[]>();
+      for (const row of historyRows ?? []) {
+        const arr = historyByHolding.get(row.holding_id) ?? [];
+        arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
+        historyByHolding.set(row.holding_id, arr);
+      }
+      for (const h of holdings) {
+        const history = historyByHolding.get(h.id);
+        if (history) return30dByHolding.set(h.id, calcHoldingReturn(history));
+      }
+    } catch {
+      // holding_price_history todavía no existe — sin rendimiento, no bloquea
+    }
   }
 
   if (holdings.length === 0) {
@@ -92,7 +122,7 @@ export default async function InversionesPage() {
 
       <section className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
         <p className="text-xs text-gray-500">
-          <span className="font-medium text-gray-700">FCI:</span> TNA actualizada desde ArgentinaDatos (cada 6 h).
+          <span className="font-medium text-gray-700">FCI:</span> VCP (valor de cuotaparte) actualizado desde ArgentinaDatos (cada 6 h).
           <span className="ml-2 font-medium text-gray-700">Acciones / CEDEARs:</span> sin feed automático — actualizá el precio manualmente.
         </p>
       </section>
@@ -114,6 +144,8 @@ export default async function InversionesPage() {
             const pnl = currentValue != null ? currentValue - cost : null;
             const pnlPct =
               pnl != null && cost > 0 ? (pnl / cost) * 100 : null;
+            const return30d = return30dByHolding.get(holding.id) ?? null;
+            const tnaEstimada = calcAnnualizedReturn(return30d);
 
             return (
               <div key={holding.id} className="px-4 py-3">
@@ -156,6 +188,42 @@ export default async function InversionesPage() {
                         currentPrice={holding.current_price}
                         currency={holding.currency}
                       />
+                    )}
+                    <HoldingPositionEdit
+                      holdingId={holding.id}
+                      quantity={holding.quantity}
+                      avgBuyPrice={holding.avg_buy_price}
+                      currency={holding.currency}
+                    />
+
+                    {/* Retorno 30d + TNA estimada (Sesión J.1.13, TAREA 6) —
+                        solo si hay histórico suficiente, nunca se inventa. El
+                        disclaimer va como texto visible (no title/hover — no
+                        sirve en touch, agente-ux). */}
+                    {return30d != null && (
+                      <div className="mt-1">
+                        <p className="text-xs">
+                          <span
+                            className={`font-medium tabular-nums ${
+                              return30d >= 0 ? "text-green-600" : "text-red-600"
+                            }`}
+                          >
+                            {return30d >= 0 ? "+" : ""}
+                            {(return30d * 100).toFixed(1)}% · 30d
+                          </span>
+                          {tnaEstimada != null && (
+                            <span className="text-gray-400 ml-1.5">
+                              TNA estimada {tnaEstimada >= 0 ? "+" : ""}
+                              {(tnaEstimada * 100).toFixed(0)}%
+                            </span>
+                          )}
+                        </p>
+                        {tnaEstimada != null && (
+                          <p className="text-[10px] text-gray-300">
+                            proyectada del último mes, no garantizada
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
 

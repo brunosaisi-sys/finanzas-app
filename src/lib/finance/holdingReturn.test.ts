@@ -1,4 +1,4 @@
-import { calcHoldingReturn, type PricePoint } from "./holdingReturn";
+import { calcHoldingReturn, calcAnnualizedReturn, type PricePoint } from "./holdingReturn";
 
 const NOW = new Date("2026-08-07");
 
@@ -58,5 +58,24 @@ describe("calcHoldingReturn", () => {
     ];
     expect(calcHoldingReturn(history, 7, NOW)).toBeCloseTo(0.05, 6);
     expect(calcHoldingReturn(history, 3, NOW)).toBeNull(); // fuera de ventana de 3 días
+  });
+});
+
+describe("calcAnnualizedReturn", () => {
+  it("devuelve null si no hay retorno de 30 días", () => {
+    expect(calcAnnualizedReturn(null)).toBeNull();
+  });
+
+  it("escala linealmente el retorno de 30 días a 365 días", () => {
+    // 10% en 30 días -> 10% * (365/30) = 121.666...%
+    expect(calcAnnualizedReturn(0.10)).toBeCloseTo(0.10 * (365 / 30), 8);
+  });
+
+  it("preserva el signo negativo", () => {
+    expect(calcAnnualizedReturn(-0.05)).toBeCloseTo(-0.05 * (365 / 30), 8);
+  });
+
+  it("devuelve 0 si el retorno de 30 días es 0 (no null)", () => {
+    expect(calcAnnualizedReturn(0)).toBe(0);
   });
 });

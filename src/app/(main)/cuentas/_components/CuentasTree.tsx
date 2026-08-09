@@ -32,6 +32,10 @@ export interface AccountNode {
   // Sesión J.1.7: catálogo de fondos de la institución (vacío si no se detectó
   // ninguna de las 5 instituciones verificadas — ver lecciones-aprendidas §21)
   fciCatalog: FciFundOption[];
+  // Solo relevante para type="credito" — Sesión J.1.13, TAREA 2: ahora también
+  // editables desde CuentaActions, no solo al crear la cuenta.
+  closing_day: number | null;
+  due_day: number | null;
 }
 
 interface Props {
@@ -325,6 +329,8 @@ function TreeNode({
               linkedHoldingReturn30d={account.linkedHoldingReturn30d}
               fciHoldings={fciHoldings}
               fciCatalog={account.fciCatalog}
+              closingDay={account.closing_day}
+              dueDay={account.due_day}
             />
           </div>
           <div className="text-right shrink-0">
@@ -433,6 +439,8 @@ function TreeNode({
               linkedHoldingReturn30d={account.linkedHoldingReturn30d}
               fciHoldings={fciHoldings}
               fciCatalog={account.fciCatalog}
+              closingDay={account.closing_day}
+              dueDay={account.due_day}
             />
           </div>
           <DiscriminatedBalance
@@ -488,6 +496,8 @@ function TreeNode({
           linkedHoldingReturn30d={account.linkedHoldingReturn30d}
           fciHoldings={fciHoldings}
           fciCatalog={account.fciCatalog}
+          closingDay={account.closing_day}
+          dueDay={account.due_day}
         />
         {canHaveChildren && (
           <AddChildInline

@@ -12,7 +12,14 @@ export type DepItem = {
 
 export async function updateAccount(
   accountId: string,
-  data: { name: string; balance: number; type: AccountType; earns_yield?: boolean }
+  data: {
+    name: string;
+    balance: number;
+    type: AccountType;
+    earns_yield?: boolean;
+    closing_day?: number | null;
+    due_day?: number | null;
+  }
 ): Promise<{ error?: string }> {
   const supabase = await createClient();
   const {
@@ -32,6 +39,10 @@ export async function updateAccount(
     name: data.name.trim(),
     balance: data.balance,
     ...(data.earns_yield !== undefined ? { earns_yield: data.earns_yield } : {}),
+    // Sesión J.1.13, TAREA 2: closing_day/due_day ahora también editables desde
+    // CuentaActions (antes solo se podían fijar al crear la cuenta).
+    ...("closing_day" in data ? { closing_day: data.closing_day } : {}),
+    ...("due_day" in data ? { due_day: data.due_day } : {}),
   };
 
   if (data.type !== current.type) {

@@ -24,23 +24,20 @@ export async function createIncome(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  const { data, error } = await supabase
-    .from("incomes")
-    .insert({
-      user_id: user.id,
-      amount: input.amount,
-      currency: input.currency,
-      type: input.type,
-      account_id: input.account_id,
-      date: input.date,
-      note: input.note,
-      distributed: false,
-    })
-    .select("id")
-    .single();
+  // RPC atómica: inserta el ingreso y, si tiene cuenta destino, acredita su
+  // balance en la misma transacción (Sesión J.1.13, TAREA 1 — la plata de un
+  // ingreso existe desde que se registra, "distribuir" es solo categorizarla).
+  const { data, error } = await supabase.rpc("create_income_with_balance", {
+    p_amount: input.amount,
+    p_currency: input.currency,
+    p_type: input.type,
+    p_account_id: input.account_id,
+    p_date: input.date,
+    p_note: input.note,
+  });
 
   if (error) return { error: error.message };
-  return { id: data.id };
+  return { id: data as string };
 }
 
 // ─── confirmDistribution ─────────────────────────────────────────────────────
@@ -168,28 +165,46 @@ export async function updateIncome(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  const update: Record<string, unknown> = {};
-  if (data.amount !== undefined) update.amount = data.amount;
-  if (data.currency !== undefined) update.currency = data.currency;
-  if (data.type !== undefined) update.type = data.type;
-  if ("account_id" in data) update.account_id = data.account_id;
-  if (data.date !== undefined) update.date = data.date;
-  if ("note" in data) update.note = data.note;
+  // Campos financieros (amount/currency) llegan bloqueados desde la UI cuando
+  // el ingreso ya fue distribuido — el RPC necesita valores concretos para los
+  // 7 parámetros, así que se completan con los actuales de la fila en ese caso
+  // (el RPC de todas formas no toca balance si distributed=true).
+  let amount = data.amount;
+  let currency = data.currency;
+  if (amount === undefined || currency === undefined) {
+    const { data: current, error: fetchError } = await supabase
+      .from("incomes")
+      .select("amount, currency")
+      .eq("id", incomeId)
+      .eq("user_id", user.id)
+      .single();
+    if (fetchError || !current) return { error: fetchError?.message ?? "Ingreso no encontrado" };
+    amount = amount ?? current.amount;
+    currency = currency ?? current.currency;
+  }
 
-  const { error } = await supabase
-    .from("incomes")
-    .update(update)
-    .eq("id", incomeId)
-    .eq("user_id", user.id);
+  // RPC atómica: revierte el crédito viejo y aplica el nuevo si el ingreso NO
+  // fue distribuido; si ya fue distribuido, solo actualiza metadata sin tocar
+  // balances (la plata ya se movió vía la distribución) — Sesión J.1.13, TAREA 1.
+  const { error } = await supabase.rpc("update_income_with_balance", {
+    p_income_id: incomeId,
+    p_amount: amount,
+    p_currency: currency,
+    p_type: data.type,
+    p_account_id: "account_id" in data ? data.account_id : null,
+    p_date: data.date,
+    p_note: "note" in data ? data.note : null,
+  });
 
   if (error) return { error: error.message };
   return {};
 }
 
 // ─── deleteIncome ─────────────────────────────────────────────────────────────
-// Para ingresos distribuidos: borra las savings_contributions asociadas (para que el
-// progreso de metas no quede inflado) pero NO revierte los saldos de cuentas
-// (irreversible: no hay registro de qué cuentas recibieron qué).
+// No distribuido: revierte el crédito de account_id (Sesión J.1.13, TAREA 1).
+// Distribuido: borra las savings_contributions asociadas (para que el progreso
+// de metas no quede inflado) pero NO revierte los saldos de las cuentas destino
+// de la distribución (irreversible: no hay registro de qué cuentas recibieron qué).
 
 export async function deleteIncome(
   incomeId: string
@@ -200,34 +215,15 @@ export async function deleteIncome(
   } = await supabase.auth.getUser();
   if (!user) return { error: "No autenticado" };
 
-  const { data: income } = await supabase
-    .from("incomes")
-    .select("id, distributed")
-    .eq("id", incomeId)
-    .eq("user_id", user.id)
-    .single();
-
-  if (!income) return { error: "Ingreso no encontrado" };
-
-  const wasDistributed = Boolean(income.distributed);
-
-  if (wasDistributed) {
-    // Borrar contributions asociadas para que no queden como progreso de metas
-    await supabase
-      .from("savings_contributions")
-      .delete()
-      .eq("income_id", incomeId)
-      .eq("user_id", user.id);
-  }
-
-  const { error } = await supabase
-    .from("incomes")
-    .delete()
-    .eq("id", incomeId)
-    .eq("user_id", user.id);
+  // RPC atómica: si no fue distribuido, revierte el crédito de account_id
+  // (consecuencia directa del fix de TAREA 1 — Sesión J.1.13); si fue
+  // distribuido, borra las savings_contributions asociadas sin tocar balances.
+  const { data, error } = await supabase.rpc("delete_income_with_balance", {
+    p_income_id: incomeId,
+  });
 
   if (error) return { error: error.message };
-  return { wasDistributed };
+  return { wasDistributed: Boolean(data) };
 }
 
 // ─── setEmergencyFundAmount ───────────────────────────────────────────────────

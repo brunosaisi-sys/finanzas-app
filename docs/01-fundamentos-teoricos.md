@@ -436,6 +436,33 @@ precio de compra real puede diferir si hubo múltiples compras a precios distint
 roadmap Sesión J.4, `docs/lecciones-aprendidas.md`); este modo asume una única compra al
 precio implícito calculado.
 
+### 8.7 TNA estimada — proyección lineal del retorno de 30 días (Sesión J.1.13)
+
+> Implementado en `calcAnnualizedReturn` (`src/lib/finance/holdingReturn.ts`), a
+> partir del retorno de 30 días de §8.5.
+
+El usuario quiere ver el mismo tipo de estimación que ya muestran apps de
+referencia como Mercado Pago o Cocos en sus propias pantallas: una proyección de
+"a este ritmo, así vendría rindiendo en un año", no una tasa contractual. Se
+calcula escalando linealmente el retorno de 30 días ya calculado (§8.5):
+
+```
+tna_estimada = retorno_30d × (365 / 30)
+```
+
+**Es una proyección lineal, no una tasa garantizada.** No es TIR, no es
+interés compuesto proyectado, ni un promedio histórico — es literalmente el
+desempeño de los últimos 30 días, escalado a un año calendario, asumiendo
+(sin ninguna base estadística) que el ritmo se mantiene constante. Un activo de
+renta variable puede tener un mes excepcionalmente bueno o malo que, anualizado
+así, da un número poco representativo — por eso se etiqueta explícitamente como
+"TNA estimada" con la aclaración "proyectada del último mes, no garantizada" en
+la UI, nunca como un dato prometido.
+
+**Regla dura (igual que §8.5):** si no hay retorno de 30 días (historial
+insuficiente), no hay nada que anualizar — la función devuelve `null` y la UI no
+muestra ningún número. Nunca se inventa ni se interpola.
+
 ---
 
 ## 7. Bibliografía / fuentes a citar en la app

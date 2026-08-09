@@ -255,7 +255,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   verificado en vivo contra REST y UI, no solo leyendo el código). Datos de prueba y
   scripts temporales eliminados tras la verificación.
 
-- **Sesión J.1.12 — 5 bugs/gaps reportados por uso real (commit pendiente):**
+- **Sesión J.1.12 — 5 bugs/gaps reportados por uso real (commit `eb49836`):**
   T1 (SPY -74%): investigado con `curl` real + Playwright — el matching de CEDEAR es
   exacto (`findCedearQuote`, sin ambigüedad SPY/SPYC/SPYD), no reprodujo como bug de
   código. Causa real: BYMA hizo un split del CEDEAR de SPY (ratio 20:1→60:1, 29 mayo–1
@@ -315,6 +315,115 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   creados durante la sesión (SPY, Mercado Pago+Pesos, Cocos Ahorro test, Mastercard
   Test QA + gasto + cuota) fueron eliminados; DB verificada de vuelta a fixtures
   originales (Cocos Capital, Visa Test SD, holding AAPL).
+
+- **Sesión J.1.13 — 6 tareas: bug crítico de saldo de ingresos + 5 mejoras
+  (commit pendiente):**
+  T1 (CRÍTICO — saldo de ingresos): confirmado con evidencia real (no asumido):
+  `createIncome`/`updateIncome` en `ingresos/actions.ts` solo hacían INSERT/UPDATE
+  directo sobre `incomes` — `account_id` era puramente informativo, nunca tocaba
+  `accounts.balance`. Coherente con la teoría ya documentada del proyecto: la
+  plata de un ingreso existe desde que se registra, "distribuir" es solo decidir
+  cómo categorizarla (no hay una sección específica en fundamentos sobre esto —
+  es lógica de dominio, no una fórmula financiera nueva a citar). Fix: migración
+  024 (`create_income_with_balance`, `update_income_with_balance`,
+  `delete_income_with_balance`, y `confirm_income_distribution`/
+  `confirm_distribution_with_contributions` actualizadas) — 5 RPCs atómicas
+  `SECURITY INVOKER`. Reglas: (a) crear ingreso con cuenta → crédito atómico
+  inmediato, sin importar el tipo; (b) editar monto/cuenta de un ingreso NO
+  distribuido → revierte el crédito viejo y aplica el nuevo (nunca duplica); si
+  YA fue distribuido, editar es puramente informativo (la plata ya se movió vía
+  la distribución, no se vuelve a tocar el balance); (c) distribuir → "movimiento
+  neutro": débita de la cuenta de origen exactamente la suma de lo que las
+  líneas van a acreditar en otras cuentas (`v_lines_total`, calculado
+  server-side a partir de `p_lines`, no de lo que muestra la UI) — lo que el
+  usuario deja sin asignar queda en la cuenta de origen, tal como ya decía el
+  texto de `/ingresos/distribuir`; (d) `deleteIncome` — consecuencia directa del
+  fix: ahora revierte el crédito si el ingreso no fue distribuido (antes no
+  hacía falta, porque `account_id` nunca movía plata).
+  **QA E2E con Playwright headed, ciclo completo con evidencia real de Supabase:**
+  cuenta A en 0 → crear ingreso $100.000 → A=100.000 ✅ → editar monto a $150.000
+  → A=150.000 (no 250.000) ✅ → editar cuenta destino A→B → A=0, B=150.000 ✅ →
+  ingreso Sueldo $200.000 en cuenta C (sin distribuir) → C=200.000 ✅ → distribuir
+  $80.000 de C hacia B con línea custom (resto sin asignar) → C=120.000,
+  B=230.000 (150.000+80.000, sin duplicar) ✅. Ver `docs/lecciones-aprendidas.md §29`.
+  T2 (aviso de tarjeta sin config): el link del dashboard iba a `/cuentas` sin
+  más contexto. Fix: `?editar=<accountId>` + `CuentaActions` lee
+  `useSearchParams()` y abre `mode="edit"` automáticamente si matchea. Al
+  implementar esto se encontró un gap no reportado explícitamente pero necesario
+  para que el deep-link sirviera de algo: `closing_day`/`due_day` NUNCA fueron
+  editables después de crear la cuenta (solo en `NuevaCuentaForm` al crearla) —
+  se agregaron los inputs (rango 1–28, mismo CHECK que migración 009) al modo
+  edición de `CuentaActions` para tarjetas de crédito, y `updateAccount` ahora
+  acepta `closing_day`/`due_day` opcionales.
+  **QA E2E confirmado:** aviso en dashboard con `href="/cuentas?editar=<id>"`
+  correcto; click abre `/cuentas` con el formulario de esa tarjeta ya en modo
+  edición (sin click extra); guardar día de cierre/vencimiento persiste en DB;
+  revertido a `null`/`null` después de la prueba.
+  T3 (texto TNA desactualizado): `/inversiones` decía "FCI: TNA actualizada
+  desde ArgentinaDatos" — el feed da VCP, no TNA (mismo malentendido de la
+  lección §17, pero en un texto suelto que no se había corregido). Cambiado a
+  "VCP (valor de cuotaparte) actualizado desde ArgentinaDatos".
+  T4 (editar cantidad/precio de compra de un holding): antes solo se podía
+  editar `current_price` (`HoldingPriceEdit`). Caso real: split de CEDEAR (SPY,
+  BYMA 20:1→60:1, ver lección §26) — sin esto, no había forma de corregir la
+  posición sin borrar y recrearla. Agregado `HoldingPositionEdit.tsx` +
+  server action `updateHoldingPosition` + RPC atómica `update_holding_position`
+  (migración 025): actualiza `quantity`/`avg_buy_price` y, si hay una cuenta
+  vinculada (`accounts.holding_id`), recalcula su balance con la cantidad nueva
+  (invariante `balance = quantity × current_price` de la migración 021 —
+  cambiar `quantity` por fuera de un RPC atómico la habría roto).
+  **QA E2E confirmado:** holding AAPL (150u @ $10) editado a 450u @ $3,33 →
+  verificado en DB → revertido a los valores originales del fixture.
+  T5 (verificar histórico real del usuario): sin acceso a la cuenta real del
+  usuario (RLS + sin `service_role_key`, lección §9), se documenta acá la query
+  para que el usuario la corra en el SQL Editor de Supabase:
+  ```sql
+  -- Cuántas filas de histórico tiene cada holding, con qué fechas
+  select h.ticker, h.name, hph.recorded_at, hph.price
+  from holding_price_history hph
+  join holdings h on h.id = hph.holding_id
+  where h.user_id = auth.uid()
+  order by h.ticker, hph.recorded_at;
+
+  -- Resumen: cantidad de filas y rango de fechas por holding
+  select h.ticker, h.name, count(*) as filas,
+         min(hph.recorded_at) as desde, max(hph.recorded_at) as hasta
+  from holding_price_history hph
+  join holdings h on h.id = hph.holding_id
+  where h.user_id = auth.uid()
+  group by h.ticker, h.name
+  order by h.ticker;
+  ```
+  Si un holding FCI tiene más de 1 fila con fechas distintas después de varios
+  días de uso, el fix de histórico de la Sesión J.1.12 (lección §27) está
+  funcionando en producción. Si tiene 0 o 1 fila, todavía no pasó suficiente
+  tiempo desde el fix, o el holding no matchea ningún fondo del feed
+  (`matchFCIRate` — nombre exacto de la clase, ver lección §19).
+  T6 (TNA estimada anualizada): `calcAnnualizedReturn(return30d)` en
+  `src/lib/finance/holdingReturn.ts` = `return30d × (365/30)` — proyección
+  lineal, NO una tasa garantizada, documentada en `docs/01-fundamentos-teoricos.md
+  §8.7` (fórmula dada explícitamente en el brief, sin fuente externa nueva que
+  citar — es aritmética de escalado, igual que §8.6). `null` explícito si no
+  hay retorno de 30 días (regla dura: nunca inventar). Mostrado junto al 30d en
+  `/inversiones` (para TODOS los holdings, no solo FCI — hoy en la práctica solo
+  FCI acumula histórico automático) y en `CuentaActions` (posición FCI
+  vinculada), siempre etiquetado "TNA est./estimada" con el texto visible
+  "proyectada del último mes, no garantizada" (texto visible, no `title`/hover
+  — no sirve en touch, agente-ux). De paso: `src/app/api/fci/rendimiento/route.ts`
+  era código huérfano de una sesión temprana (previa al fix TNA→VCP de la
+  lección §17) — no lo importaba nada en `src/` — se eliminó.
+  **QA E2E con Playwright headed, histórico simulado (holding FCI temporal
+  vinculado a una cuenta, 2 puntos de precio $1.000→$1.200, retorno real
+  20,0%):** `/inversiones` mostró "+20.0% · 30d TNA estimada +243% proyectada
+  del último mes, no garantizada"; `CuentaActions` (cuenta vinculada) mostró
+  "+20.0% · 30d · TNA est. +243%" + la misma leyenda debajo. 243% = 20% ×
+  365/30, matemática confirmada. Datos de prueba eliminados tras la verificación.
+  4 tests nuevos en `holdingReturn.test.ts` para `calcAnnualizedReturn`.
+  **Cierre de sesión:** tsc limpio, build limpio (28 rutas — una menos que
+  J.1.12 por el borrado de `/api/fci/rendimiento`), 75/75 tests unitarios
+  verdes (4 nuevos). Migraciones 024 y 025 creadas y **ejecutadas en Supabase
+  por el usuario durante la sesión** (no como los `⚠ pendiente` de sesiones
+  anteriores — se pudo verificar todo en vivo). Ver lecciones §29 y §30.
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
@@ -439,7 +548,7 @@ Migraciones ejecutadas:
 | `/login` | Auth email + password (Supabase Auth); link "¿Olvidaste tu contraseña?" |
 | `/forgot-password` | Pide email, llama `resetPasswordForEmail` (Supabase Auth) |
 | `/reset-password` | Formulario de contraseña nueva; protegido — redirige a `/forgot-password` si no hay sesión de recuperación activa |
-| `/cuentas` | Lista de cuentas agrupada; editar nombre/saldo/tipo + eliminar inline (CuentaActions); cuentas padre con Editar/Eliminar; tarjetas de crédito con parent_id bajo banco; vista discriminada Total/Cuotas/Metas/Libre |
+| `/cuentas` | Lista de cuentas agrupada; editar nombre/saldo/tipo + closing_day/due_day (tarjetas) + eliminar inline (CuentaActions); `?editar=<id>` abre esa cuenta ya en modo edición; cuentas padre con Editar/Eliminar; tarjetas de crédito con parent_id bajo banco; vista discriminada Total/Cuotas/Metas/Libre |
 | `/cuentas/nueva` | Formulario nueva cuenta (tipo, moneda, saldo inicial, cuenta padre); tarjeta de crédito: selector opcional de banco padre |
 | `/cuentas/transferencia` | Transferencia entre cuentas vía RPC atómico; aviso si monedas distintas |
 | `/gastos` | Lista de gastos con filtros (FK disambiguation corregida: `!account_id`) |
@@ -520,18 +629,25 @@ Migraciones ejecutadas:
 - `objetivos/_components/DeleteGoalButton.tsx` — idle→confirming→deleting
 - `objetivos/nuevo/_components/GoalForm.tsx` — form con preview live de aporte mensual;
   on submit: `createGoal` → `router.push("/objetivos")`
-- `ingresos/actions.ts` — `createIncome`, `confirmDistribution`, `updateEmergencyFund`,
-  `confirmDistributionWithContributions` (llama RPC migración 011), `redirectToDistribute`,
-  `updateIncome` (monto/moneda bloqueados si distribuido), `deleteIncome` (borra
-  savings_contributions asociadas; advierte que saldos no se revierten),
-  `setEmergencyFundAmount` (SET directo de current_amount, no +=)
+- `ingresos/actions.ts` — Sesión J.1.13: `createIncome`/`updateIncome`/`deleteIncome`
+  ahora llaman RPCs atómicas (`create_income_with_balance`/`update_income_with_balance`/
+  `delete_income_with_balance`, migración 024) que acreditan/revierten `accounts.balance`
+  según `account_id` — antes era puramente informativo (TAREA 1, bug crítico). `updateIncome`
+  no toca balance si el ingreso ya fue distribuido (la plata ya se movió). `confirmDistribution`/
+  `confirmDistributionWithContributions` (llama RPC migración 011, actualizada en 024 para
+  debitar la cuenta de origen antes de acreditar destinos — movimiento neutro), `updateEmergencyFund`,
+  `redirectToDistribute`, `setEmergencyFundAmount` (SET directo de current_amount, no +=)
 - `AmountInput` (`src/components/AmountInput.tsx`) — `type="text" inputMode="numeric"`;
   dígitos crudos mientras escribe (evita conflicto de cursor); `Intl.NumberFormat("es-AR",
   { maximumFractionDigits: 0 })` al blur; solo enteros ARS
 - `inversiones/_components/HoldingPriceEdit.tsx` — Ciclo idle→edit→saving; llama
   `updateHoldingPrice` server action + `router.refresh()`
+- `inversiones/_components/HoldingPositionEdit.tsx` — Sesión J.1.13: ciclo idle→edit→saving,
+  edita `quantity`/`avg_buy_price` de un holding ya cargado (ej. corregir split de CEDEAR);
+  llama `updateHoldingPosition` server action + `router.refresh()`
 - `inversiones/actions.ts` — `updateHoldingPrice(holdingId, price)` server action con RLS
-  (`eq("user_id", user.id)`)
+  (`eq("user_id", user.id)`); `updateHoldingPosition(holdingId, quantity, avgBuyPrice)` —
+  RPC atómica `update_holding_position` (migración 025)
 - `src/lib/cedearCatalog.ts` — `fetchCedearQuotes()` (fetch server-side a
   `data912.com/live/arg_cedears`, `next: { revalidate: 7200 }`), `findCedearQuote(quotes,
   ticker)` (matching por ticker EXACTO, sin fuzzy — cada símbolo del feed ya es el mismo
@@ -571,12 +687,13 @@ Migraciones ejecutadas:
 
 **Nota de build local:** `npm run build` falla por Turbopack + `fonts.gstatic.com` sin acceso a red (pre-existente; no es un bug de código). En entorno sin internet, usar `npx tsc --noEmit` como verificación de tipos. En Vercel el build pasa normalmente.
 
-- **71 tests totales** (Jest + ts-jest):
+- **75 tests totales** (Jest + ts-jest):
   - 36 en `sinkingFund.test.ts` (9 nuevos en `84c3a1a`: calcCarResidualValue por segmento,
     0 meses, sanity check 65%-90%; calcAssetFunds modelo auto; CAR_DEPRECIATION_SEGMENTS.popular)
   - 13 en `savingsGoals.test.ts` (asset calculado/manual, goal con progreso/atrasado/completado/
     expirado, filtrado vivienda, ordenamiento, maintenance excluido de sinking)
-  - 7 en `holdingReturn.test.ts` (Sesión J.1.7 — retorno simple desde histórico)
+  - 11 en `holdingReturn.test.ts` (7 Sesión J.1.7 — retorno simple desde histórico; 4 Sesión
+    J.1.13 — `calcAnnualizedReturn`: proyección lineal 30d→365d, signo negativo, retorno 0)
   - 9 en `fciCatalog.test.ts` (Sesión J.1.7 — agrupación de fondos por institución; +1 en
     Sesión J.1.10 — bolsillo genérico requiere cadena de ancestros completa)
   - 6 en `cedearCatalog.test.ts` (Sesión J.1.8 — matching exacto por ticker CEDEAR)
@@ -647,8 +764,10 @@ confirmado en QA de la sesión.
 - `019` — (archivo en repo: `019_force_delete_account.sql`; **PENDIENTE DE RE-EJECUCIÓN en Supabase — RPC actualizada**) RPC `force_delete_account(p_account_id UUID) RETURNS VOID SECURITY INVOKER`: elimina una cuenta aunque tenga dependencias activas; libera y borra todos sus earmarks; NULLea referencias en expenses/incomes/savings_goals/savings_contributions/assets/income_distribution_lines; **DELETE de account_transfers** (from_account_id OR to_account_id — NOT NULL, no se puede NULLear, raíz del bug T1 Sesión L); bloquea solo si tiene subcuentas. Invocado desde `CuentaActions` vía `forceDeleteAccount` server action, como segunda confirmación después de ver la lista de deps. **⚠ Ejecutar `CREATE OR REPLACE FUNCTION force_delete_account...` en Supabase SQL Editor para aplicar el fix de account_transfers.**
 
 - `021` — (archivo en repo: `021_account_holding_link.sql`; **EJECUTADA en Supabase**) Columna `holding_id UUID REFERENCES holdings(id) ON DELETE SET NULL` en `accounts`; índice `idx_accounts_holding_id`; RPC `sync_holding_balance(p_holding_id, p_new_price)` — actualiza `holdings.current_price` Y `accounts.balance = quantity × new_price` atomicamente (SECURITY INVOKER); RPC `link_and_sync_holding(p_account_id, p_holding_id)` — vincula cuenta a holding y sincroniza balance si tiene precio; RPC `unlink_holding_from_account(p_account_id)` — desvincula (balance queda sin cambio).
-- `022` — (archivo en repo: `022_holding_price_history.sql`; **⚠ PENDIENTE DE EJECUCIÓN en Supabase**) Tabla `holding_price_history` (id, holding_id FK holdings ON DELETE CASCADE, price, recorded_at DATE, created_at; UNIQUE(holding_id, recorded_at)); índice `idx_holding_price_history_holding_date`; RLS vía EXISTS a `holdings.user_id` (mismo patrón que `fund_transactions` en migración 001, no tiene user_id propio). Aditiva: no reemplaza `holdings.current_price`.
-- `023` — (archivo en repo: `023_create_and_link_fci_holding.sql`; **⚠ PENDIENTE DE EJECUCIÓN en Supabase**) RPC `create_and_link_fci_holding(p_account_id, p_name, p_quantity, p_price, p_currency, p_purchase_date) RETURNS UUID SECURITY INVOKER`: inserta el holding y vincula+sincroniza la cuenta (`holding_id`, `balance = quantity × price`) en una sola transacción — evita el riesgo de holding huérfano de un insert+link sueltos (mismo principio que lección §14). Guardas `p_quantity > 0` y `p_price > 0` dentro del RPC (no solo en el server action de Next.js).
+- `022` — (archivo en repo: `022_holding_price_history.sql`; **EJECUTADA en Supabase** — confirmado en Sesión J.1.13, ya no pendiente) Tabla `holding_price_history` (id, holding_id FK holdings ON DELETE CASCADE, price, recorded_at DATE, created_at; UNIQUE(holding_id, recorded_at)); índice `idx_holding_price_history_holding_date`; RLS vía EXISTS a `holdings.user_id` (mismo patrón que `fund_transactions` en migración 001, no tiene user_id propio). Aditiva: no reemplaza `holdings.current_price`.
+- `023` — (archivo en repo: `023_create_and_link_fci_holding.sql`; **EJECUTADA en Supabase** — confirmado en Sesión J.1.13, ya no pendiente) RPC `create_and_link_fci_holding(p_account_id, p_name, p_quantity, p_price, p_currency, p_purchase_date) RETURNS UUID SECURITY INVOKER`: inserta el holding y vincula+sincroniza la cuenta (`holding_id`, `balance = quantity × price`) en una sola transacción — evita el riesgo de holding huérfano de un insert+link sueltos (mismo principio que lección §14). Guardas `p_quantity > 0` y `p_price > 0` dentro del RPC (no solo en el server action de Next.js).
+- `024` — (archivo en repo: `024_income_balance.sql`; **EJECUTADA en Supabase**, Sesión J.1.13) RPCs `create_income_with_balance`, `update_income_with_balance`, `delete_income_with_balance` (todas `SECURITY INVOKER`) + `confirm_income_distribution`/`confirm_distribution_with_contributions` actualizadas para debitar la cuenta de origen del ingreso antes de aplicar las líneas de distribución (movimiento neutro, no duplica plata). Ver checkpoint de sesión, TAREA 1.
+- `025` — (archivo en repo: `025_holding_position.sql`; **EJECUTADA en Supabase**, Sesión J.1.13) RPC `update_holding_position(p_holding_id, p_quantity, p_avg_buy_price) SECURITY INVOKER`: actualiza `quantity`/`avg_buy_price` de un holding y recalcula el balance de su cuenta vinculada (si tiene) con la cantidad nueva. Ver checkpoint de sesión, TAREA 4.
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 

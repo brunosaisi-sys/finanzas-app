@@ -37,3 +37,13 @@ export function calcHoldingReturn(
 
   return (latest.price - oldest.price) / oldest.price;
 }
+
+// Proyección lineal del retorno de 30 días a un año (docs/01-fundamentos-teoricos.md
+// §8.7) — "a este ritmo, así vendría rindiendo en un año", igual al criterio que
+// muestran apps de referencia (Mercado Pago, Cocos). NO es una tasa garantizada:
+// es el desempeño reciente escalado, no un promedio ni una proyección compuesta.
+// Si no hay retorno de 30 días (historial insuficiente), no hay nada que anualizar.
+export function calcAnnualizedReturn(return30d: number | null): number | null {
+  if (return30d === null) return null;
+  return return30d * (365 / 30);
+}

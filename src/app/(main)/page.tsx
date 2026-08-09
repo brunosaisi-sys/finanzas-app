@@ -202,7 +202,7 @@ export default async function DashboardPage() {
           {creditCardsMissingConfig.map((card) => (
             <Link
               key={card.id}
-              href="/cuentas"
+              href={`/cuentas?editar=${card.id}`}
               className="block bg-red-50 border border-red-200 rounded-xl px-4 py-3"
             >
               <div className="flex items-start gap-3">

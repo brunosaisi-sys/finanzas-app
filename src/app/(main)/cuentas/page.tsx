@@ -200,6 +200,8 @@ export default async function CuentasPage() {
               findFciInstitutionForAccountName(accountDisplayName(a, accounts)) ?? ""
             ) ?? [])
           : [],
+      closing_day: a.closing_day ?? null,
+      due_day: a.due_day ?? null,
     };
   });
 

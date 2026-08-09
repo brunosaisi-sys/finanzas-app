@@ -565,6 +565,61 @@ la causa es otra y hace falta revisar con logs reales del entorno de producción
 
 ---
 
+## 29. Playwright — `router.push()` client-side no siempre se refleja en `page.url()` durante desarrollo activo
+
+**Qué pasó:** Un script de QA hacía click en "Registrar ingreso" (que internamente
+llama `router.push("/")` + `router.refresh()`) y esperaba con
+`page.waitForURL(BASE + "/", { timeout: 15000 })`. El timeout se agotaba
+sistemáticamente, pero al verificar el balance de la cuenta vía REST en paralelo,
+la operación SÍ se había completado correctamente en el servidor — no era un bug
+de la app, era el script el que nunca detectaba la navegación.
+
+**Por qué:** El tracing de red confirmó que el fetch RSC hacia `/` (`GET
+/?_rsc=...`) sí se completaba con 200, pero `page.url()` de Playwright seguía
+devolviendo la URL vieja. La causa más probable: esta sesión editó activamente
+varios archivos de servidor mientras el dev server (Turbopack) corría, y el
+recompile/HMR concurrente puede interferir con que el router de Next.js
+complete el `history.pushState()` a tiempo, sin lanzar ningún error de consola
+ni de red visible.
+
+**Qué hacer:** No depender de `waitForURL` para verificar que un submit con
+`router.push()` navegó, sobre todo si el dev server está compilando cambios de
+código en paralelo a la prueba. Alternativas más robustas: (a) esperar un
+`waitForTimeout` fijo generoso (2–3s) tras el click y después navegar
+explícitamente con `page.goto()` al siguiente paso en vez de confiar en que el
+click ya te dejó ahí; (b) verificar el resultado real contra la DB (REST) en
+vez de contra la URL del browser — es la fuente de verdad, no un proxy frágil
+del estado de React. Ver también lección §12 (mismo principio: usar `page.goto`
+en vez de confiar en timing de React/router).
+
+---
+
+## 30. `rm -rf .next` con el dev server corriendo corrompe la caché persistente de Turbopack
+
+**Qué pasó:** Al intentar limpiar un error de `tsc` causado por un `.next/types`
+desactualizado (referenciaba una ruta de API recién borrada), se corrió
+`rm -rf .next` mientras `npm run dev` seguía activo. El comando falló a mitad de
+camino ("Directory not empty") porque el dev server tenía archivos abiertos, y
+el proceso de Turbopack quedó con la base de datos de caché (`.next/dev/cache/
+turbopack/*.sst`) parcialmente borrada. El servidor entró en pánico
+(`Failed to restore task data (corrupted database or bug)`) y dejó de responder
+(`curl` a `localhost:3000` devolvía conexión rechazada).
+
+**Por qué:** Turbopack persiste su grafo de tareas incrementales en archivos
+`.sst` mientras el proceso está vivo. Borrar esos archivos por fuera del
+proceso que los tiene abiertos es equivalente a borrar la base de datos de una
+app corriendo — no hay forma de que se recupere sola.
+
+**Qué hacer:** Nunca borrar `.next` mientras el dev server esté corriendo. Si
+hace falta invalidar tipos generados obsoletos (ej. tras borrar una ruta), la
+forma segura es disparar un recompile normal — un `curl` a cualquier página
+del sitio alcanza para que Next regenere `.next/types/validator.ts` — sin tocar
+el directorio a mano. Si el servidor ya quedó en este estado roto: matar el
+proceso (`tasklist`/`taskkill` en Windows), recién ahí borrar `.next` con el
+proceso detenido, y arrancar `npm run dev` de nuevo desde cero.
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`
