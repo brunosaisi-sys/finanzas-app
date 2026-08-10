@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { formatCurrency } from "@/lib/format";
+import MovimientosChart from "./_components/MovimientosChart";
 import type { Currency } from "@/types";
 
 function mesLabel(yearMonth: string) {
@@ -29,10 +30,27 @@ function currentYearMonth() {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
+function fmtDate(d: Date) {
+  return d.toISOString().split("T")[0];
+}
+
+// Lunes a domingo de la semana que contiene `now` (Sesión J.1.14, TAREA 8a).
+function weekRange(now: Date): { desde: string; hasta: string } {
+  const day = now.getDay(); // 0 = domingo
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
+  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6);
+  return { desde: fmtDate(monday), hasta: fmtDate(sunday) };
+}
+
+function fmtShort(dateStr: string) {
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("es-AR", { day: "numeric", month: "short" });
+}
+
 export default async function MovimientosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string }>;
+  searchParams: Promise<{ mes?: string; range?: string; desde?: string; hasta?: string }>;
 }) {
   const supabase = await createClient();
   const {
@@ -40,11 +58,33 @@ export default async function MovimientosPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { mes } = await searchParams;
+  const { mes, range, desde: desdeParam, hasta: hastaParam } = await searchParams;
+
+  // Sesión J.1.14, TAREA 8a: "esta semana" y "rango personalizado" son modos
+  // nuevos; "este mes" (default) y "mes pasado" siguen siendo el mismo mecanismo
+  // de navegación por mes que ya existía (mes=<yyyy-mm>) — un "mes pasado" no es
+  // más que un link a mes=prevMes(actual), sin necesidad de un modo aparte.
+  const isWeek = range === "semana";
+  const isCustom = range === "custom" && desdeParam && hastaParam;
   const yearMonth = mes && /^\d{4}-\d{2}$/.test(mes) ? mes : currentYearMonth();
 
-  const desde = `${yearMonth}-01`;
-  const hasta = `${yearMonth}-31`;
+  let desde: string;
+  let hasta: string;
+  let periodLabel: string;
+  if (isWeek) {
+    const w = weekRange(new Date());
+    desde = w.desde;
+    hasta = w.hasta;
+    periodLabel = `${fmtShort(desde)} – ${fmtShort(hasta)}`;
+  } else if (isCustom) {
+    desde = desdeParam!;
+    hasta = hastaParam!;
+    periodLabel = `${fmtShort(desde)} – ${fmtShort(hasta)}`;
+  } else {
+    desde = `${yearMonth}-01`;
+    hasta = `${yearMonth}-31`;
+    periodLabel = mesLabel(yearMonth);
+  }
 
   const [{ data: expensesData }, { data: incomesData }] = await Promise.all([
     supabase
@@ -122,7 +162,25 @@ export default async function MovimientosPage({
 
   const totalGastos = expenses.reduce((s, e) => s + e.amount, 0);
   const totalIngresos = incomes.reduce((s, i) => s + i.amount, 0);
-  const isCurrent = yearMonth === currentYearMonth();
+  const isCurrent = !isWeek && !isCustom && yearMonth === currentYearMonth();
+  const activeFilter = isWeek ? "semana" : isCustom ? "custom" : yearMonth === currentYearMonth() ? "mes" : yearMonth === prevMes(currentYearMonth()) ? "mes_pasado" : "mes";
+
+  // TAREA 8b: gastos por categoría, agrupados por moneda (nunca sumados entre
+  // monedas distintas — mismo principio que TAREA 3).
+  const categoryTotalsByCurrency = new Map<Currency, Map<string, { icon: string; amount: number }>>();
+  for (const e of expenses) {
+    const catName = e.sub ?? "Sin categoría";
+    if (!categoryTotalsByCurrency.has(e.currency)) categoryTotalsByCurrency.set(e.currency, new Map());
+    const m = categoryTotalsByCurrency.get(e.currency)!;
+    const existing = m.get(catName) ?? { icon: e.icon, amount: 0 };
+    existing.amount += e.amount;
+    m.set(catName, existing);
+  }
+
+  const pillClass = (active: boolean) =>
+    `text-xs font-medium rounded-full px-3 py-1.5 transition-colors shrink-0 ${
+      active ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+    }`;
 
   return (
     <div className="p-4 max-w-lg mx-auto space-y-4 pb-24">
@@ -145,29 +203,90 @@ export default async function MovimientosPage({
         </div>
       </div>
 
-      {/* Navegador de mes */}
-      <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm">
-        <Link
-          href={`/movimientos?mes=${prevMes(yearMonth)}`}
-          className="text-gray-400 hover:text-gray-900 transition-colors text-lg px-2 py-1"
-          aria-label="Mes anterior"
-        >
-          ‹
+      {/* Filtro de período (TAREA 8a) */}
+      <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
+        <Link href="/movimientos?range=semana" className={pillClass(activeFilter === "semana")}>
+          Esta semana
         </Link>
-        <span className="text-sm font-medium text-gray-900 capitalize">
-          {mesLabel(yearMonth)}
-        </span>
-        <Link
-          href={isCurrent ? "/movimientos" : `/movimientos?mes=${nextMes(yearMonth)}`}
-          className={`text-lg px-2 py-1 transition-colors ${
-            isCurrent ? "text-gray-200 pointer-events-none" : "text-gray-400 hover:text-gray-900"
-          }`}
-          aria-label="Mes siguiente"
-          aria-disabled={isCurrent}
-        >
-          ›
+        <Link href="/movimientos" className={pillClass(activeFilter === "mes")}>
+          Este mes
         </Link>
+        <Link
+          href={`/movimientos?mes=${prevMes(currentYearMonth())}`}
+          className={pillClass(activeFilter === "mes_pasado")}
+        >
+          Mes pasado
+        </Link>
+        <details className="relative shrink-0">
+          <summary className={`${pillClass(activeFilter === "custom")} list-none cursor-pointer`}>
+            Rango personalizado
+          </summary>
+          <form
+            method="GET"
+            action="/movimientos"
+            className="absolute right-0 mt-2 z-10 bg-white rounded-xl shadow-lg border border-gray-200 p-3 space-y-2 w-64"
+          >
+            <input type="hidden" name="range" value="custom" />
+            <div>
+              <label className="block text-[10px] text-gray-500 mb-0.5">Desde</label>
+              <input
+                type="date"
+                name="desde"
+                defaultValue={isCustom ? desde : desde}
+                required
+                className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] text-gray-500 mb-0.5">Hasta</label>
+              <input
+                type="date"
+                name="hasta"
+                defaultValue={isCustom ? hasta : hasta}
+                required
+                className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full bg-gray-900 text-white rounded-lg py-1.5 text-xs font-medium"
+            >
+              Aplicar
+            </button>
+          </form>
+        </details>
       </div>
+
+      {/* Navegador de mes — solo tiene sentido en modo "mes" */}
+      {!isWeek && !isCustom && (
+        <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm">
+          <Link
+            href={`/movimientos?mes=${prevMes(yearMonth)}`}
+            className="text-gray-400 hover:text-gray-900 transition-colors text-lg px-2 py-1"
+            aria-label="Mes anterior"
+          >
+            ‹
+          </Link>
+          <span className="text-sm font-medium text-gray-900 capitalize">
+            {periodLabel}
+          </span>
+          <Link
+            href={isCurrent ? "/movimientos" : `/movimientos?mes=${nextMes(yearMonth)}`}
+            className={`text-lg px-2 py-1 transition-colors ${
+              isCurrent ? "text-gray-200 pointer-events-none" : "text-gray-400 hover:text-gray-900"
+            }`}
+            aria-label="Mes siguiente"
+            aria-disabled={isCurrent}
+          >
+            ›
+          </Link>
+        </div>
+      )}
+      {(isWeek || isCustom) && (
+        <div className="bg-white rounded-2xl px-4 py-3 shadow-sm text-center">
+          <span className="text-sm font-medium text-gray-900">{periodLabel}</span>
+        </div>
+      )}
 
       {/* Resumen rápido */}
       {all.length > 0 && (
@@ -187,10 +306,19 @@ export default async function MovimientosPage({
         </div>
       )}
 
+      {/* Gráfico de gastos por categoría (TAREA 8b) — uno por moneda presente */}
+      {Array.from(categoryTotalsByCurrency.entries()).map(([cur, catMap]) => (
+        <MovimientosChart
+          key={cur}
+          currency={cur}
+          data={Array.from(catMap.entries()).map(([name, v]) => ({ name, icon: v.icon, amount: v.amount }))}
+        />
+      ))}
+
       {/* Lista unificada */}
       {all.length === 0 ? (
         <div className="bg-white rounded-2xl p-6 shadow-sm text-center space-y-3">
-          <p className="text-sm text-gray-400">Sin movimientos en {mesLabel(yearMonth)}</p>
+          <p className="text-sm text-gray-400">Sin movimientos en {periodLabel}</p>
           <div className="flex gap-3 justify-center">
             <Link href="/gastos/nuevo" className="text-sm font-medium text-gray-900 underline">
               Registrar gasto
@@ -204,10 +332,7 @@ export default async function MovimientosPage({
       ) : (
         <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
           {all.map((item, i) => {
-            const dateStr = new Date(item.date + "T00:00:00").toLocaleDateString("es-AR", {
-              day: "numeric",
-              month: "short",
-            });
+            const dateStr = fmtShort(item.date);
             const isIngreso = item.kind === "ingreso";
             return (
               <Link

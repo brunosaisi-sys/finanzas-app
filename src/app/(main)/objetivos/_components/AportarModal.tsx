@@ -72,7 +72,9 @@ export default function AportarModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 pb-4">
+    // z-[60], no z-50: ver comentario en cuotas/_components/BatchPayButton.tsx —
+    // BottomNav empata en z-50 y tapa el botón de confirmar por orden de DOM.
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 px-4 pb-4">
       <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-base font-semibold text-gray-900">

@@ -78,7 +78,12 @@ export default function BatchPayButton({
       </button>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+        // z-[60], no z-50: BottomNav (fixed bottom) también usa z-50 y se renderiza
+        // después en el DOM (layout.tsx) — con z-index empatado, gana el último en
+        // el DOM y tapa el botón "Confirmar pago" de este sheet bottom-anchored
+        // (root cause del bug reportado en TAREA 6, Sesión J.1.14). Mismo fix ya
+        // aplicado en ConfirmFundingButton.tsx.
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 space-y-4">
             <div>
               <h2 className="text-base font-semibold text-gray-900">

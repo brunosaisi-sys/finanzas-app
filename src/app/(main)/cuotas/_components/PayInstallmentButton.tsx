@@ -63,7 +63,9 @@ export default function PayInstallmentButton({
       </button>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40">
+        // z-[60], no z-50: ver comentario en BatchPayButton.tsx — BottomNav
+        // empata en z-50 y tapa el botón de confirmar por orden de DOM.
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40">
           <div className="bg-white rounded-t-2xl w-full max-w-lg p-5 space-y-4">
             <h2 className="text-base font-semibold text-gray-900">¿Con qué cuenta pagás?</h2>
 

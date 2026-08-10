@@ -132,7 +132,7 @@ export default function CuentaActions({
             <span className="text-[10px] text-gray-400">{currency}</span>
             {holdingIdEdit && (
               <span className="text-[10px] text-indigo-500">
-                (se sobreescribe al sincronizar VCP)
+                (ajusta la cantidad del holding vinculado, no solo el número)
               </span>
             )}
           </div>
@@ -189,6 +189,8 @@ export default function CuentaActions({
               </div>
               <p className="text-[10px] text-gray-400 leading-snug">
                 Días del 1 al 28. Sin esto no vas a ver el aviso de cuánto vas a pagar cada mes.
+                Se aplica automáticamente todos los meses — no hace falta volver a
+                cargarlo.
               </p>
             </div>
           )}

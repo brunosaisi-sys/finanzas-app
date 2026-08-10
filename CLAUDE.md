@@ -43,6 +43,11 @@ de cierre o vencimiento de cualquier tarjeta activa.
 
 ## Sesiones pendientes (roadmap)
 
+- **Próxima sesión — Gastos compartidos (TAREA 9, Sesión J.1.14):** diseño
+  completo ya decidido (modelo de datos, UI, dashboard, flujo de cobro) — ver
+  entrada de Sesión J.1.14 más abajo, sección T9. Implementar directo sin
+  repreguntar decisiones.
+
 - **Sesión E — Suscripciones:** nueva migración con tablas `recurring_expenses` y
   `subscription_instances`; diseño a documentar en `docs/02-arquitectura.md` antes de
   implementar.
@@ -425,6 +430,176 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   por el usuario durante la sesión** (no como los `⚠ pendiente` de sesiones
   anteriores — se pudo verificar todo en vivo). Ver lecciones §29 y §30.
 
+- **Sesión J.1.14 — 9 tareas: 2 bugs críticos de integridad + 6 mejoras
+  implementadas + 1 diseñada (commit pendiente):**
+  T1 (CRÍTICO — holding_price_history en 0 filas): root cause confirmado con
+  reproducción real (REST + Playwright, no simulado desde cero): `matchFCIRate`
+  (`src/lib/fciRates.ts`) priorizaba `ticker` sobre `name`
+  (`holding.ticker ?? holding.name`). El feed de ArgentinaDatos no expone ningún
+  ticker, solo `fondo` (nombre completo) — para FCI, `ticker` es un campo de texto
+  libre opcional sin relación con el feed. Cualquier holding con algo cargado en
+  Ticker nunca sincronizaba, para siempre, silenciosamente — reproducido: holding
+  con `ticker="COCO1"` → 0 filas de histórico; el mismo fondo con `ticker=null` →
+  sincroniza correctamente. Fix: `matchFCIRate` ya no acepta `ticker`, matchea
+  siempre por `name` para FCI. Hint agregado en `HoldingForm.tsx` aclarando que
+  Ticker no se usa para el sync de FCI. 5 tests nuevos en `fciRates.test.ts`
+  (regresión explícita del bug). Ver `docs/lecciones-aprendidas.md §31`.
+  T2 (CRÍTICO — balance de cuenta vinculada a holding desincronizado): confirmado
+  que la invariante `balance = quantity × current_price` (migración 021) solo se
+  mantenía en RPCs conscientes del holding; la edición manual de saldo
+  (`updateAccount`) la rompía silenciosamente (el caso reportado). Fix: RPC
+  `adjust_linked_account_balance` (migración 026, ejecutada por el usuario) —
+  interpreta el delta de balance como compra/venta de unidades al precio actual
+  del holding y actualiza `quantity` + `balance` atómicamente; si el holding no
+  tiene precio cargado, rechaza la edición con mensaje explícito en vez de
+  adivinar. **Alcance decidido:** solo el camino de edición manual (el reportado)
+  — crédito de ingreso (migración 024) y earmark funding (migración 017) sobre
+  cuentas vinculadas quedan **pendientes, documentados, no implementados** (más
+  riesgo que valor tocar RPCs de dinero ya verificadas en la misma sesión que
+  otras 7 tareas). Ver `docs/lecciones-aprendidas.md §32`.
+  **QA E2E confirmado con Supabase real:** cuenta vinculada a holding (100u @
+  $1000, balance $100.000) → editar balance a mano a $150.000 → holding pasó a
+  150u (no solo el número de balance) — verificado en DB, no solo en pantalla.
+  T3 (deuda de tarjeta mezclaba ARS+USD en un total): confirmado el bug — tanto
+  `/cuotas` (total del grupo tarjeta+mes) como el resumen del dashboard
+  ("cuánto vas a pagar") sumaban TODAS las cuotas del grupo sin filtrar por
+  moneda, etiquetando el total con la moneda de la primera fila only. Fix: total
+  por moneda (mismo patrón `Record<string, number>` ya usado en
+  `BatchPayButton.tsx`) en ambos lugares. **QA E2E confirmado:** tarjeta con un
+  gasto ARS $50.000 y un gasto USD $200 el mismo mes → dashboard mostró DOS líneas
+  separadas ("$ 50.000" y "US$ 200"), nunca sumadas.
+  T4 (desfasaje cierre/vencimiento): confirmado que `getInstallmentDueDates`
+  (`gastos/actions.ts`) ignoraba `closingDay` por completo apenas faltaba
+  `dueDay`, cayendo a un heurístico ciego de "+30 días desde la compra" sin
+  relación con el ciclo real — explica fechas que "no cuadran" con el cierre
+  configurado. Fix: si `closingDay` está pero `dueDay` no, usar `closingDay` como
+  proxy (`effectiveDueDay = dueDay ?? closingDay`), manteniendo la lógica de ciclo
+  mensual. Solo cuando faltan LOS DOS se usa el heurístico ciego (no hay ninguna
+  info real que aprovechar). Texto agregado en `CuentaActions.tsx`: "Se aplica
+  automáticamente todos los meses — no hace falta volver a cargarlo" (confirmado
+  por lectura de código: closing_day/due_day son enteros 1-28 reaplicados cada
+  mes por diseño, no hay ningún campo ni lógica de reconfiguración mensual). **QA
+  E2E confirmado:** tarjeta `closing_day=7/due_day=null`, gasto real creado vía UI
+  → `due_date` calculado = día 07 del ciclo siguiente (antes: fecha arbitraria por
+  +30 días). Ver `docs/lecciones-aprendidas.md §33`.
+  T5 (decimales en monto de gasto): confirmado — `AmountInput.tsx` (usado en
+  `ExpenseForm`, `EditExpenseForm`, `DistribuirForm`) stripeaba todo carácter
+  no-dígito con `\D`, bloqueando "." y "," antes de que llegara ninguna lógica de
+  parseo. Fix: acepta dígitos + un separador decimal (2 decimales máx.), normaliza
+  "," a "." para el valor interno. De paso corregido: `EditExpenseForm.tsx`
+  redondeaba el monto a entero al ABRIR el formulario de edición
+  (`Math.round(expense.amount)`), truncando centavos reales de gastos ya cargados
+  incluso sin que el usuario tocara el campo. **QA E2E confirmado:** "1234,56"
+  tipeado en el monto de un gasto nuevo → guardado en DB como `1234.56` (antes se
+  truncaba a enteros). **Incidente de QA detectado y corregido antes del cierre:**
+  un script de prueba intermedio (bug propio del script, no del producto) escribió
+  por error en el campo de monto en vez de en "Comercio" (`AmountInput` también es
+  `type="text"`) y su cleanup usó `DELETE` crudo en vez de la RPC
+  `delete_expense_with_balance`, dejando "Cocos Capital" con $1.239,56 menos del
+  valor documentado. Detectado en la auditoría final de fixtures (no por
+  `git status`, que no muestra drift de datos) y restaurado a $252.500,01. Ver
+  `docs/lecciones-aprendidas.md §35`.
+  T6 (falta botón de confirmar en pago en lote): confirmado — el botón SÍ existe
+  en el código (`BatchPayButton.tsx`), pero queda tapado: el modal usa
+  `fixed inset-0 z-50` (bottom-sheet, botón en la franja inferior) y `BottomNav`
+  (`layout.tsx`, se monta DESPUÉS de `{children}`) también usa `z-50` en su
+  `<nav>` — con z-index empatado, gana el último en el DOM, tapando la franja
+  inferior de cualquier modal `z-50`. Mismo bug latente en
+  `PayInstallmentButton.tsx` y `AportarModal.tsx`; `ConfirmFundingButton.tsx` ya
+  usaba el fix correcto (`z-[60]`), solo faltaba aplicarlo de forma consistente.
+  Los 3 casos corregidos a `z-[60]`. **QA E2E confirmado en viewport móvil
+  (390×700):** modal de pago en lote con 2 cuotas sin cobertura → botón
+  "Confirmar pago" clickeable → ambas cuotas quedaron `paid=true` en Supabase.
+  Ver `docs/lecciones-aprendidas.md §34`.
+  T7 (no se pueden agregar categorías al cargar un gasto): confirmado — el campo
+  Categoría existía (`<select>` con las categorías del usuario), pero la ÚNICA
+  forma de agregar una nueva era navegar a `/categorias/nueva`, perdiendo todo lo
+  ya tipeado en el formulario de gasto (monto, cuenta, comercio...). No era un
+  problema de descubribilidad, sino de flujo real ausente. Fix: opción
+  "+ Crear categoría nueva…" al final del `<select>` de `ExpenseForm.tsx` que
+  despliega un mini-formulario inline (nombre + picker de 12 íconos) sin
+  navegar — inserta directo en `categories` (mismo patrón de `/categorias/nueva`,
+  client + `supabase.from("categories").insert`, no requiere RPC porque no mueve
+  dinero) y autoselecciona la categoría nueva sin perder el resto del formulario.
+  **QA E2E confirmado:** monto "5.000" tipeado → crear categoría inline → monto
+  se mantuvo intacto → categoría persistida en DB y auto-seleccionada.
+  `EditExpenseForm.tsx` no recibió el mismo tratamiento (fuera del alcance
+  reportado — "al cargar un gasto" se interpretó como creación).
+  T8 (filtros de fecha + gráfico en `/movimientos`): agregado selector de período
+  con 4 modos: **Esta semana** (lunes a domingo de la semana actual, nuevo),
+  **Este mes** (default, ya existía como navegación por `mes=<yyyy-mm>`),
+  **Mes pasado** (nuevo — en realidad solo un link a `mes=prevMes(actual)`, reusa
+  el mecanismo existente sin código nuevo), **Rango personalizado** (nuevo,
+  `<details>` + `<form method="GET">` nativo con dos `<input type="date">` — sin
+  JS extra, Next.js App Router lee los query params directo). Gráfico de barras
+  horizontales por categoría (`recharts`, **instalado esta sesión** — estaba en
+  el stack documentado pero nunca se había agregado como dependencia real) en
+  `movimientos/_components/MovimientosChart.tsx`, uno por moneda presente (nunca
+  suma ARS+USD juntos, mismo principio que TAREA 3). **Decisión TAREA 8c:** el
+  filtro de fecha NO se replica en el dashboard de inicio — el dashboard es una
+  vista de estado "ahora" (avisos de tarjetas, sueldo sin distribuir, resumen de
+  pago con ventana ±7 días) que no encaja con la semántica de "período
+  histórico"; mezclarlas complicaría el diseño sin necesidad real, ya que
+  `/movimientos` ya cubre el caso de uso de reporte histórico. El
+  "Gastos de {mes}" del dashboard sigue mostrando solo el mes actual, sin
+  filtro, por diseño.
+  **QA E2E confirmado:** gasto de hoy visible en "Esta semana", ausente en
+  "Mes pasado" (redirige a `mes=2026-07`); gráfico renderiza con datos reales
+  (verificado vía `.recharts-wrapper` + texto de categoría en el DOM — el header
+  "Gastos por categoría" se ve en mayúsculas por CSS `uppercase`, no es texto
+  literal distinto).
+  T9 (gastos compartidos — **diseño completo, NO implementado esta sesión**):
+  decisiones tomadas, listas para implementar sin repreguntar en la próxima
+  sesión:
+  - **Modelo de datos:** tabla nueva `expense_participants` (id, `expense_id`
+    FK→expenses ON DELETE CASCADE, `name` TEXT libre — no requiere ser usuario
+    de la app, `amount` NUMERIC, `paid` BOOLEAN DEFAULT false, `paid_date` DATE
+    NULL, `deposit_account_id` UUID NULL FK→accounts ON DELETE SET NULL,
+    `created_at`). RLS vía EXISTS a `expenses.user_id` (mismo patrón que
+    `holding_price_history`/`fund_transactions` — no tiene `user_id` propio). Sin
+    columna `currency` propia — siempre se lee de `expenses.currency` vía join
+    (un gasto compartido nunca tiene una moneda distinta a la del gasto padre).
+    Sin columna nueva en `expenses` — la existencia de filas en
+    `expense_participants` ES la señal de "es compartido", no hace falta un
+    booleano redundante.
+  - **Semántica del split:** el usuario paga el monto TOTAL del gasto (sin
+    cambios al modelo de `expenses` — la plata ya salió completa de su cuenta,
+    como cualquier gasto hoy). "¿Entre cuántas personas?" cuenta el TOTAL de
+    personas INCLUYENDO al usuario (ej. "éramos 4" → 3 filas en
+    `expense_participants`, cada una "le debe" `amount/4` al usuario — la parte
+    del usuario mismo NUNCA se guarda como fila, es implícita:
+    `expense.amount − Σ(participants.amount)`). Default: split igual
+    (`amount/N`); cada fila editable a un monto custom (brief 9a).
+  - **UI de carga (9b):** en `ExpenseForm.tsx`, checkbox "¿Es compartido?" (mismo
+    estilo que "Genera rendimiento" en `CuentaActions`). Al tildar: input
+    "¿Entre cuántas personas? (incluyéndote)" (min 2) + N−1 filas
+    {Nombre, Monto} pre-llenadas con el split igual, editables individualmente
+    (mismo patrón de inputs editables que Capa 4 50/30/20 en `DistribuirForm`).
+    Sin RPC nueva para la creación: dado que no mueve dinero (la plata ya se
+    contabilizó al 100% en el gasto normal), un insert simple en
+    `expense_participants` después de `createExpense` es suficiente — no
+    atómico con el gasto en sí, mismo nivel de tolerancia que el insert
+    best-effort de `holding_price_history` (metadata, no plata).
+  - **Dónde se muestran los pendientes (9c):** banner nuevo en el dashboard
+    ("Te deben $X de N personas", mismo estilo que el banner de "Sueldo sin
+    distribuir") si `SUM(expense_participants.amount) WHERE paid=false > 0`,
+    agrupado por moneda (nunca sumado entre monedas). Link a una ruta nueva
+    `/compartidos`: lista de participantes pendientes (nombre, monto, gasto
+    relacionado) + sección colapsada de ya cobrados.
+  - **Flujo "ya me pagaron" (9d):** botón por participante → mini-form "¿A qué
+    cuenta entró la plata?" (selector de cuentas hoja, filtrado por la moneda del
+    gasto) → RPC atómica nueva `confirm_participant_payment(p_participant_id,
+    p_account_id)` SECURITY INVOKER: verifica ownership vía join a
+    `expenses.user_id = auth.uid()`, acredita `accounts.balance += amount` en la
+    cuenta elegida, marca `paid=true`/`paid_date=hoy`/`deposit_account_id` — el
+    mismo patrón atómico de `create_income_with_balance` (migración 024),
+    explícitamente pedido en el brief.
+  - **Motivo de no implementar esta sesión:** T9 es la de menor prioridad
+    (9 de 9, "implementar si el contexto alcanza") y mueve dinero real en el
+    flujo 9d — apurarla al final de una sesión ya larga (8 tareas, 2 críticas de
+    integridad de plata) es más riesgo que valor. Queda completamente diseñada,
+    sin decisiones pendientes, para implementar directo en la próxima sesión.
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -569,6 +744,7 @@ Migraciones ejecutadas:
 | `/objetivos/nuevo` | Formulario nueva meta: nombre, monto+moneda (toggle ARS/USD), plazo en meses, cuenta opcional; preview live "necesitás aportar X/mes" |
 | `/gastos/[id]/editar` | Editar gasto: monto (read-only para crédito con badge), merchant, descripción, categoría, fecha; eliminar con reversión de saldo atómica |
 | `/categorias/nueva` | Formulario nueva categoría |
+| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14); gráfico de barras por categoría (Recharts) por moneda |
 
 ### Componentes y libs
 - `BottomNav` — Inicio · Gastos · [+] · Cuentas · Metas; botón [+] abre bottom sheet con overlay (z-40) + 3 acciones rápidas: Nuevo gasto / Nuevo ingreso / Transferencia
@@ -675,6 +851,21 @@ Migraciones ejecutadas:
 - `inversiones/_components/FciRatesSection.tsx` — `FciRateCell` (async SC: muestra VCP del
   feed de ArgentinaDatos, fallback HoldingPriceEdit) + `FciPortfolioSummary` (totales portfolio);
   ambos envueltos en `<Suspense>` desde la page; elimina bloqueo de 4 fetches externos al render
+- **Sesión J.1.14 — cambios a componentes/libs existentes** (ver detalle completo
+  en la entrada de sesión): `src/lib/fciRates.ts` (`matchFCIRate` ya no acepta
+  `ticker`, solo `name`, TAREA 1); `src/components/AmountInput.tsx` (acepta
+  decimales, TAREA 5); `src/components/ExpenseForm.tsx` (creación de categoría
+  inline sin perder el formulario, TAREA 7); `gastos/actions.ts`
+  (`getInstallmentDueDates` usa `closingDay` como proxy de `dueDay` faltante,
+  TAREA 4); `cuentas/actions.ts` (`updateAccount` llama RPC
+  `adjust_linked_account_balance` si la cuenta tiene holding vinculado, TAREA 2);
+  `cuotas/page.tsx` + `(main)/page.tsx` (totales de deuda por moneda, nunca
+  sumados, TAREA 3); `cuotas/_components/BatchPayButton.tsx` +
+  `PayInstallmentButton.tsx` + `objetivos/_components/AportarModal.tsx`
+  (`z-[60]` en vez de `z-50`, empataban con `BottomNav` y tapaban el botón de
+  confirmar, TAREA 6); `movimientos/page.tsx` +
+  `movimientos/_components/MovimientosChart.tsx` (nuevo — filtro de período +
+  gráfico de barras por categoría con Recharts, TAREA 8).
 - `src/types/index.ts` — `AccountType` incluye `"credito"`; `Account` tiene
   `closing_day/due_day: number | null`; `Asset` tiene `car_segment: CarSegment | null`,
   `bought_used: boolean | null`, `savings_goal_mode: SavingsGoalMode | null`,
@@ -687,7 +878,7 @@ Migraciones ejecutadas:
 
 **Nota de build local:** `npm run build` falla por Turbopack + `fonts.gstatic.com` sin acceso a red (pre-existente; no es un bug de código). En entorno sin internet, usar `npx tsc --noEmit` como verificación de tipos. En Vercel el build pasa normalmente.
 
-- **75 tests totales** (Jest + ts-jest):
+- **80 tests totales** (Jest + ts-jest):
   - 36 en `sinkingFund.test.ts` (9 nuevos en `84c3a1a`: calcCarResidualValue por segmento,
     0 meses, sanity check 65%-90%; calcAssetFunds modelo auto; CAR_DEPRECIATION_SEGMENTS.popular)
   - 13 en `savingsGoals.test.ts` (asset calculado/manual, goal con progreso/atrasado/completado/
@@ -697,6 +888,8 @@ Migraciones ejecutadas:
   - 9 en `fciCatalog.test.ts` (Sesión J.1.7 — agrupación de fondos por institución; +1 en
     Sesión J.1.10 — bolsillo genérico requiere cadena de ancestros completa)
   - 6 en `cedearCatalog.test.ts` (Sesión J.1.8 — matching exacto por ticker CEDEAR)
+  - 5 en `fciRates.test.ts` (Sesión J.1.14 — `matchFCIRate`: exacto, fuzzy, nunca usa
+    `ticker` (regresión TAREA 1), null para no-fci, null sin match)
 - `docs/test-cases.md` — 9 casos funcionales documentados con valores esperados
 - `test-credentials.txt` — Credenciales test user (en `.gitignore`, nunca commitear)
 - `screenshot.mjs` — Script Playwright para capturas autenticadas
@@ -768,6 +961,7 @@ confirmado en QA de la sesión.
 - `023` — (archivo en repo: `023_create_and_link_fci_holding.sql`; **EJECUTADA en Supabase** — confirmado en Sesión J.1.13, ya no pendiente) RPC `create_and_link_fci_holding(p_account_id, p_name, p_quantity, p_price, p_currency, p_purchase_date) RETURNS UUID SECURITY INVOKER`: inserta el holding y vincula+sincroniza la cuenta (`holding_id`, `balance = quantity × price`) en una sola transacción — evita el riesgo de holding huérfano de un insert+link sueltos (mismo principio que lección §14). Guardas `p_quantity > 0` y `p_price > 0` dentro del RPC (no solo en el server action de Next.js).
 - `024` — (archivo en repo: `024_income_balance.sql`; **EJECUTADA en Supabase**, Sesión J.1.13) RPCs `create_income_with_balance`, `update_income_with_balance`, `delete_income_with_balance` (todas `SECURITY INVOKER`) + `confirm_income_distribution`/`confirm_distribution_with_contributions` actualizadas para debitar la cuenta de origen del ingreso antes de aplicar las líneas de distribución (movimiento neutro, no duplica plata). Ver checkpoint de sesión, TAREA 1.
 - `025` — (archivo en repo: `025_holding_position.sql`; **EJECUTADA en Supabase**, Sesión J.1.13) RPC `update_holding_position(p_holding_id, p_quantity, p_avg_buy_price) SECURITY INVOKER`: actualiza `quantity`/`avg_buy_price` de un holding y recalcula el balance de su cuenta vinculada (si tiene) con la cantidad nueva. Ver checkpoint de sesión, TAREA 4.
+- `026` — (archivo en repo: `026_adjust_linked_account_balance.sql`; **EJECUTADA en Supabase**, Sesión J.1.14) RPC `adjust_linked_account_balance(p_account_id, p_new_balance) SECURITY INVOKER`: si la cuenta tiene `holding_id`, interpreta el delta de balance como compra/venta de unidades al precio actual del holding (actualiza `quantity` + `balance` juntos); si no tiene holding vinculado, comportamiento simple de siempre. Usada por `updateAccount` (edición manual de saldo). Ver checkpoint de sesión, TAREA 2.
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 

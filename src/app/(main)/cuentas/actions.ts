@@ -29,15 +29,31 @@ export async function updateAccount(
 
   const { data: current } = await supabase
     .from("accounts")
-    .select("type")
+    .select("type, balance, holding_id")
     .eq("id", accountId)
     .eq("user_id", user.id)
     .single();
   if (!current) return { error: "Cuenta no encontrada" };
 
+  // Sesión J.1.14, TAREA 2: si la cuenta tiene un holding vinculado, el balance NO
+  // se pisa con un UPDATE directo — eso rompería la invariante balance = quantity ×
+  // current_price y dejaría el holding (y /inversiones) desactualizado (bug
+  // reportado por el usuario). En su lugar, el delta de balance se interpreta como
+  // compra/venta de unidades al precio actual y se aplica vía RPC atómica
+  // (migración 026), que actualiza holding.quantity Y accounts.balance juntos.
+  if (current.holding_id && data.balance !== current.balance) {
+    const { error: balanceError } = await supabase.rpc(
+      "adjust_linked_account_balance",
+      { p_account_id: accountId, p_new_balance: data.balance }
+    );
+    if (balanceError) return { error: balanceError.message };
+  }
+
   const update: Record<string, unknown> = {
     name: data.name.trim(),
-    balance: data.balance,
+    // balance ya se resolvió arriba vía RPC cuando hay holding vinculado — nunca
+    // pisarlo acá en ese caso (evitaría el ajuste de quantity que se acaba de hacer).
+    ...(current.holding_id ? {} : { balance: data.balance }),
     ...(data.earns_yield !== undefined ? { earns_yield: data.earns_yield } : {}),
     // Sesión J.1.13, TAREA 2: closing_day/due_day ahora también editables desde
     // CuentaActions (antes solo se podían fijar al crear la cuenta).

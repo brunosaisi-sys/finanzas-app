@@ -19,11 +19,10 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
   const isCredito = expense.payment_method === "credito";
   const leafAccounts = getLeafAccounts(accounts);
 
-  const [amount, setAmount] = useState(
-    expense.currency === "ARS"
-      ? Math.round(expense.amount).toString()
-      : expense.amount.toString()
-  );
+  // Sesión J.1.14, TAREA 5: antes redondeaba el monto ARS al abrir el form
+  // (asumía enteros); con AmountInput aceptando decimales ahora, redondear acá
+  // truncaría centavos reales de gastos ya cargados apenas se abre la edición.
+  const [amount, setAmount] = useState(expense.amount.toString());
   const [categoryId, setCategoryId] = useState(expense.category_id ?? "");
   const [merchant, setMerchant] = useState(expense.merchant ?? "");
   const [description, setDescription] = useState(expense.description ?? "");

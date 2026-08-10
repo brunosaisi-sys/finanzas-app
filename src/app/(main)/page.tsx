@@ -156,22 +156,33 @@ export default async function DashboardPage() {
     };
     const rows = (summaryInstallments ?? []) as unknown as SummaryInstRow[];
 
-    paymentSummaries = paymentSummaryCandidates.map(({ card, dueDate }) => {
+    // Sesión J.1.14, TAREA 3: una tarjeta+mes puede tener cuotas en monedas
+    // distintas — antes se sumaban todas juntas y se etiquetaban con la moneda de
+    // la primera fila (ej. "US$263.299" que en realidad era ARS+USD sumados).
+    // Un resumen por card+mes+moneda, nunca mezclados.
+    paymentSummaries = paymentSummaryCandidates.flatMap(({ card, dueDate }) => {
       const targetYearMonth = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, "0")}`;
       const cardRows = rows.filter(
         (r) =>
           r.expenses?.account_id === card.id &&
           r.due_date.slice(0, 7) === targetYearMonth
       );
-      return {
+      const byCurrency = new Map<string, SummaryInstRow[]>();
+      for (const r of cardRows) {
+        const cur = r.expenses?.currency ?? "ARS";
+        const arr = byCurrency.get(cur) ?? [];
+        arr.push(r);
+        byCurrency.set(cur, arr);
+      }
+      return Array.from(byCurrency.entries()).map(([currency, currencyRows]) => ({
         cardId: card.id,
         cardName: card.name,
         dueDate,
-        total: cardRows.reduce((sum, r) => sum + Number(r.amount), 0),
-        currency: (cardRows[0]?.expenses?.currency ?? "ARS") as Currency,
-        pendingCount: cardRows.filter((r) => !r.paid).length,
-        totalCount: cardRows.length,
-      };
+        total: currencyRows.reduce((sum, r) => sum + Number(r.amount), 0),
+        currency: currency as Currency,
+        pendingCount: currencyRows.filter((r) => !r.paid).length,
+        totalCount: currencyRows.length,
+      }));
     }).filter((s) => s.totalCount > 0);
   }
 
@@ -230,7 +241,7 @@ export default async function DashboardPage() {
             const allPaid = s.pendingCount === 0;
             return (
               <Link
-                key={s.cardId}
+                key={`${s.cardId}-${s.currency}`}
                 href="/cuotas"
                 className={`block border rounded-xl px-4 py-3 ${
                   allPaid

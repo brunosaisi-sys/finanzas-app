@@ -11,7 +11,18 @@ function getInstallmentDueDates(
   closingDay?: number | null,
   dueDay?: number | null
 ): string[] {
-  if (!closingDay || !dueDay) {
+  // Sesión J.1.14, TAREA 4: si closingDay SÍ está configurado pero dueDay no, el
+  // cálculo antes ignoraba closingDay por completo y caía al heurístico ciego de
+  // "+30 días desde la compra" — una fecha sin ninguna relación con el ciclo real
+  // de la tarjeta, que por casualidad de calendario puede caer cerca (pero no
+  // exactamente) del día de cierre real, generando confusión ("cierre día 7,
+  // vencimiento mostrado día 8" sin que el usuario haya configurado ningún
+  // vencimiento). Con closingDay conocido, usarlo también como proxy del
+  // vencimiento (mismo ciclo mensual, solo sin el offset real de días entre
+  // cierre y vencimiento) es una aproximación más honesta que ignorarlo — sigue
+  // marcado como aproximado en la UI (`missingDays` en /cuotas) mientras falte
+  // dueDay real.
+  if (!closingDay) {
     const base = new Date(expenseDateStr + "T12:00:00");
     return Array.from({ length: count }, (_, i) => {
       const d = new Date(base);
@@ -19,6 +30,7 @@ function getInstallmentDueDates(
       return d.toISOString().split("T")[0];
     });
   }
+  const effectiveDueDay = dueDay ?? closingDay;
   const expDate = new Date(expenseDateStr + "T12:00:00");
   const expDay = expDate.getDate();
   let closingMonth = expDate.getMonth();
@@ -32,7 +44,7 @@ function getInstallmentDueDates(
     let dueYear = closingYear;
     while (dueMonth > 11) { dueMonth -= 12; dueYear++; }
     const maxDay = new Date(dueYear, dueMonth + 1, 0).getDate();
-    return new Date(dueYear, dueMonth, Math.min(dueDay, maxDay))
+    return new Date(dueYear, dueMonth, Math.min(effectiveDueDay, maxDay))
       .toISOString()
       .split("T")[0];
   });

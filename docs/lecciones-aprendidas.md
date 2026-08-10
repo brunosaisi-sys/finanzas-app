@@ -620,6 +620,196 @@ proceso detenido, y arrancar `npm run dev` de nuevo desde cero.
 
 ---
 
+## 31. matchFCIRate priorizaba `ticker` sobre `name` — root cause real de holding_price_history en 0 filas
+
+**Qué pasó:** El usuario reportó (corriendo la query de verificación documentada en
+Sesión J.1.13) que `holding_price_history` tenía 0 filas para TODOS sus holdings FCI
+reales, a pesar de que el auto-sync se había implementado y "verificado" en varias
+sesiones anteriores (J.1.5, J.1.7, J.1.11, J.1.12, J.1.13). Se reprodujo con datos
+reales vía REST + Playwright (no simulado desde cero): se creó un holding FCI con
+`name` = nombre exacto de un fondo real del feed pero con `ticker` = "COCO1" (un
+valor arbitrario, como podría haber tipeado el usuario en el campo "Ticker
+(opcional)" de `/inversiones/nueva`), y otro idéntico con `ticker = null`. Tras
+visitar `/cuentas` e `/inversiones` (dispara `autoSyncFciHoldings`): el holding SIN
+ticker sincronizó correctamente (1 fila de histórico, `current_price` actualizado al
+VCP real del feed); el holding CON ticker no sincronizó nada (0 filas, precio sin
+cambios) — silenciosamente, sin ningún error visible.
+
+**Por qué:** `matchFCIRate` en `src/lib/fciRates.ts` calculaba
+`const needle = (holding.ticker ?? holding.name).toLowerCase()` — si `ticker` no era
+null, se usaba EN VEZ de `name`, nunca junto a él. A diferencia de CEDEARs (donde el
+ticker es el identificador real y exacto del feed de `data912.com`), el feed de FCI
+de ArgentinaDatos no expone ningún código corto — solo el nombre completo del fondo
+(`fondo`). El campo "Ticker" en `HoldingForm.tsx` es texto libre opcional para
+TODOS los tipos de activo, sin ninguna validación contra el feed real para FCI. Todas
+las sesiones anteriores que "verificaron" el auto-sync end-to-end lo hicieron con
+holdings de prueba creados con `ticker` vacío (por el flujo nuevo de
+`create_and_link_fci_holding`, que además fija `ticker = NULL` explícitamente) —
+nunca con el flujo manual antiguo con el campo Ticker completado, que es
+probablemente cómo quedó cargado el holding real del usuario.
+
+**Qué hacer:** `matchFCIRate` ya no acepta `ticker` como parámetro — para
+`asset_type = "fci"` matchea SIEMPRE por `name`. Se agregó un hint visible en
+`HoldingForm.tsx` (solo para tipo FCI) aclarando que el campo Ticker no se usa para
+la sincronización automática de precio. Regla general: cuando dos tipos de activo
+comparten un componente de formulario pero tienen fuentes de datos externas
+completamente distintas (CEDEAR → ticker exacto; FCI → nombre completo, sin
+ticker), no reusar el mismo campo con la misma semántica implícita para ambos sin
+dejarlo explícito en la UI — la ambigüedad se paga en silencio, sin ningún error que
+la delate. Ver `src/lib/fciRates.test.ts` para el test de regresión.
+
+---
+
+## 32. accounts.balance en cuentas con holding vinculado — más de un camino puede romper la invariante
+
+**Qué pasó:** El usuario reportó que al editar el saldo de "Mercado Pago Pesos"
+(cuenta vinculada a un holding FCI) directamente desde `CuentaActions`, el cambio no
+se reflejaba en `/inversiones`. Investigando el alcance completo, se confirmó que la
+invariante `accounts.balance = holdings.quantity × holdings.current_price`
+(migración 021) solo se mantenía en los caminos que pasan por un RPC consciente del
+holding (`sync_holding_balance`, `link_and_sync_holding`, `update_holding_position`)
+— pero **cualquier otro camino que toque `accounts.balance` de una cuenta con
+`holding_id` no NULL** la rompe silenciosamente: edición manual de saldo
+(`updateAccount`, el caso reportado), crédito de un ingreso con esa cuenta como
+destino (migración 024, Sesión J.1.13), y earmark funding (migración 017). Ninguno
+de esos tres sabe que la cuenta tiene un holding detrás.
+
+**Por qué:** Cada uno de esos flujos fue diseñado y verificado (Sesiones H, J.1.13)
+ANTES de que existiera el concepto de cuenta vinculada a holding (migración 021,
+Sesión J.1), o en paralelo sin considerar la intersección. `accounts.holding_id` es
+una feature relativamente nueva y transversal — toca cualquier operación que mueva
+`balance`, no solo las que ya conocían holdings.
+
+**Qué hacer (decisión de alcance, Sesión J.1.14):** se implementó el camino
+reportado (edición manual, el único confirmado por el usuario) vía RPC
+`adjust_linked_account_balance` (migración 026): interpreta el delta de balance como
+compra/venta de unidades al precio actual del holding, y actualiza `quantity` +
+`balance` atómicamente; si el holding no tiene precio cargado, rechaza la edición
+con un mensaje explícito en vez de adivinar. Los otros dos caminos (crédito de
+ingreso, earmark funding) quedan **pendientes, documentados, no implementados** —
+son RPCs de movimiento de dinero ya verificadas en sesiones anteriores (J.1.13,
+Sesión H) y modificarlas de forma apurada en una sesión con otras 7 tareas es más
+riesgo que valor. Antes de tocarlas: decidir si conviene la ruta centralizada (una
+única función `adjust_linked_account_balance`-like que TODAS las RPCs de dinero
+llamen en vez de tocar `accounts.balance` directamente cuando `holding_id` no es
+null) en vez de duplicar la lógica delta→quantity en cada RPC por separado.
+
+---
+
+## 33. getInstallmentDueDates — con solo closing_day configurado, ignoraba closing_day por completo
+
+**Qué pasó:** El usuario configuró `closing_day = 7` en una tarjeta (sin `due_day`) y
+un gasto nuevo mostró una fecha de vencimiento "día 8" — sin relación aparente con
+el 7 configurado. Se reprodujo con datos reales (REST + Playwright, tarjeta con
+`closing_day=7, due_day=null`): antes del fix, `getInstallmentDueDates` entraba en
+la rama `if (!closingDay || !dueDay)` apenas UNO de los dos faltaba, cayendo a un
+heurístico ciego de "fecha de compra + 30 días" que no usa `closingDay` para nada —
+la fecha resultante puede caer cerca de cualquier día del mes siguiente por pura
+coincidencia de calendario, sin ninguna relación con el ciclo real de la tarjeta.
+
+**Por qué:** El chequeo `!closingDay || !dueDay` trataba "falta uno de los dos" igual
+que "faltan los dos" — pero son casos distintos: si `closingDay` SÍ está, hay
+información real del ciclo de facturación que se estaba tirando a la basura.
+
+**Qué hacer:** Separar los casos. Si `closingDay` está pero `dueDay` no, usar
+`closingDay` como proxy de `dueDay` (`effectiveDueDay = dueDay ?? closingDay`) — la
+misma lógica de ciclo mensual (mes de cierre + 1) pero sin el offset real de días
+entre cierre y vencimiento, que sigue siendo una aproximación mejor y más honesta
+que ignorar el cierre. El aviso "Sin cierre/vencimiento configurado — fechas
+aproximadas" en `/cuotas` (ya existente desde Sesión J.1.12) sigue cubriendo este
+caso mientras falte `dueDay` real. Solo cuando FALTAN LOS DOS se usa el heurístico
+ciego de +30 días (no hay ninguna información del ciclo real para aprovechar).
+Verificado con reproducción real: tarjeta `closing_day=7/due_day=null`, gasto
+comprado el día 9 (después del cierre) → antes: fecha arbitraria por +30 días;
+después: `2026-10-07` (cierre del mes siguiente + due_day=closing_day=7).
+
+---
+
+## 34. Modales bottom-sheet con z-50 empatan con BottomNav y quedan tapados
+
+**Qué pasó:** El usuario reportó que en el modal de pago en lote de `/cuotas`, al
+elegir la cuenta de origen no aparecía ningún botón para confirmar. El código SÍ
+tenía el botón "Confirmar pago" (`BatchPayButton.tsx`). La causa: el modal usa
+`fixed inset-0 z-50` y es un bottom-sheet (`items-end`, el botón queda en la franja
+inferior de la pantalla) — pero `BottomNav` (`layout.tsx`, renderizado DESPUÉS de
+`{children}` en el DOM) también usa `z-50` en su `<nav>` fija al fondo. Con
+z-index empatado, gana visualmente el último elemento en el DOM — `BottomNav` tapa
+la franja inferior de cualquier modal con `z-50`, exactamente donde vive el botón
+de confirmar en un sheet `items-end`. `PayInstallmentButton.tsx` y
+`AportarModal.tsx` tenían el mismo bug latente (mismo patrón `z-50`);
+`ConfirmFundingButton.tsx` ya usaba `z-[60]` — el fix correcto ya existía en el
+mismo directorio, solo no se había aplicado de forma consistente.
+
+**Por qué:** El z-index no define solo "quién está arriba" en abstracto — con
+valores iguales, el orden del DOM decide, y `BottomNav` siempre se monta al final
+del árbol de `MainLayout`. Cualquier modal nuevo que copie `z-50` sin mirar qué
+z-index usa `BottomNav` hereda este bug silenciosamente (el botón EXISTE, el click
+puede incluso registrar el evento en algunos casos según la posición exacta, pero
+visualmente no se ve o queda parcialmente tapado — confuso de diagnosticar solo
+leyendo el código, hace falta abrir la pantalla real o revisar el z-index).
+
+**Qué hacer:** Todo modal fullscreen (`fixed inset-0`) debe usar `z-[60]`, nunca
+`z-50` — `BottomNav` es la referencia de z-index más alta del layout persistente.
+Ver `src/components/BottomNav.tsx` antes de agregar un modal nuevo. Se corrigieron
+los 3 casos con `z-50`: `BatchPayButton.tsx`, `PayInstallmentButton.tsx`,
+`AportarModal.tsx`. Verificado con Playwright en viewport móvil (390×700): el botón
+"Confirmar pago" ahora es clickeable y el pago en lote se completa (cuotas
+verificadas como `paid=true` en Supabase tras el click).
+
+---
+
+## 35. Cleanup de QA con DELETE crudo sobre `expenses` no revierte el balance — y `AmountInput` también es `type="text"`
+
+**Qué pasó:** Durante la verificación de TAREA 5 (decimales en monto de gasto), un
+script de QA intermedio (con un bug propio, no del producto) usó
+`page.locator("input[type='text']").first()` para llenar el campo "Comercio",
+sin darse cuenta de que `AmountInput` TAMBIÉN es `type="text"` (con
+`inputMode="numeric"`, pero sigue siendo `type="text"` a nivel DOM) — `.first()`
+terminó rellenando el campo de MONTO con el texto "QA T5 Decimal", que
+`AmountInput.handleChange` redujo a su único dígito ("5"), y el campo Comercio
+real quedó vacío. El formulario igual se envió, creando un gasto real de $5
+sin nombre, débito automático de la cuenta por defecto (la primera cuenta hoja
+alfabéticamente — resultó ser el fixture real "Cocos Capital"). El cleanup del
+script solo hizo `DELETE /expenses?merchant=eq.QA T5 Decimal` (no encontró nada,
+porque el merchant real quedó vacío) y por separado, en el intento SIGUIENTE
+(ya corregido), borró la fila correcta pero con un `DELETE` crudo sobre
+`expenses` en vez de la RPC `delete_expense_with_balance` — el balance de la
+cuenta nunca se revirtió. Ninguno de los dos gastos de prueba dejó rastro
+"obvio" (no aparecían en listados por `merchant`), así que el `git status`/tests
+no lo iban a detectar — solo se encontró al auditar el balance real de
+"Cocos Capital" contra el valor documentado en CLAUDE.md ($252.500,01 vs.
+$251.260,45 real, diferencia = exactamente $1.234,56, el monto del test).
+
+**Por qué:** Dos causas independientes se combinaron: (1) un selector Playwright
+ambiguo (`.first()` sobre `type="text"` cuando hay más de un input con ese
+atributo en la página) escribió en el campo equivocado sin ningún error visible
+— el submit igual "funcionó" porque el monto corrupto (`"5"`) seguía siendo
+válido (`> 0`); (2) el cleanup de QA usó `DELETE` crudo en vez de la RPC
+atómica del dominio (`delete_expense_with_balance`), que es la ÚNICA forma
+correcta de borrar un gasto sin dejar el balance de la cuenta desincronizado
+— el `DELETE` crudo borra la fila pero no revierte el efecto que tuvo sobre
+`accounts.balance` en el momento de creación.
+
+**Qué hacer:**
+1. Selectores de Playwright: nunca asumir que un campo es el único
+   `type="text"`/`type="number"` de la página — `AmountInput` es `type="text"`
+   a propósito (ver comentario en el componente). Contar las coincidencias
+   (`await locator.count()`) antes de usar `.first()`/`.nth()`, o usar un
+   selector más específico (`inputMode`, `placeholder`, orden real en el DOM).
+2. Cleanup de QA de `expenses`/`incomes`/holdings vinculados: SIEMPRE revertir
+   vía la RPC atómica correspondiente (`delete_expense_with_balance`,
+   `delete_income_with_balance`, etc.), nunca un `DELETE` crudo sobre la tabla
+   — el `DELETE` crudo es aceptable únicamente para entidades que nunca tocan
+   `accounts.balance` (categorías, cuentas sin gastos/holdings asociados,
+   holdings sueltos sin vincular).
+3. **Antes de cerrar cualquier sesión que corrió QA con dinero real**, no alcanza
+   con que cada script individual imprima "Cleanup OK" — auditar el balance
+   final de los fixtures permanentes contra el valor documentado en CLAUDE.md
+   (`docs/lecciones-aprendidas.md` sección "Fixtures permanentes") como último
+   paso, no solo revisar `git status` (que nunca va a mostrar drift de datos).
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

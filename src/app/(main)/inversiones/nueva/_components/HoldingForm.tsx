@@ -193,6 +193,13 @@ export default function HoldingForm({ accounts, cedearQuotes }: Props) {
             {assetType === "cedear" ? "(elegí de la lista)" : "(opcional)"}
           </span>
         </label>
+        {assetType === "fci" && (
+          <p className="text-[11px] text-gray-400 mb-1">
+            Para fondos comunes, la actualización automática de precio busca por el
+            Nombre exacto del fondo (no por Ticker) — dejalo vacío si no estás
+            seguro.
+          </p>
+        )}
         <input
           type="text"
           list={assetType === "cedear" ? "cedear-symbols" : undefined}

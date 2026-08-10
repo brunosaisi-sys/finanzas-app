@@ -184,11 +184,15 @@ export default async function CuotasPage() {
         </div>
       ) : (
         groups.map((group) => {
-          const currency = (group.items[0]?.expenses?.currency ?? "ARS") as Currency;
-          const totalAmount = group.items.reduce(
-            (sum, inst) => sum + Number(inst.amount),
-            0
-          );
+          // Sesión J.1.14, TAREA 3: un grupo (tarjeta+mes) puede tener cuotas en
+          // monedas distintas (gastos en ARS y en USD con la misma tarjeta el mismo
+          // mes) — sumarlas todas junto no tiene sentido económico. Total por
+          // moneda, mismo patrón ya usado en BatchPayButton.
+          const totalsByCurrency: Record<string, number> = {};
+          for (const inst of group.items) {
+            const cur = (inst.expenses?.currency ?? "ARS") as Currency;
+            totalsByCurrency[cur] = (totalsByCurrency[cur] ?? 0) + Number(inst.amount);
+          }
           const missingDays = !group.closingDay || !group.dueDay;
 
           return (
@@ -263,15 +267,17 @@ export default async function CuotasPage() {
                 })}
               </div>
 
-              {/* Total del grupo */}
+              {/* Total del grupo — uno por moneda, nunca sumadas entre sí */}
               {group.items.length > 1 && (
-                <div className="flex justify-end mt-1 px-1">
-                  <p className="text-xs text-gray-400">
-                    Total{" "}
-                    <span className="font-medium text-gray-600 tabular-nums">
-                      {formatCurrency(totalAmount, currency)}
-                    </span>
-                  </p>
+                <div className="flex justify-end mt-1 px-1 gap-3">
+                  {Object.entries(totalsByCurrency).map(([cur, amt]) => (
+                    <p key={cur} className="text-xs text-gray-400">
+                      Total{" "}
+                      <span className="font-medium text-gray-600 tabular-nums">
+                        {formatCurrency(amt, cur as Currency)}
+                      </span>
+                    </p>
+                  ))}
                 </div>
               )}
             </section>
