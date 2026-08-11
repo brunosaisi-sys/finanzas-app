@@ -36,6 +36,25 @@ export async function payInstallmentsBatch(
   return {};
 }
 
+export async function payInstallmentsWithConversion(
+  installmentIds: string[],
+  sourceAccountId: string,
+  mepRate: number | null
+): Promise<{ error?: string }> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { error: "No autenticado" };
+
+  const { error } = await supabase.rpc("pay_installments_with_conversion", {
+    p_installment_ids: installmentIds,
+    p_source_account_id: sourceAccountId,
+    p_mep_rate: mepRate,
+  });
+
+  if (error) return { error: error.message };
+  return {};
+}
+
 export async function confirmEarmarkFunding(
   earmarkId: string,
   fundingAccountId: string

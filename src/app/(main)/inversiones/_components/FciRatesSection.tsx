@@ -1,6 +1,7 @@
 import { formatCurrency } from "@/lib/format";
 import { fetchAllFCIRates, matchFCIRate } from "@/lib/fciRates";
 import HoldingPriceEdit from "./HoldingPriceEdit";
+import PortfolioValueToggle from "./PortfolioValueToggle";
 import type { Holding, Currency } from "@/types";
 
 type HoldingRow = Holding & { accounts: { name: string } | null };
@@ -61,38 +62,56 @@ export async function FciPortfolioSummary({
 
   return (
     <section className="bg-white rounded-2xl p-4 shadow-sm space-y-3">
-      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-        Portafolio (con precio actual)
-      </p>
-      {totalValueARS > 0 && (
-        <div>
-          <p className="text-2xl font-semibold text-gray-900 tabular-nums">
-            {formatCurrency(totalValueARS, "ARS")}
-          </p>
-          <p
-            className={`text-sm font-medium tabular-nums ${
-              pnlARS >= 0 ? "text-green-600" : "text-red-600"
-            }`}
-          >
-            {pnlARS >= 0 ? "+" : ""}
-            {formatCurrency(pnlARS, "ARS")} en pesos
-          </p>
-        </div>
-      )}
-      {totalValueUSD > 0 && (
-        <div>
-          <p className="text-xl font-semibold text-gray-900 tabular-nums">
-            {formatCurrency(totalValueUSD, "USD")}
-          </p>
-          <p
-            className={`text-sm font-medium tabular-nums ${
-              pnlUSD >= 0 ? "text-green-600" : "text-red-600"
-            }`}
-          >
-            {pnlUSD >= 0 ? "+" : ""}
-            {formatCurrency(pnlUSD, "USD")} en dólares
-          </p>
-        </div>
+      <PortfolioValueToggle
+        totalValueARS={totalValueARS}
+        totalCostARS={totalCostARS}
+        totalValueUSD={totalValueUSD}
+        totalCostUSD={totalCostUSD}
+      />
+
+      {/* TAREA 4d: desglose por moneda como información secundaria/colapsada —
+          nunca se suman entre sí (principio ya establecido, TAREA 3/8 Sesión
+          J.1.14), el toggle de arriba ya resuelve "quiero un solo número". */}
+      {totalValueARS > 0 && totalValueUSD > 0 && (
+        <details className="pt-2 border-t border-gray-100">
+          <summary className="text-[11px] text-gray-400 cursor-pointer select-none">
+            Ver desglose por moneda
+          </summary>
+          <div className="mt-2 space-y-2">
+            <div className="flex items-baseline justify-between">
+              <span className="text-xs text-gray-500">ARS</span>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900 tabular-nums">
+                  {formatCurrency(totalValueARS, "ARS")}
+                </p>
+                <p
+                  className={`text-[11px] tabular-nums ${
+                    pnlARS >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {pnlARS >= 0 ? "+" : ""}
+                  {formatCurrency(pnlARS, "ARS")}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-baseline justify-between">
+              <span className="text-xs text-gray-500">USD</span>
+              <div className="text-right">
+                <p className="text-sm font-medium text-gray-900 tabular-nums">
+                  {formatCurrency(totalValueUSD, "USD")}
+                </p>
+                <p
+                  className={`text-[11px] tabular-nums ${
+                    pnlUSD >= 0 ? "text-green-600" : "text-red-600"
+                  }`}
+                >
+                  {pnlUSD >= 0 ? "+" : ""}
+                  {formatCurrency(pnlUSD, "USD")}
+                </p>
+              </div>
+            </div>
+          </div>
+        </details>
       )}
     </section>
   );

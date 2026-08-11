@@ -69,6 +69,9 @@ export interface CreateExpenseInput {
   dueDay?: number | null;
   // Para crédito: moneda de la cuenta de cobertura
   coveringAccountCurrency?: Currency | null;
+  // TAREA 8 (Sesión J.1.15): gastos compartidos — filas de expense_participants
+  // a insertar (no incluye la parte del usuario, que es implícita).
+  participants?: { name: string; amount: number }[];
 }
 
 export async function createExpense(
@@ -131,6 +134,34 @@ export async function createExpense(
   });
 
   if (error) return { error: error.message };
+
+  // TAREA 8: insert best-effort de expense_participants — no atómico con el
+  // gasto (mismo nivel de tolerancia que holding_price_history, es metadata de
+  // "quién debe qué", no plata: la plata del gasto ya se contabilizó al 100%
+  // en create_expense_with_balance arriba). Validación server-side de defensa
+  // en profundidad (agente-seguridad): la suma de lo que deben las otras
+  // personas nunca puede ser ≥ el monto total, aunque ExpenseForm ya lo
+  // valida client-side — no confiar solo en la validación del cliente.
+  const participantsSum = (input.participants ?? []).reduce((s, p) => s + p.amount, 0);
+  if (
+    input.participants &&
+    input.participants.length > 0 &&
+    input.participants.every((p) => p.name.trim().length > 0 && p.amount > 0) &&
+    participantsSum < input.amount
+  ) {
+    try {
+      await supabase.from("expense_participants").insert(
+        input.participants.map((p) => ({
+          expense_id: data as string,
+          name: p.name,
+          amount: p.amount,
+        }))
+      );
+    } catch {
+      // no interrumpe el flujo — el gasto ya se guardó correctamente
+    }
+  }
+
   return { id: data as string };
 }
 

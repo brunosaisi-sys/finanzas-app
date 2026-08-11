@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
-import { Geist } from "next/font/google";
+import { Space_Grotesk } from "next/font/google";
 import "./globals.css";
 
-const geist = Geist({
-  variable: "--font-geist-sans",
+// Sesión J.1.15, TAREA 7c: tipografía con carácter propio, no la opción por
+// defecto de un generador de IA (Inter/Manrope). Antes se cargaba Geist pero
+// `globals.css` pisaba el font-family del body con "Arial, Helvetica,
+// sans-serif" — la fuente cargada nunca se aplicaba realmente. Space Grotesk
+// (geométrica, con detalles distintivos en la "G" y "S", buena legibilidad de
+// números tabulares) reemplaza esto — ver "Sistema de diseño" en CLAUDE.md.
+const spaceGrotesk = Space_Grotesk({
+  variable: "--font-space-grotesk",
   subsets: ["latin"],
 });
 
@@ -18,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es" className={`${geist.variable} h-full antialiased`}>
+    <html lang="es" className={`${spaceGrotesk.variable} h-full antialiased`}>
       <body className="min-h-full bg-gray-50" suppressHydrationWarning>{children}</body>
     </html>
   );

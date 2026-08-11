@@ -257,6 +257,8 @@ export default async function CuotasPage() {
                         </p>
                         <PayInstallmentButton
                           installmentId={inst.id}
+                          amount={Number(inst.amount)}
+                          currency={instCurrency}
                           coveringAccountId={inst.expenses?.covering_account_id ?? null}
                           leafAccounts={leafAccounts}
                           allAccounts={allAccounts}

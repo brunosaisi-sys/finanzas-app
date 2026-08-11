@@ -810,6 +810,59 @@ correcta de borrar un gasto sin dejar el balance de la cuenta desincronizado
 
 ---
 
+## 36. Tailwind v4 — `bg-[var(--custom-prop)]` no siempre resuelve para propiedades definidas fuera de `@theme`
+
+**Qué pasó:** Al implementar el acento de color de TAREA 7 (Sesión J.1.15), se
+definieron `--accent`/`--accent-soft` en `:root` (fuera del bloque `@theme
+inline`) y se usaron en clases Tailwind arbitrarias (`bg-[var(--accent)]`,
+`text-[var(--accent)]`) en `BottomNav.tsx` e `inversiones/page.tsx`. El botón
+central "+" de `BottomNav` y el ícono del empty-state de `/inversiones`
+renderizaron sin color (circulo blanco/vacío) — confirmado con capturas de
+Playwright antes y después del fix, no solo sospechado leyendo el código.
+
+**Por qué (hipótesis razonable, no confirmada con la fuente exacta de
+Tailwind/Turbopack — regla de "no inventar explicaciones" del proyecto):**
+Tailwind v4 con Turbopack puede no aplicar de forma confiable un valor
+arbitrario `var(--x)` cuando `--x` no está declarado dentro de `@theme` (que es
+donde Tailwind v4 espera tokens de diseño reutilizables) — a diferencia de
+clases de la paleta estándar (`bg-indigo-600`), que sí resuelven siempre.
+
+**Qué hacer:** Para acentos de color usados en clases Tailwind, usar
+directamente los literales de la paleta (`indigo-600`, `indigo-50`) en vez de
+CSS custom properties propias referenciadas con `var()` en arbitrary values —
+al menos hasta confirmar el mecanismo exacto. Si se necesita un token
+reutilizable de verdad, declararlo dentro de `@theme` (`--color-accent: ...`),
+no en un `:root` suelto. Documentado en CLAUDE.md, sección "Sistema de diseño".
+
+---
+
+## 37. Feed de ArgentinaDatos FCI — no expone moneda, y Mercado Pago solo tiene un fondo (ARS)
+
+**Qué pasó:** El usuario reportó (TAREA 5, Sesión J.1.15) que seguía sin
+aparecer una opción de fondo en dólares para Mercado Pago. Se verificó en vivo
+con `curl` contra las 4 categorías del feed (`mercadoDinero`, `rentaFija`,
+`rentaVariable`, `rentaMixta`) buscando cualquier fondo cuyo nombre empezara
+con "Mercado": el único resultado en las 4 categorías es "Mercado Fondo -
+Clase A/B/C/D", exclusivamente en `mercadoDinero`. Ningún otro fondo de
+Mercado Pago existe en el feed, en ninguna categoría.
+
+**Por qué:** El feed de ArgentinaDatos no expone ningún campo de moneda
+(`fondo`, `horizonte`, `fecha`, `vcp`, `ccp`, `patrimonio` — sin "moneda"); la
+app ya infiere USD solo heurísticamente por nombre (`/d[oó]lar|usd/i` en
+`fciCatalog.ts`). Mercado Pago sí ofrece en la vida real un producto de
+rendimiento en dólares, pero ese producto (si existe como FCI regulado) no
+está expuesto por esta fuente de datos gratuita — es una limitación real del
+feed, no un bug de matching de la app (que ya encuentra correctamente el único
+fondo que sí existe).
+
+**Qué hacer:** No hay nada que agregar al catálogo — agregar una entrada
+inventada violaría la regla dura de "no inventar datos". Si en el futuro se
+necesita este producto, hace falta una fuente de datos distinta (scraping del
+sitio de Mercado Pago, o una API paga) — evaluar el costo-beneficio antes de
+comprometer arquitectura nueva solo para un producto.
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

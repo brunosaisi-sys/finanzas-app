@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { Wallet, Receipt } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import MovimientosChart from "./_components/MovimientosChart";
 import type { Currency } from "@/types";
@@ -50,7 +51,15 @@ function fmtShort(dateStr: string) {
 export default async function MovimientosPage({
   searchParams,
 }: {
-  searchParams: Promise<{ mes?: string; range?: string; desde?: string; hasta?: string }>;
+  searchParams: Promise<{
+    mes?: string;
+    range?: string;
+    desde?: string;
+    hasta?: string;
+    categoria?: string;
+    montoMin?: string;
+    montoMax?: string;
+  }>;
 }) {
   const supabase = await createClient();
   const {
@@ -58,7 +67,15 @@ export default async function MovimientosPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const { mes, range, desde: desdeParam, hasta: hastaParam } = await searchParams;
+  const {
+    mes,
+    range,
+    desde: desdeParam,
+    hasta: hastaParam,
+    categoria: categoriaParam,
+    montoMin: montoMinParam,
+    montoMax: montoMaxParam,
+  } = await searchParams;
 
   // Sesión J.1.14, TAREA 8a: "esta semana" y "rango personalizado" son modos
   // nuevos; "este mes" (default) y "mes pasado" siguen siendo el mismo mecanismo
@@ -85,6 +102,12 @@ export default async function MovimientosPage({
     hasta = `${yearMonth}-31`;
     periodLabel = mesLabel(yearMonth);
   }
+
+  // TAREA 6 (Sesión J.1.15): filtro de categoría y rango de monto, combinables
+  // entre sí y con el filtro de período ya existente (Sesión J.1.14, TAREA 8a).
+  const montoMin = montoMinParam ? parseFloat(montoMinParam) : null;
+  const montoMax = montoMaxParam ? parseFloat(montoMaxParam) : null;
+  const hasExtraFilters = !!categoriaParam || montoMin != null || montoMax != null;
 
   const [{ data: expensesData }, { data: incomesData }] = await Promise.all([
     supabase
@@ -134,6 +157,7 @@ export default async function MovimientosPage({
     sub: (e.categories as ExpenseRow["categories"])?.name ?? null,
     account: (e as unknown as { account?: { name: string } | null }).account?.name ?? null,
     icon: (e.categories as ExpenseRow["categories"])?.icon ?? "💸",
+    hasCategoryIcon: !!(e.categories as ExpenseRow["categories"])?.icon,
     date: e.date,
     href: `/gastos/${e.id}/editar`,
   }));
@@ -155,26 +179,74 @@ export default async function MovimientosPage({
     };
   });
 
+  // Opciones de categoría para el filtro — solo categorías con gastos en este
+  // período (date-filtrado, antes de aplicar categoría/monto), para no ofrecer
+  // categorías vacías.
+  const categoryOptions = Array.from(
+    new Map(
+      expenses.filter((e) => e.sub).map((e) => [e.sub as string, e.icon])
+    ).entries()
+  ).sort((a, b) => a[0].localeCompare(b[0]));
+
+  // Las incomes no tienen categoría — un filtro de categoría activo las excluye
+  // (semánticamente "quiero ver los gastos de tal categoría").
+  let filteredExpenses = expenses;
+  let filteredIncomes = categoriaParam ? [] : incomes;
+  if (categoriaParam) filteredExpenses = filteredExpenses.filter((e) => e.sub === categoriaParam);
+  if (montoMin != null) {
+    filteredExpenses = filteredExpenses.filter((e) => e.amount >= montoMin);
+    filteredIncomes = filteredIncomes.filter((i) => i.amount >= montoMin);
+  }
+  if (montoMax != null) {
+    filteredExpenses = filteredExpenses.filter((e) => e.amount <= montoMax);
+    filteredIncomes = filteredIncomes.filter((i) => i.amount <= montoMax);
+  }
+
   // Merge y ordenar por fecha desc (ambas listas ya vienen ordenadas, merge manual)
-  const all = [...expenses, ...incomes].sort((a, b) =>
+  const all = [...filteredExpenses, ...filteredIncomes].sort((a, b) =>
     b.date.localeCompare(a.date)
   );
 
-  const totalGastos = expenses.reduce((s, e) => s + e.amount, 0);
-  const totalIngresos = incomes.reduce((s, i) => s + i.amount, 0);
+  const totalGastos = filteredExpenses.reduce((s, e) => s + e.amount, 0);
+  const totalIngresos = filteredIncomes.reduce((s, i) => s + i.amount, 0);
   const isCurrent = !isWeek && !isCustom && yearMonth === currentYearMonth();
   const activeFilter = isWeek ? "semana" : isCustom ? "custom" : yearMonth === currentYearMonth() ? "mes" : yearMonth === prevMes(currentYearMonth()) ? "mes_pasado" : "mes";
 
   // TAREA 8b: gastos por categoría, agrupados por moneda (nunca sumados entre
-  // monedas distintas — mismo principio que TAREA 3).
+  // monedas distintas — mismo principio que TAREA 3). Sesión J.1.15: ahora se
+  // construye a partir de filteredExpenses, para que el gráfico refleje también
+  // el filtro de categoría/monto de TAREA 6.
   const categoryTotalsByCurrency = new Map<Currency, Map<string, { icon: string; amount: number }>>();
-  for (const e of expenses) {
+  for (const e of filteredExpenses) {
     const catName = e.sub ?? "Sin categoría";
     if (!categoryTotalsByCurrency.has(e.currency)) categoryTotalsByCurrency.set(e.currency, new Map());
     const m = categoryTotalsByCurrency.get(e.currency)!;
     const existing = m.get(catName) ?? { icon: e.icon, amount: 0 };
     existing.amount += e.amount;
     m.set(catName, existing);
+  }
+
+  // Helper para combinar filtros: cualquier link/form de esta página parte de
+  // los params actuales y solo pisa los que le corresponden — así el filtro de
+  // categoría/monto sobrevive a un cambio de período y viceversa (TAREA 6:
+  // "los filtros deben poder combinarse").
+  const currentParams: Record<string, string> = {};
+  if (mes) currentParams.mes = mes;
+  if (range) currentParams.range = range;
+  if (desdeParam) currentParams.desde = desdeParam;
+  if (hastaParam) currentParams.hasta = hastaParam;
+  if (categoriaParam) currentParams.categoria = categoriaParam;
+  if (montoMinParam) currentParams.montoMin = montoMinParam;
+  if (montoMaxParam) currentParams.montoMax = montoMaxParam;
+
+  function buildHref(overrides: Record<string, string | null>): string {
+    const merged = { ...currentParams };
+    for (const [k, v] of Object.entries(overrides)) {
+      if (v === null) delete merged[k];
+      else merged[k] = v;
+    }
+    const qs = new URLSearchParams(merged).toString();
+    return qs ? `/movimientos?${qs}` : "/movimientos";
   }
 
   const pillClass = (active: boolean) =>
@@ -205,14 +277,20 @@ export default async function MovimientosPage({
 
       {/* Filtro de período (TAREA 8a) */}
       <div className="flex gap-2 overflow-x-auto -mx-1 px-1 pb-1">
-        <Link href="/movimientos?range=semana" className={pillClass(activeFilter === "semana")}>
+        <Link
+          href={buildHref({ range: "semana", mes: null, desde: null, hasta: null })}
+          className={pillClass(activeFilter === "semana")}
+        >
           Esta semana
         </Link>
-        <Link href="/movimientos" className={pillClass(activeFilter === "mes")}>
+        <Link
+          href={buildHref({ range: null, mes: null, desde: null, hasta: null })}
+          className={pillClass(activeFilter === "mes")}
+        >
           Este mes
         </Link>
         <Link
-          href={`/movimientos?mes=${prevMes(currentYearMonth())}`}
+          href={buildHref({ range: null, mes: prevMes(currentYearMonth()), desde: null, hasta: null })}
           className={pillClass(activeFilter === "mes_pasado")}
         >
           Mes pasado
@@ -227,6 +305,9 @@ export default async function MovimientosPage({
             className="absolute right-0 mt-2 z-10 bg-white rounded-xl shadow-lg border border-gray-200 p-3 space-y-2 w-64"
           >
             <input type="hidden" name="range" value="custom" />
+            {categoriaParam && <input type="hidden" name="categoria" value={categoriaParam} />}
+            {montoMinParam && <input type="hidden" name="montoMin" value={montoMinParam} />}
+            {montoMaxParam && <input type="hidden" name="montoMax" value={montoMaxParam} />}
             <div>
               <label className="block text-[10px] text-gray-500 mb-0.5">Desde</label>
               <input
@@ -255,13 +336,89 @@ export default async function MovimientosPage({
             </button>
           </form>
         </details>
+
+        {/* TAREA 6: filtros de categoría + rango de monto, combinables con el
+            período elegido arriba (hidden inputs preservan mes/range/desde/hasta). */}
+        <details className="relative shrink-0">
+          <summary className={`${pillClass(hasExtraFilters)} list-none cursor-pointer`}>
+            {hasExtraFilters ? "Filtros ✓" : "Más filtros"}
+          </summary>
+          <form
+            method="GET"
+            action="/movimientos"
+            className="absolute right-0 mt-2 z-10 bg-white rounded-xl shadow-lg border border-gray-200 p-3 space-y-2 w-64"
+          >
+            {mes && <input type="hidden" name="mes" value={mes} />}
+            {range && <input type="hidden" name="range" value={range} />}
+            {desdeParam && <input type="hidden" name="desde" value={desdeParam} />}
+            {hastaParam && <input type="hidden" name="hasta" value={hastaParam} />}
+            <div>
+              <label className="block text-[10px] text-gray-500 mb-0.5">Categoría</label>
+              <select
+                name="categoria"
+                defaultValue={categoriaParam ?? ""}
+                className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white"
+              >
+                <option value="">Todas</option>
+                {categoryOptions.map(([name, icon]) => (
+                  <option key={name} value={name}>
+                    {icon} {name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-[10px] text-gray-500 mb-0.5">Monto mín.</label>
+                <input
+                  type="number"
+                  name="montoMin"
+                  step="0.01"
+                  min="0"
+                  defaultValue={montoMinParam ?? ""}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[10px] text-gray-500 mb-0.5">Monto máx.</label>
+                <input
+                  type="number"
+                  name="montoMax"
+                  step="0.01"
+                  min="0"
+                  defaultValue={montoMaxParam ?? ""}
+                  className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-gray-400">
+              El rango de monto se aplica en la moneda propia de cada movimiento (sin convertir).
+            </p>
+            <div className="flex gap-2">
+              {hasExtraFilters && (
+                <Link
+                  href={buildHref({ categoria: null, montoMin: null, montoMax: null })}
+                  className="flex-1 text-center border border-gray-200 text-gray-600 rounded-lg py-1.5 text-xs font-medium"
+                >
+                  Limpiar
+                </Link>
+              )}
+              <button
+                type="submit"
+                className="flex-1 bg-gray-900 text-white rounded-lg py-1.5 text-xs font-medium"
+              >
+                Aplicar
+              </button>
+            </div>
+          </form>
+        </details>
       </div>
 
       {/* Navegador de mes — solo tiene sentido en modo "mes" */}
       {!isWeek && !isCustom && (
         <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm">
           <Link
-            href={`/movimientos?mes=${prevMes(yearMonth)}`}
+            href={buildHref({ mes: prevMes(yearMonth) })}
             className="text-gray-400 hover:text-gray-900 transition-colors text-lg px-2 py-1"
             aria-label="Mes anterior"
           >
@@ -271,7 +428,7 @@ export default async function MovimientosPage({
             {periodLabel}
           </span>
           <Link
-            href={isCurrent ? "/movimientos" : `/movimientos?mes=${nextMes(yearMonth)}`}
+            href={isCurrent ? buildHref({ mes: null }) : buildHref({ mes: nextMes(yearMonth) })}
             className={`text-lg px-2 py-1 transition-colors ${
               isCurrent ? "text-gray-200 pointer-events-none" : "text-gray-400 hover:text-gray-900"
             }`}
@@ -318,7 +475,9 @@ export default async function MovimientosPage({
       {/* Lista unificada */}
       {all.length === 0 ? (
         <div className="bg-white rounded-2xl p-6 shadow-sm text-center space-y-3">
-          <p className="text-sm text-gray-400">Sin movimientos en {periodLabel}</p>
+          <p className="text-sm text-gray-400">
+            {hasExtraFilters ? "Sin movimientos con estos filtros" : `Sin movimientos en ${periodLabel}`}
+          </p>
           <div className="flex gap-3 justify-center">
             <Link href="/gastos/nuevo" className="text-sm font-medium text-gray-900 underline">
               Registrar gasto
@@ -349,7 +508,13 @@ export default async function MovimientosPage({
                       isIngreso ? "bg-green-100" : "bg-gray-100"
                     }`}
                   >
-                    {item.icon}
+                    {isIngreso ? (
+                      <Wallet size={16} className="text-green-700" />
+                    ) : "hasCategoryIcon" in item && item.hasCategoryIcon ? (
+                      item.icon
+                    ) : (
+                      <Receipt size={16} className="text-gray-500" />
+                    )}
                   </div>
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{item.label}</p>

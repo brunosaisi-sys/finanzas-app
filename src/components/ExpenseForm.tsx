@@ -92,6 +92,36 @@ export default function ExpenseForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // TAREA 8 (Sesión J.1.15): gastos compartidos — diseño decidido en Sesión
+  // J.1.14. "¿Entre cuántas personas?" cuenta el TOTAL incluyendo al usuario:
+  // N personas → N−1 filas de participantes, cada una debe amount/N por
+  // default (editable a un monto custom). La parte del usuario nunca se
+  // guarda como fila — es implícita (amount del gasto − Σ participantes).
+  const [isShared, setIsShared] = useState(false);
+  const [splitCount, setSplitCount] = useState(2);
+  const [participants, setParticipants] = useState<{ name: string; amount: string }[]>([
+    { name: "", amount: "" },
+  ]);
+
+  function equalShare(count: number): string {
+    const totalNum = parseFloat(amount.replace(",", ".")) || 0;
+    if (count <= 0) return "";
+    return (Math.round((totalNum / count) * 100) / 100).toString();
+  }
+
+  function handleSplitCountChange(raw: string) {
+    const n = Math.max(2, parseInt(raw) || 2);
+    setSplitCount(n);
+    const share = equalShare(n);
+    setParticipants((prev) =>
+      Array.from({ length: n - 1 }, (_, i) => prev[i] ?? { name: "", amount: share })
+    );
+  }
+
+  function updateParticipant(i: number, field: "name" | "amount", value: string) {
+    setParticipants((prev) => prev.map((p, idx) => (idx === i ? { ...p, [field]: value } : p)));
+  }
+
   const selectedAccount = leafAccounts.find((a) => a.id === accountId);
   const paymentMethod = derivePaymentMethod(selectedAccount);
   const isCredito = paymentMethod === "credito";
@@ -160,6 +190,24 @@ export default function ExpenseForm({
     const selectedAccountObj = accounts.find((a) => a.id === accountId);
     const coveringAccount = accounts.find((a) => a.id === coveringAccountId);
 
+    let sharedParticipants: { name: string; amount: number }[] | undefined;
+    if (isShared) {
+      const parsedParticipants = participants.map((p) => ({
+        name: p.name.trim(),
+        amount: parseFloat(p.amount.replace(",", ".")),
+      }));
+      if (parsedParticipants.some((p) => !p.name || isNaN(p.amount) || p.amount <= 0)) {
+        setError("Completá nombre y monto de cada persona (o desmarcá \"¿Es compartido?\").");
+        return;
+      }
+      const sumParticipants = parsedParticipants.reduce((s, p) => s + p.amount, 0);
+      if (sumParticipants >= parsed) {
+        setError("La suma de lo que deben las otras personas no puede ser mayor o igual al monto total del gasto.");
+        return;
+      }
+      sharedParticipants = parsedParticipants;
+    }
+
     setLoading(true);
     const result = await createExpense({
       amount: parsed,
@@ -178,6 +226,7 @@ export default function ExpenseForm({
       closingDay: selectedAccountObj?.closing_day,
       dueDay: selectedAccountObj?.due_day,
       coveringAccountCurrency: coveringAccount?.currency ?? null,
+      participants: sharedParticipants,
     });
 
     setLoading(false);
@@ -540,6 +589,71 @@ export default function ExpenseForm({
           placeholder="Ej: Compra semanal"
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
         />
+      </div>
+
+      {/* TAREA 8: gastos compartidos */}
+      <div className="border-t border-gray-100 pt-4">
+        <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+          <input
+            type="checkbox"
+            checked={isShared}
+            onChange={(e) => {
+              setIsShared(e.target.checked);
+              if (e.target.checked) {
+                setSplitCount(2);
+                setParticipants([{ name: "", amount: equalShare(2) }]);
+              }
+            }}
+            className="w-4 h-4"
+          />
+          ¿Es compartido?
+        </label>
+
+        {isShared && (
+          <div className="mt-2 space-y-3 bg-gray-50 rounded-xl p-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                ¿Entre cuántas personas? (incluyéndote)
+              </label>
+              <input
+                type="number"
+                inputMode="numeric"
+                min="2"
+                step="1"
+                value={splitCount}
+                onChange={(e) => handleSplitCountChange(e.target.value)}
+                className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm text-center font-semibold focus:outline-none focus:ring-2 focus:ring-gray-900"
+              />
+            </div>
+            <div className="space-y-2">
+              {participants.map((p, i) => (
+                <div key={i} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={p.name}
+                    onChange={(e) => updateParticipant(i, "name", e.target.value)}
+                    placeholder={`Persona ${i + 1}`}
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  />
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    min="0"
+                    value={p.amount}
+                    onChange={(e) => updateParticipant(i, "amount", e.target.value)}
+                    placeholder="Monto"
+                    className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-gray-900"
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-[11px] text-gray-400">
+              Vos pagás el total ahora; acá registrás cuánto te debe cada persona. Podés
+              cambiar los montos si no fue un reparto exactamente igual.
+            </p>
+          </div>
+        )}
       </div>
 
       {error && (

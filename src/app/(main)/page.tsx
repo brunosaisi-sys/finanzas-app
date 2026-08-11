@@ -4,6 +4,7 @@ import Link from "next/link";
 import LogoutButton from "@/components/LogoutButton";
 import { formatCurrency, formatARS, formatUSD } from "@/lib/format";
 import { getLeafAccounts } from "@/lib/accounts";
+import { AlertTriangle, CreditCard, Wallet, Home as HomeIcon, TrendingUp, Receipt } from "lucide-react";
 import type { Account, Currency } from "@/types";
 
 // Sesión J.1.12, TAREA 5 — la ocurrencia de un día de mes (closing_day/due_day,
@@ -66,6 +67,30 @@ export default async function DashboardPage() {
         .lte("date", reminderCutoffStr)
         .order("date", { ascending: false }),
     ]);
+
+  // TAREA 8 (Sesión J.1.15): "Te deben $X de N personas" — gastos compartidos
+  // sin cobrar, agrupados por moneda (nunca sumados entre monedas, TAREA 3/8
+  // Sesión J.1.14). Best-effort: si la tabla todavía no existe (migración 029
+  // pendiente de ejecución), no bloquea el dashboard.
+  const pendingByCurrency = new Map<Currency, { count: number; total: number }>();
+  try {
+    const { data: pendingParticipants } = await supabase
+      .from("expense_participants")
+      .select("amount, expenses!inner(currency)")
+      .eq("paid", false);
+    for (const row of (pendingParticipants ?? []) as unknown as {
+      amount: number;
+      expenses: { currency: Currency } | null;
+    }[]) {
+      const cur = row.expenses?.currency ?? "ARS";
+      const existing = pendingByCurrency.get(cur) ?? { count: 0, total: 0 };
+      existing.count += 1;
+      existing.total += Number(row.amount);
+      pendingByCurrency.set(cur, existing);
+    }
+  } catch {
+    // expense_participants todavía no existe — sin banner, no bloquea
+  }
 
   const leafAccounts = getLeafAccounts((accounts ?? []) as Account[]);
   const arsBalance = leafAccounts
@@ -217,7 +242,7 @@ export default async function DashboardPage() {
               className="block bg-red-50 border border-red-200 rounded-xl px-4 py-3"
             >
               <div className="flex items-start gap-3">
-                <span className="text-base shrink-0">⚠️</span>
+                <AlertTriangle size={18} className="text-red-500 shrink-0 mt-0.5" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-red-900">
                     Falta configurar {card.name}
@@ -283,7 +308,7 @@ export default async function DashboardPage() {
               key={i}
               className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3"
             >
-              <span className="text-base shrink-0">💳</span>
+              <CreditCard size={18} className="text-amber-600 shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-medium text-amber-900">
                   {r.type} {r.name}
@@ -309,7 +334,7 @@ export default async function DashboardPage() {
               className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center justify-between"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <span className="text-base shrink-0">💰</span>
+                <Wallet size={18} className="text-indigo-600 shrink-0" />
                 <div className="min-w-0">
                   <p className="text-sm font-medium text-indigo-900">
                     Sueldo sin distribuir
@@ -329,12 +354,42 @@ export default async function DashboardPage() {
         </section>
       )}
 
-      {/* Gastos del mes */}
+      {/* TAREA 8: gastos compartidos pendientes de cobro — mismo estilo que el
+          banner de "Sueldo sin distribuir" de abajo. */}
+      {pendingByCurrency.size > 0 && (
+        <section className="space-y-2">
+          {Array.from(pendingByCurrency.entries()).map(([cur, { count, total }]) => (
+            <Link
+              key={cur}
+              href="/compartidos"
+              className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <Wallet size={18} className="text-indigo-600 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-indigo-900">
+                    Te deben {formatCurrency(total, cur)}
+                  </p>
+                  <p className="text-xs text-indigo-600">
+                    {count} persona{count !== 1 ? "s" : ""} sin cobrar
+                  </p>
+                </div>
+              </div>
+              <span className="text-sm text-indigo-600 shrink-0 ml-3">Ver →</span>
+            </Link>
+          ))}
+        </section>
+      )}
+
+      {/* Gastos del mes — card "hero": la única sección con fondo de acento en
+          todo el dashboard (TAREA 7b, variación intencional: no todas las
+          cards llevan el mismo tratamiento). El número es el elemento más
+          grande y con más peso de la pantalla. */}
       <section>
         <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
           Gastos de {monthName}
         </h2>
-        <div className="bg-white rounded-2xl p-4 shadow-sm">
+        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
           {arsExpenses === 0 && usdExpenses === 0 ? (
             <div className="text-center space-y-2">
               <p className="text-sm text-gray-400">Sin gastos este mes</p>
@@ -348,7 +403,7 @@ export default async function DashboardPage() {
           ) : (
             <div className="space-y-1">
               {arsExpenses > 0 && (
-                <p className="text-3xl font-semibold text-gray-900 tabular-nums">
+                <p className="text-4xl font-bold text-gray-900 tabular-nums">
                   {formatARS(arsExpenses)}
                 </p>
               )}
@@ -425,15 +480,15 @@ export default async function DashboardPage() {
       <section>
         <div className="grid grid-cols-3 gap-2">
           <Link href="/cuotas" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
-            <p className="text-lg mb-0.5">💳</p>
+            <CreditCard size={20} className="mx-auto mb-1 text-gray-500" />
             <p className="text-xs font-medium text-gray-700">Cuotas</p>
           </Link>
           <Link href="/bienes" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
-            <p className="text-lg mb-0.5">🏡</p>
+            <HomeIcon size={20} className="mx-auto mb-1 text-gray-500" />
             <p className="text-xs font-medium text-gray-700">Bienes</p>
           </Link>
           <Link href="/inversiones" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
-            <p className="text-lg mb-0.5">📈</p>
+            <TrendingUp size={20} className="mx-auto mb-1 text-gray-500" />
             <p className="text-xs font-medium text-gray-700">Inversiones</p>
           </Link>
         </div>
@@ -486,7 +541,11 @@ export default async function DashboardPage() {
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="text-xl shrink-0">{cat?.icon ?? "💸"}</span>
+                    {cat?.icon ? (
+                      <span className="text-xl shrink-0">{cat.icon}</span>
+                    ) : (
+                      <Receipt size={20} className="text-gray-400 shrink-0" />
+                    )}
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {label}

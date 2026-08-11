@@ -43,11 +43,6 @@ de cierre o vencimiento de cualquier tarjeta activa.
 
 ## Sesiones pendientes (roadmap)
 
-- **Próxima sesión — Gastos compartidos (TAREA 9, Sesión J.1.14):** diseño
-  completo ya decidido (modelo de datos, UI, dashboard, flujo de cobro) — ver
-  entrada de Sesión J.1.14 más abajo, sección T9. Implementar directo sin
-  repreguntar decisiones.
-
 - **Sesión E — Suscripciones:** nueva migración con tablas `recurring_expenses` y
   `subscription_instances`; diseño a documentar en `docs/02-arquitectura.md` antes de
   implementar.
@@ -600,6 +595,132 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
     integridad de plata) es más riesgo que valor. Queda completamente diseñada,
     sin decisiones pendientes, para implementar directo en la próxima sesión.
 
+- **Sesión J.1.15 — 8 tareas: pago multi-moneda + 2do fix de holding-aware +
+  eliminar holding + rediseño /inversiones + sistema de diseño + gastos
+  compartidos implementados (commit pendiente):**
+  T1 (pago de cuotas en varias monedas con una cuenta): antes, si una tarjeta
+  tenía cuotas ARS y USD en el mismo vencimiento, `BatchPayButton` solo permitía
+  UN selector de cuenta para todas las cuotas sin cobertura, sin convertir —
+  un mismatch de moneda hubiera descontado el monto crudo de la cuenta
+  equivocada (bug de integridad, no solo de UX, nunca ejercitado en producción
+  porque el usuario siempre pagó cada moneda por separado). Fix: RPC nueva
+  `pay_installments_with_conversion` (migración 027) — para cuotas con
+  cobertura propia o de la misma moneda que la cuenta de origen, delega 100%
+  en `pay_installment` (sin reimplementar esa lógica ya verificada); para
+  cuotas sin cobertura en otra moneda, convierte al MEP (tasa manual, mismo
+  patrón que `DistribuirForm`) y debita la cuenta de origen (holding-aware,
+  mismo criterio que `adjust_linked_account_balance`). `BatchPayButton.tsx`
+  ahora ofrece "Pagar todo con una cuenta" (con conversión) o "Pagar cada
+  moneda por separado" (selector de cuenta por moneda, alternativa preservada,
+  no reemplazada) cuando el grupo mezcla monedas. `PayInstallmentButton.tsx`
+  (una sola cuota) también detecta mismatch de moneda contra la cuenta elegida
+  y ofrece conversión. **QA E2E con evidencia real de Supabase:** tarjeta con
+  una cuota ARS $10.000 + una USD $100 sin cobertura, pagadas juntas con una
+  cuenta ARS y tipo MEP 1000 → cuenta de origen pasó de $100.000 a −$10.000
+  (100.000 − 10.000 − 100×1000 = −10.000, exacto) y ambas cuotas quedaron
+  `paid=true` en la misma operación atómica.
+  T2 (holding-aware en crédito de ingreso y earmark funding — pendiente de
+  Sesión J.1.14): se centralizó una función `apply_balance_delta` (migración
+  028) que TODAS las funciones de `create_income_with_balance`,
+  `update_income_with_balance`, `confirm_income_distribution`,
+  `confirm_distribution_with_contributions`, `delete_income_with_balance` y
+  `confirm_earmark_funding` usan en vez de tocar `accounts.balance` directo —
+  respondiendo la pregunta abierta que había dejado lección §32 ("¿conviene la
+  ruta centralizada?" → sí). **QA E2E con evidencia real:** (a) ingreso de
+  $50.000 a una cuenta vinculada a un holding CEDEAR (100u @ $1000, balance
+  $100.000) → balance pasó a $150.000 Y `holding.quantity` pasó a 150 (no solo
+  el número); (b) `confirm_earmark_funding` con la cuenta de COBERTURA
+  vinculada a un holding (50u @ $200, balance $10.000) → tras confirmar $5.000
+  desde una cuenta de origen normal, la cobertura vinculada pasó a $15.000 con
+  `holding.quantity`=75 (50 + 5000/200), y la cuenta de origen se debitó
+  correctamente los $5.000. Ver `docs/lecciones-aprendidas.md §32` (ya no
+  queda ningún camino documentado como pendiente).
+  T3 (eliminar holding): agregado `DeleteHoldingButton.tsx` +
+  `deleteHolding` server action (`inversiones/actions.ts`) — si la cuenta
+  tiene `holding_id` apuntando al holding (distinto de `holdings.account_id`,
+  que es solo el broker/cuenta "dueña" informativa), bloquea el borrado con un
+  mensaje explícito ("desvinculalo primero en /cuentas"); si no, borra directo
+  (`holding_price_history` tiene `ON DELETE CASCADE`, no hace falta RPC — no
+  mueve `accounts.balance`, lección §35 punto 2). **QA E2E confirmado:**
+  holding vinculado → botón bloqueado con el mensaje correcto → desvinculado →
+  botón "Eliminar" disponible → confirmado → holding borrado de la DB.
+  T4 (rediseño /inversiones): valor actual + %/absoluto de ganancia combinados
+  en una sola línea ("+12.4% (+$45.000)"), con "estimado" junto al de fondos
+  FCI; selector de período Este mes/Este año que recalcula el retorno de cada
+  posición (`calcHoldingReturn` ya aceptaba `windowDays` genérico desde Sesión
+  J.1.7 — no hizo falta tocar el motor, `windowDaysForPeriod` en la page
+  calcula los días transcurridos del período elegido); `PortfolioValueToggle.tsx`
+  (nuevo, client) — toggle ARS/USD que consolida el portafolio en un solo
+  número convirtiendo la porción de la otra moneda al MEP (tasa manual), con
+  el desglose por moneda (nunca sumado) colapsado como información secundaria
+  debajo; ticker/tipo de activo/VCP/cantidad/precio promedio colapsados en
+  `<details>` "Detalles técnicos" por posición — el nombre y el valor son lo
+  primero que se ve.
+  T5 (fondo USD Mercado Pago): investigado con `curl` real contra las 4
+  categorías del feed de ArgentinaDatos — **no existe ningún fondo de Mercado
+  Pago en dólares** (el único es "Mercado Fondo - Clase A/B/C/D", ARS,
+  categoría `mercadoDinero`); el feed tampoco expone ningún campo de moneda.
+  Documentado como limitación real del feed, no agregado al catálogo (no
+  inventar datos). Ver `docs/lecciones-aprendidas.md §37`.
+  T6 (filtros de categoría + rango de monto en /movimientos): nuevo panel
+  "Más filtros" (categoría + monto mín/máx), combinable entre sí y con el
+  filtro de período ya existente (helper `buildHref` reconstruye la URL
+  preservando todos los params activos salvo los que se pisan explícitamente).
+  El rango de monto se aplica en la moneda propia de cada movimiento, sin
+  convertir (aclarado en la UI). El gráfico de categorías y los totales
+  también reflejan estos filtros. **QA E2E confirmado:** filtro por categoría
+  sola, por categoría+monto combinados, y por monto solo — cada combinación
+  mostró exactamente los movimientos esperados.
+  T7 (diseño profesional — Inicio/Movimientos/Inversiones + BottomNav): ver
+  sección nueva "Sistema de diseño" más abajo para la paleta/tipografía/
+  iconos exactos. Resumen: tipografía Space Grotesk (reemplaza a Geist, que
+  además nunca se aplicaba realmente — `globals.css` pisaba el font-family del
+  body con Arial/Helvetica, bug preexistente corregido de paso); acento indigo
+  formalizado (ya aparecía disperso en el código) y usado con moderación
+  (botón "+" de BottomNav, tab activo, un único hero card por pantalla — nunca
+  en botones primarios, que siguen `bg-gray-900` en las 28 rutas); `lucide-react`
+  instalado, reemplaza TODOS los emoji de chrome de la app (nav, quick
+  actions, banners, accesos rápidos) — los emoji elegidos por el usuario
+  (íconos de categoría) NO se tocaron, son contenido, no chrome; jerarquía
+  tipográfica real (hero card con número grande/bold vs. filas de lista
+  regulares); sin dark+gold, sin gradientes decorativos, sin glassmorphism,
+  sin todo centrado. Ver `docs/lecciones-aprendidas.md §36` (bug de
+  `bg-[var(--custom)]` no resolviendo, fix: literales de paleta Tailwind).
+  **Nota de proceso:** la skill `frontend-design` mencionada en el brief no
+  apareció en el listado de skills disponibles de esta sesión — se aplicaron
+  los lineamientos del brief directamente (7a/7b explícitos) en su lugar.
+  **Autocrítica (7d):** releído el resultado contra los patrones prohibidos —
+  no hay dark+gold, no hay gradiente decorativo, no hay glassmorphism, no todo
+  está centrado, no hay emoji de navegación. Es una evolución del look claro
+  ya existente (no una reinvención), con una identidad de color y tipografía
+  reconocibles. Verificado con capturas de Playwright reales en 390×844, no
+  solo leyendo el código.
+  T8 (gastos compartidos — implementado, diseño ya decidido en Sesión J.1.14):
+  migración 029 (`expense_participants` + RLS + RPC `confirm_participant_payment`);
+  checkbox "¿Es compartido?" en `ExpenseForm.tsx` con selector "¿Entre cuántas
+  personas?" (incluye al usuario) y N−1 filas {Nombre, Monto} editables,
+  default = reparto igual; insert best-effort en `createExpense` (no atómico
+  con el gasto, mismo criterio que `holding_price_history` — es metadata, no
+  plata); banner "Te deben $X de N personas" en el dashboard (agrupado por
+  moneda, mismo patrón que "Sueldo sin distribuir"); ruta nueva `/compartidos`
+  (pendientes arriba, cobrados colapsados abajo) con botón "Ya me pagaron" →
+  `ConfirmParticipantPaymentButton.tsx` → RPC atómica `confirm_participant_payment`
+  (holding-aware vía `apply_balance_delta`, mismo patrón que
+  `create_income_with_balance`). **QA E2E con evidencia real de Supabase, ciclo
+  completo:** gasto $3.000 con "QA Amigo" al 50% → fila en `expense_participants`
+  con `amount=1500` creada correctamente → "Ya me pagaron" con cuenta de cobro
+  → participante `paid=true` y cuenta de cobro pasó de $0 a $1.500.
+  **Cierre de sesión:** tsc limpio, build limpio (28 rutas — incluye
+  `/compartidos` nueva), 80/80 tests unitarios verdes (sin tests nuevos — todos
+  los cambios de esta sesión son de integración server/DB/UI, no lógica
+  financiera pura nueva; `windowDaysForPeriod` es aritmética de fechas simple,
+  mismo criterio que `daysUntil`/`closestOccurrence` del dashboard, que tampoco
+  tienen test unitario dedicado). Migraciones 027/028/029 creadas y
+  **ejecutadas en Supabase por el usuario durante la sesión**. Auditoría final
+  de fixtures: Cocos Capital $252.500,01 (exacto), Visa Test SD $0, holding
+  AAPL 150u @ $10 — todos intactos; cero residuo de datos "QA" en ninguna
+  tabla (accounts/holdings/expenses/categories/incomes/expense_participants).
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -730,8 +851,8 @@ Migraciones ejecutadas:
 | `/gastos/nuevo` | Formulario gasto: medio de pago, cuotas, cuenta de cobertura, autocomplete comercio |
 | `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
 | `/categorias` | Onboarding de categorías con defaults |
-| `/cuotas` | Cuotas pendientes agrupadas por tarjeta+mes; nombre tarjeta, "Vence el día X", "Pagar todas (N)", advertencia si sin closing/due |
-| `/inversiones` | Holdings con P&L; FCI lazy-load: TNA via `FciRateCell` (async SC en Suspense, sin bloquear render inicial); `HoldingPriceEdit` para precio manual en acciones/CEDEARs |
+| `/cuotas` | Cuotas pendientes agrupadas por tarjeta+mes; nombre tarjeta, "Vence el día X", "Pagar todas (N)" con modo "una cuenta con conversión MEP" o "cada moneda por separado" si el grupo mezcla monedas (Sesión J.1.15, TAREA 1), advertencia si sin closing/due |
+| `/inversiones` | Holdings: valor+P&L combinados y prominentes por posición, selector de período (Este mes/Este año) para el % de rendimiento, `PortfolioValueToggle` ARS/USD consolidado con MEP, ticker/tipo/VCP colapsados en "Detalles técnicos", `DeleteHoldingButton` (bloqueado si la cuenta tiene el holding vinculado) — Sesión J.1.15, TAREA 3/4 |
 | `/inversiones/nueva` | Formulario nueva posición: Cantidad separada de Moneda (moneda se muestra junto al precio); toggle "Precio exacto"/"% de ganancia" (deriva precio de compra); tipo CEDEAR con datalist de tickers reales (data912) que autocompleta precio actual |
 | `/bienes` | Lista de bienes con sinking + maintenance + Meta por bien; modo manual muestra badge "manual" |
 | `/bienes/nuevo` | Formulario con defaults por categoría; sección "Detalles del auto" (segmento/bought_used/tasas+fuente); sección "Objetivo de ahorro" (toggle calculado/manual) |
@@ -744,7 +865,8 @@ Migraciones ejecutadas:
 | `/objetivos/nuevo` | Formulario nueva meta: nombre, monto+moneda (toggle ARS/USD), plazo en meses, cuenta opcional; preview live "necesitás aportar X/mes" |
 | `/gastos/[id]/editar` | Editar gasto: monto (read-only para crédito con badge), merchant, descripción, categoría, fecha; eliminar con reversión de saldo atómica |
 | `/categorias/nueva` | Formulario nueva categoría |
-| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14); gráfico de barras por categoría (Recharts) por moneda |
+| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14) + filtro de categoría y rango de monto combinables (Sesión J.1.15, TAREA 6); gráfico de barras por categoría (Recharts) por moneda |
+| `/compartidos` | Gastos compartidos: pendientes de cobro arriba (botón "Ya me pagaron"), ya cobrados colapsados abajo — Sesión J.1.15, TAREA 8 |
 
 ### Componentes y libs
 - `BottomNav` — Inicio · Gastos · [+] · Cuentas · Metas; botón [+] abre bottom sheet con overlay (z-40) + 3 acciones rápidas: Nuevo gasto / Nuevo ingreso / Transferencia
@@ -866,6 +988,21 @@ Migraciones ejecutadas:
   confirmar, TAREA 6); `movimientos/page.tsx` +
   `movimientos/_components/MovimientosChart.tsx` (nuevo — filtro de período +
   gráfico de barras por categoría con Recharts, TAREA 8).
+- **Sesión J.1.15 — cambios a componentes/libs existentes** (ver detalle
+  completo en la entrada de sesión): `cuotas/actions.ts` (nueva
+  `payInstallmentsWithConversion`, TAREA 1); `cuotas/_components/BatchPayButton.tsx`
+  + `PayInstallmentButton.tsx` (modo "una cuenta con MEP" vs "cada moneda por
+  separado", TAREA 1); `inversiones/actions.ts` (nueva `deleteHolding`, TAREA 3);
+  `inversiones/page.tsx` (reescrito — período, toggle consolidado, detalles
+  colapsados, TAREA 3/4); `inversiones/_components/FciRatesSection.tsx`
+  (`FciPortfolioSummary` usa `PortfolioValueToggle`, TAREA 4); `movimientos/page.tsx`
+  (filtro categoría/monto combinable, `buildHref`, TAREA 6); `gastos/actions.ts`
+  (`createExpense` acepta `participants`, insert best-effort, TAREA 8);
+  `src/components/ExpenseForm.tsx` (checkbox "¿Es compartido?" + filas de
+  participantes, TAREA 8); `(main)/page.tsx` (banner "Te deben", hero card
+  indigo, iconos lucide, TAREA 7/8); `src/components/BottomNav.tsx` (iconos
+  lucide, acento indigo, TAREA 7); `src/app/layout.tsx` + `globals.css`
+  (Space Grotesk reemplaza a Geist/Arial, tokens de acento, TAREA 7).
 - `src/types/index.ts` — `AccountType` incluye `"credito"`; `Account` tiene
   `closing_day/due_day: number | null`; `Asset` tiene `car_segment: CarSegment | null`,
   `bought_used: boolean | null`, `savings_goal_mode: SavingsGoalMode | null`,
@@ -962,6 +1099,9 @@ confirmado en QA de la sesión.
 - `024` — (archivo en repo: `024_income_balance.sql`; **EJECUTADA en Supabase**, Sesión J.1.13) RPCs `create_income_with_balance`, `update_income_with_balance`, `delete_income_with_balance` (todas `SECURITY INVOKER`) + `confirm_income_distribution`/`confirm_distribution_with_contributions` actualizadas para debitar la cuenta de origen del ingreso antes de aplicar las líneas de distribución (movimiento neutro, no duplica plata). Ver checkpoint de sesión, TAREA 1.
 - `025` — (archivo en repo: `025_holding_position.sql`; **EJECUTADA en Supabase**, Sesión J.1.13) RPC `update_holding_position(p_holding_id, p_quantity, p_avg_buy_price) SECURITY INVOKER`: actualiza `quantity`/`avg_buy_price` de un holding y recalcula el balance de su cuenta vinculada (si tiene) con la cantidad nueva. Ver checkpoint de sesión, TAREA 4.
 - `026` — (archivo en repo: `026_adjust_linked_account_balance.sql`; **EJECUTADA en Supabase**, Sesión J.1.14) RPC `adjust_linked_account_balance(p_account_id, p_new_balance) SECURITY INVOKER`: si la cuenta tiene `holding_id`, interpreta el delta de balance como compra/venta de unidades al precio actual del holding (actualiza `quantity` + `balance` juntos); si no tiene holding vinculado, comportamiento simple de siempre. Usada por `updateAccount` (edición manual de saldo). Ver checkpoint de sesión, TAREA 2.
+- `027` — (archivo en repo: `027_pay_installments_with_conversion.sql`; **EJECUTADA en Supabase**, Sesión J.1.15) RPC `pay_installments_with_conversion(p_installment_ids, p_source_account_id, p_mep_rate) SECURITY INVOKER`: paga cuotas de tarjeta en varias monedas con una sola cuenta de origen, convirtiendo al MEP las cuotas sin cobertura propia en otra moneda; delega en `pay_installment` para el resto (misma moneda o con cobertura propia). Holding-aware al debitar. Ver checkpoint de sesión, TAREA 1.
+- `028` — (archivo en repo: `028_holding_aware_income_earmark.sql`; **EJECUTADA en Supabase**, Sesión J.1.15) Función `apply_balance_delta(p_account_id, p_delta) SECURITY INVOKER` centralizada — holding-aware, mismo criterio que la migración 026; `CREATE OR REPLACE` de `create_income_with_balance`, `update_income_with_balance`, `confirm_income_distribution`, `confirm_distribution_with_contributions`, `delete_income_with_balance` y `confirm_earmark_funding` (migración 017) para que TODAS usen `apply_balance_delta` en vez de `UPDATE accounts SET balance = balance ± X` directo. Cierra el gap documentado en lección §32. Ver checkpoint de sesión, TAREA 2.
+- `029` — (archivo en repo: `029_expense_participants.sql`; **EJECUTADA en Supabase**, Sesión J.1.15) Tabla `expense_participants` (id, expense_id FK expenses ON DELETE CASCADE, name, amount, paid, paid_date, deposit_account_id FK accounts ON DELETE SET NULL, created_at; RLS vía EXISTS a `expenses.user_id`); RPC `confirm_participant_payment(p_participant_id, p_account_id) SECURITY INVOKER` — acredita la cuenta elegida (holding-aware, vía `apply_balance_delta`) y marca el participante como pagado atómicamente. Ver checkpoint de sesión, TAREA 8.
 
 ⚠️ **FK expenses.account_id posiblemente no activa en producción** (detectado en Sesión G.3): gastos huérfanos encontrados con `account_id` UUID inexistente (no NULL), lo que sugiere que la FK `ON DELETE SET NULL` de migración 001 puede no haber estado activa cuando se agregó la columna en 002/003. Verificar: `SELECT conname, confdeltype FROM pg_constraint WHERE conname LIKE 'expenses%'`. No bloquea nada hoy (el pre-chequeo de la app lo cubre), pero vale confirmar en el SQL Editor.
 
@@ -980,7 +1120,66 @@ confirmado en QA de la sesión.
 - Tesseract.js (OCR local, sin API paga)
 - WhatsApp Cloud API (bot, solo mensajes self-initiated)
 - Recharts (gráficos)
+- lucide-react (íconos — Sesión J.1.15, reemplaza emoji de chrome)
 - PWA: next-pwa/Serwist (instalable, offline)
+
+## Sistema de diseño (Sesión J.1.15, TAREA 7)
+
+Base para Inicio (`/`), `/movimientos` e `/inversiones` — y referencia
+obligatoria para sesiones futuras que toquen otras pantallas (rediseño
+completo de las ~28 rutas queda fuera de alcance de esta sesión; estas 3 son
+la base a replicar, no reinventar).
+
+**Paleta** (Tailwind por nombre — no se inventaron hex nuevos, se formalizó lo
+que ya aparecía disperso en el código):
+- Neutro/ink: `gray-900` (`#111827`) — texto principal y botones primarios en
+  TODA la app (no se tocó fuera de las 3 pantallas — cambiarlo ahí rompería
+  consistencia con las 25 rutas no tocadas).
+- Acento: `indigo-600` (`#4F46E5`) fuerte, `indigo-50` (`#EEF2FF`) suave — uso
+  moderado: botón "+" de BottomNav, tab activo, UN hero card por pantalla
+  (nunca en botones de acción primaria). Ya aparecía en VCP badges y banners
+  de distribución antes de esta sesión.
+- Semánticos (sin cambios): `green-600` ingreso/positivo, `red-600`
+  gasto/negativo/error, `amber-600` advertencia/MEP.
+- Fondo: `gray-50` (body), cards en blanco — el hero card de cada pantalla usa
+  `indigo-50`/`indigo-200` para diferenciarse de las cards de lista regulares
+  (variación intencional, TAREA 7b).
+- **Sin modo oscuro:** se sacó el bloque `@media (prefers-color-scheme: dark)`
+  de `globals.css` — ningún componente ajusta sus colores para dark mode
+  (`bg-white`/`text-gray-900` hardcodeados en todos lados), así que dejarlo
+  activo era un bug latente de contraste, no una feature funcionando.
+
+**Tipografía:** Space Grotesk (`next/font/google`, geométrica, con carácter en
+la "G"/"S" — no Inter/Manrope) en toda la app vía `layout.tsx`/`globals.css`
+(la fuente es global por naturaleza, no se puede scopear a 3 pantallas). Bug
+preexistente corregido de paso: `globals.css` pisaba el `font-family` del
+`body` con `Arial, Helvetica, sans-serif`, así que Geist (cargada antes) nunca
+se aplicaba realmente. Escala (ya existente en el código, ahora formalizada):
+- Título de pantalla: `text-2xl font-semibold` (`text-xl` en pantallas con
+  menos jerarquía, ej. `/inversiones`).
+- Número hero (saldo total, valor de portafolio): `text-3xl`/`text-4xl
+  font-bold` — el elemento más grande y con más peso de su card.
+- Cuerpo/label: `text-sm font-medium`.
+- Dato secundario/hint: `text-xs`/`text-[11px] text-gray-400`.
+
+**Espaciado:** sin cambios — `space-y-4`/`space-y-6` entre secciones,
+`rounded-xl`/`rounded-2xl` en cards, `px-4 py-3` en filas de lista (criterio
+ya establecido, ver `agente-ux`).
+
+**Íconos:** `lucide-react`, `size={18-26}` según contexto, reemplaza TODO
+emoji de "chrome" de la app (navegación, banners, accesos rápidos, estados
+vacíos). Los emoji elegidos por el usuario (ícono de una categoría) NO se
+tocaron — son contenido, no chrome.
+
+**Prohibido explícitamente (y verificado que no aparece, TAREA 7a/7d):** dark
+mode con acento dorado/ámbar, gradientes decorativos, glassmorphism, todo
+centrado, mismo radio/sombra en cada card sin variación, emoji como sistema
+de navegación, Inter/Manrope por default.
+
+**Nota de proceso:** el brief mencionaba una skill `frontend-design` ya
+disponible en el entorno — no apareció en el listado de skills de esta
+sesión (`.claude/skills/` solo tiene los 4 agentes del proyecto). Se aplicaron
+los lineamientos 7a/7b/7d del brief directamente.
 
 ## Restricción dura: COSTO CERO
 

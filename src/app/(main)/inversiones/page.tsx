@@ -2,9 +2,11 @@ import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import { TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import HoldingPriceEdit from "./_components/HoldingPriceEdit";
 import HoldingPositionEdit from "./_components/HoldingPositionEdit";
+import DeleteHoldingButton from "./_components/DeleteHoldingButton";
 import { FciRateCell, FciPortfolioSummary } from "./_components/FciRatesSection";
 import { autoSyncFciHoldings } from "@/lib/fciAutoSync";
 import { calcHoldingReturn, calcAnnualizedReturn, type PricePoint } from "@/lib/finance/holdingReturn";
@@ -21,7 +23,28 @@ const ASSET_LABELS: Record<string, string> = {
 
 type HoldingRow = Holding & { accounts: { name: string } | null };
 
-export default async function InversionesPage() {
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// TAREA 4b (Sesión J.1.15): selector de período — recalcula el retorno de cada
+// posición sobre la ventana elegida en vez de solo 30 días fijos. calcHoldingReturn
+// ya aceptaba un windowDays genérico (Sesión J.1.7) — no hacía falta tocar el motor,
+// solo variar el parámetro según el período elegido acá.
+function windowDaysForPeriod(periodo: "mes" | "anio", now: Date): number {
+  const start =
+    periodo === "anio"
+      ? new Date(now.getFullYear(), 0, 1)
+      : new Date(now.getFullYear(), now.getMonth(), 1);
+  return Math.max(1, Math.ceil((now.getTime() - start.getTime()) / MS_PER_DAY));
+}
+
+export default async function InversionesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ periodo?: string }>;
+}) {
+  const { periodo: periodoParam } = await searchParams;
+  const periodo: "mes" | "anio" = periodoParam === "anio" ? "anio" : "mes";
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -36,12 +59,22 @@ export default async function InversionesPage() {
   // usar para "accounts(name)" — devuelve error PGRST201, que quedaba silenciado
   // porque no se chequeaba `error`, dejando data=null y la página vacía para
   // TODOS los holdings, no solo el vinculado desde un bolsillo (Sesión J.1.11).
-  const { data } = await supabase
-    .from("holdings")
-    .select("*, accounts!holdings_account_id_fkey(name)")
-    .order("created_at", { ascending: false });
+  const [{ data }, { data: linkedAccountsData }] = await Promise.all([
+    supabase
+      .from("holdings")
+      .select("*, accounts!holdings_account_id_fkey(name)")
+      .order("created_at", { ascending: false }),
+    // TAREA 3: cuentas vinculadas a un holding (accounts.holding_id) — distinto de
+    // holdings.account_id (el "dueño"/broker, solo informativo). Un holding
+    // vinculado no se puede borrar directo, hay que desvincularlo primero.
+    supabase.from("accounts").select("id, name, holding_id").not("holding_id", "is", null),
+  ]);
 
   const holdings = (data ?? []) as HoldingRow[];
+  const linkedAccountByHoldingId = new Map<string, string>();
+  for (const a of linkedAccountsData ?? []) {
+    if (a.holding_id) linkedAccountByHoldingId.set(a.holding_id, a.name);
+  }
 
   // Auto-sync: actualiza current_price en DB si el VCP del feed difiere.
   // El feed está cacheado 6h por Next.js — no se llama al RPC si el precio no cambió.
@@ -51,13 +84,14 @@ export default async function InversionesPage() {
     if (updatedPrices.has(h.id)) h.current_price = updatedPrices.get(h.id)!;
   }
 
-  // Retorno 30d + TNA estimada (§8.5/§8.7 fundamentos) a partir del histórico
+  // Retorno sobre el período elegido (§8.5/§8.7 fundamentos) a partir del histórico
   // propio de cada holding — hoy solo FCI acumula histórico real (auto-sync);
   // acciones/CEDEARs con precio manual no tienen suficientes puntos y
   // simplemente no muestran nada (Sesión J.1.13, TAREA 6, regla dura: nunca
   // inventar el número). Best-effort: si holding_price_history no existe
   // todavía, no bloquea el render de la lista.
-  const return30dByHolding = new Map<string, number | null>();
+  const windowDays = windowDaysForPeriod(periodo, new Date());
+  const returnByHolding = new Map<string, number | null>();
   if (holdings.length > 0) {
     try {
       const { data: historyRows } = await supabase
@@ -72,12 +106,14 @@ export default async function InversionesPage() {
       }
       for (const h of holdings) {
         const history = historyByHolding.get(h.id);
-        if (history) return30dByHolding.set(h.id, calcHoldingReturn(history));
+        if (history) returnByHolding.set(h.id, calcHoldingReturn(history, windowDays));
       }
     } catch {
       // holding_price_history todavía no existe — sin rendimiento, no bloquea
     }
   }
+
+  const periodLabel = periodo === "anio" ? "este año" : "este mes";
 
   if (holdings.length === 0) {
     return (
@@ -92,7 +128,9 @@ export default async function InversionesPage() {
           </Link>
         </div>
         <div className="bg-white rounded-2xl p-8 shadow-sm text-center space-y-3">
-          <p className="text-4xl">📈</p>
+          <div className="w-14 h-14 rounded-full bg-indigo-50 flex items-center justify-center mx-auto">
+            <TrendingUp size={26} className="text-indigo-600" />
+          </div>
           <p className="text-sm font-medium text-gray-900">Sin posiciones cargadas</p>
           <p className="text-sm text-gray-400">
             Cargá tus acciones, CEDEARs, bonos o FCI para ver tu portafolio y rendimiento.
@@ -120,17 +158,35 @@ export default async function InversionesPage() {
         </Link>
       </div>
 
-      <section className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
-        <p className="text-xs text-gray-500">
-          <span className="font-medium text-gray-700">FCI:</span> VCP (valor de cuotaparte) actualizado desde ArgentinaDatos (cada 6 h).
-          <span className="ml-2 font-medium text-gray-700">Acciones / CEDEARs:</span> sin feed automático — actualizá el precio manualmente.
-        </p>
-      </section>
-
       {/* Resumen portafolio — no bloquea, solo usa precios ya guardados en DB */}
       <Suspense fallback={null}>
         <FciPortfolioSummary holdings={holdings} />
       </Suspense>
+
+      {/* TAREA 4b: selector de período — solo afecta el %/valor de rendimiento
+          de cada posición (ver windowDaysForPeriod), no el valor total del
+          portafolio de arriba (ese es "hoy", period-agnostic). */}
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-gray-400">Rendimiento de:</span>
+        <div className="flex rounded-lg overflow-hidden border border-gray-200 text-xs">
+          <Link
+            href="/inversiones?periodo=mes"
+            className={`px-3 py-1 font-medium transition-colors ${
+              periodo === "mes" ? "bg-gray-900 text-white" : "bg-white text-gray-500"
+            }`}
+          >
+            Este mes
+          </Link>
+          <Link
+            href="/inversiones?periodo=anio"
+            className={`px-3 py-1 font-medium transition-colors ${
+              periodo === "anio" ? "bg-gray-900 text-white" : "bg-white text-gray-500"
+            }`}
+          >
+            Este año
+          </Link>
+        </div>
+      </div>
 
       {/* Lista de posiciones — holdings renderizan de inmediato */}
       <section>
@@ -144,72 +200,48 @@ export default async function InversionesPage() {
             const pnl = currentValue != null ? currentValue - cost : null;
             const pnlPct =
               pnl != null && cost > 0 ? (pnl / cost) * 100 : null;
-            const return30d = return30dByHolding.get(holding.id) ?? null;
-            const tnaEstimada = calcAnnualizedReturn(return30d);
+            const periodReturn = returnByHolding.get(holding.id) ?? null;
+            const tnaEstimada = calcAnnualizedReturn(periodReturn);
+            const isFci = holding.asset_type === "fci";
 
             return (
               <div key={holding.id} className="px-4 py-3">
                 <div className="flex items-start justify-between gap-3">
+                  {/* TAREA 4a/d: el nombre y el valor son lo primero que se ve —
+                      ticker/tipo/VCP/PA quedan colapsados en "Detalles técnicos". */}
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {holding.ticker && (
-                        <span className="text-xs font-mono font-bold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">
-                          {holding.ticker}
-                        </span>
-                      )}
-                      <span className="text-sm font-medium text-gray-900">
-                        {holding.name}
-                      </span>
-                    </div>
-                    <p className="text-xs text-gray-400 mt-0.5">
-                      {ASSET_LABELS[holding.asset_type]} · {holding.quantity} u. · PA{" "}
-                      {formatCurrency(holding.avg_buy_price, holding.currency)}
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {holding.name}
                     </p>
                     {holding.accounts && (
-                      <p className="text-xs text-gray-300 mt-0.5">
-                        {holding.accounts.name}
+                      <p className="text-xs text-gray-300">{holding.accounts.name}</p>
+                    )}
+
+                    {currentValue != null && pnlPct != null && (
+                      <p className="text-xs mt-1">
+                        <span
+                          className={`font-semibold tabular-nums ${
+                            pnl! >= 0 ? "text-green-600" : "text-red-600"
+                          }`}
+                        >
+                          {pnl! >= 0 ? "+" : ""}
+                          {pnlPct.toFixed(1)}% ({pnl! >= 0 ? "+" : ""}
+                          {formatCurrency(pnl!, holding.currency)})
+                        </span>
+                        {isFci && <span className="text-gray-300 ml-1">estimado</span>}
                       </p>
                     )}
 
-                    {/* FCI: VCP via Suspense — no bloquea el render de la lista */}
-                    {holding.asset_type === "fci" ? (
-                      <Suspense
-                        fallback={
-                          <p className="text-xs text-gray-300 mt-0.5 animate-pulse">
-                            Cargando VCP…
-                          </p>
-                        }
-                      >
-                        <FciRateCell holding={holding} />
-                      </Suspense>
-                    ) : (
-                      <HoldingPriceEdit
-                        holdingId={holding.id}
-                        currentPrice={holding.current_price}
-                        currency={holding.currency}
-                      />
-                    )}
-                    <HoldingPositionEdit
-                      holdingId={holding.id}
-                      quantity={holding.quantity}
-                      avgBuyPrice={holding.avg_buy_price}
-                      currency={holding.currency}
-                    />
-
-                    {/* Retorno 30d + TNA estimada (Sesión J.1.13, TAREA 6) —
-                        solo si hay histórico suficiente, nunca se inventa. El
-                        disclaimer va como texto visible (no title/hover — no
-                        sirve en touch, agente-ux). */}
-                    {return30d != null && (
+                    {periodReturn != null && (
                       <div className="mt-1">
                         <p className="text-xs">
                           <span
                             className={`font-medium tabular-nums ${
-                              return30d >= 0 ? "text-green-600" : "text-red-600"
+                              periodReturn >= 0 ? "text-green-600" : "text-red-600"
                             }`}
                           >
-                            {return30d >= 0 ? "+" : ""}
-                            {(return30d * 100).toFixed(1)}% · 30d
+                            {periodReturn >= 0 ? "+" : ""}
+                            {(periodReturn * 100).toFixed(1)}% · {periodLabel}
                           </span>
                           {tnaEstimada != null && (
                             <span className="text-gray-400 ml-1.5">
@@ -225,35 +257,60 @@ export default async function InversionesPage() {
                         )}
                       </div>
                     )}
+
+                    <details className="mt-1.5 group">
+                      <summary className="text-[11px] text-gray-400 cursor-pointer select-none">
+                        Detalles técnicos
+                      </summary>
+                      <div className="mt-1.5 space-y-1">
+                        <p className="text-xs text-gray-400">
+                          {ASSET_LABELS[holding.asset_type]}
+                          {holding.ticker && (
+                            <span className="ml-1.5 font-mono font-bold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded text-[10px]">
+                              {holding.ticker}
+                            </span>
+                          )}
+                          {" · "}
+                          {holding.quantity} u. · PA{" "}
+                          {formatCurrency(holding.avg_buy_price, holding.currency)}
+                        </p>
+
+                        {isFci ? (
+                          <Suspense
+                            fallback={
+                              <p className="text-xs text-gray-300 animate-pulse">
+                                Cargando VCP…
+                              </p>
+                            }
+                          >
+                            <FciRateCell holding={holding} />
+                          </Suspense>
+                        ) : (
+                          <HoldingPriceEdit
+                            holdingId={holding.id}
+                            currentPrice={holding.current_price}
+                            currency={holding.currency}
+                          />
+                        )}
+                        <HoldingPositionEdit
+                          holdingId={holding.id}
+                          quantity={holding.quantity}
+                          avgBuyPrice={holding.avg_buy_price}
+                          currency={holding.currency}
+                        />
+                        <DeleteHoldingButton
+                          holdingId={holding.id}
+                          linkedAccountName={linkedAccountByHoldingId.get(holding.id) ?? null}
+                        />
+                      </div>
+                    </details>
                   </div>
 
                   <div className="text-right shrink-0">
                     {currentValue != null ? (
-                      <>
-                        <p className="text-sm font-semibold text-gray-900 tabular-nums">
-                          {formatCurrency(currentValue, holding.currency)}
-                        </p>
-                        {pnlPct != null && (
-                          <p
-                            className={`text-xs font-medium tabular-nums ${
-                              pnl! >= 0 ? "text-green-600" : "text-red-600"
-                            }`}
-                          >
-                            {pnl! >= 0 ? "+" : ""}
-                            {pnlPct.toFixed(1)}%
-                          </p>
-                        )}
-                        {pnl != null && (
-                          <p
-                            className={`text-[11px] tabular-nums ${
-                              pnl >= 0 ? "text-green-500" : "text-red-500"
-                            }`}
-                          >
-                            {pnl >= 0 ? "+" : ""}
-                            {formatCurrency(pnl, holding.currency)}
-                          </p>
-                        )}
-                      </>
+                      <p className="text-xl font-bold text-gray-900 tabular-nums">
+                        {formatCurrency(currentValue, holding.currency)}
+                      </p>
                     ) : (
                       <p className="text-xs text-gray-300 italic">Sin precio</p>
                     )}

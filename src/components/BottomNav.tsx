@@ -3,18 +3,24 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { Home, Receipt, Landmark, Target, Plus, X, ArrowLeftRight, Wallet } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Inicio", icon: "🏠" },
-  { href: "/movimientos", label: "Movimientos", icon: "📋" },
-  { href: "/cuentas", label: "Cuentas", icon: "🏦" },
-  { href: "/objetivos", label: "Metas", icon: "🎯" },
+// Sesión J.1.15, TAREA 7a: emoji reemplazados por lucide-react — el set de
+// iconos elegido para todo el "chrome" de la app (nunca para contenido elegido
+// por el usuario, como el ícono de una categoría). Ver "Sistema de diseño" en
+// CLAUDE.md.
+const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/", label: "Inicio", icon: Home },
+  { href: "/movimientos", label: "Movimientos", icon: Receipt },
+  { href: "/cuentas", label: "Cuentas", icon: Landmark },
+  { href: "/objetivos", label: "Metas", icon: Target },
 ];
 
-const QUICK_ACTIONS = [
-  { href: "/gastos/nuevo", label: "Nuevo gasto", icon: "💸" },
-  { href: "/ingresos/nuevo", label: "Nuevo ingreso", icon: "💰" },
-  { href: "/cuentas/transferencia", label: "Transferencia", icon: "🔄" },
+const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/gastos/nuevo", label: "Nuevo gasto", icon: Receipt },
+  { href: "/ingresos/nuevo", label: "Nuevo ingreso", icon: Wallet },
+  { href: "/cuentas/transferencia", label: "Transferencia", icon: ArrowLeftRight },
 ];
 
 export default function BottomNav() {
@@ -54,7 +60,9 @@ export default function BottomNav() {
                   i > 0 ? "border-t border-gray-100" : ""
                 }`}
               >
-                <span className="text-2xl">{action.icon}</span>
+                <span className="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
+                  <action.icon size={18} className="text-indigo-600" />
+                </span>
                 <span className="text-sm font-medium text-gray-900">{action.label}</span>
               </button>
             ))}
@@ -69,18 +77,20 @@ export default function BottomNav() {
             <NavItem key={item.href} item={item} active={isActive(item.href)} />
           ))}
 
-          {/* Botón central + */}
+          {/* Botón central + — único elemento que usa el acento a pleno color,
+              a propósito: es la acción primaria de toda la app (TAREA 7b,
+              "acento usado con moderación", no en cada elemento). */}
           <button
             onClick={() => setOpen((v) => !v)}
             className="flex-1 flex flex-col items-center justify-center py-2"
             aria-label="Acciones rápidas"
           >
             <span
-              className={`w-11 h-11 flex items-center justify-center rounded-full text-white text-2xl font-light shadow-md -mt-4 transition-colors ${
-                open ? "bg-gray-600" : "bg-gray-900"
+              className={`w-11 h-11 flex items-center justify-center rounded-full text-white shadow-md -mt-4 transition-colors ${
+                open ? "bg-gray-600" : "bg-indigo-600"
               }`}
             >
-              {open ? "✕" : "+"}
+              {open ? <X size={22} /> : <Plus size={22} />}
             </span>
             <span className="text-[10px] text-gray-400 mt-1">Nuevo</span>
           </button>
@@ -105,10 +115,10 @@ function NavItem({
     <Link
       href={item.href}
       className={`flex-1 flex flex-col items-center justify-center py-3 text-[10px] transition-colors ${
-        active ? "text-gray-900 font-semibold" : "text-gray-400"
+        active ? "text-indigo-600 font-semibold" : "text-gray-400"
       }`}
     >
-      <span className="text-xl mb-0.5">{item.icon}</span>
+      <item.icon size={20} className="mb-0.5" strokeWidth={active ? 2.5 : 2} />
       {item.label}
     </Link>
   );
