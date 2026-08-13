@@ -32,8 +32,17 @@ export async function proxy(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
+  // Sesión J.1.18: /forgot-password y /reset-password faltaban acá — sin
+  // sesión, quedaban atrapadas por el `if (!user && !isPublicPath)` de abajo
+  // y redirigían a /login antes de que la página misma se renderizara. Rompía
+  // en producción (visible en Vercel) y también en local, solo que nadie lo
+  // había probado con `next start` navegando directo a la ruta sin loguearse
+  // antes (ver lecciones-aprendidas.md).
   const isPublicPath =
-    pathname.startsWith("/login") || pathname.startsWith("/auth");
+    pathname.startsWith("/login") ||
+    pathname.startsWith("/auth") ||
+    pathname.startsWith("/forgot-password") ||
+    pathname.startsWith("/reset-password");
 
   if (!user && !isPublicPath) {
     const url = request.nextUrl.clone();

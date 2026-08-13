@@ -970,3 +970,40 @@ clave relacionada con auth.
 3. Para decodificar: `Buffer.from(val.slice(7), "base64").toString("utf8")` → JSON con `access_token`.
 4. Hacer los fetch a la API de Supabase directamente desde Node.js (no desde `page.evaluate`), pasando el token como header.
 5. El user_id se extrae del JWT payload: `JSON.parse(Buffer.from(token.split(".")[1], "base64").toString("utf8")).sub`.
+
+---
+
+## 41. `proxy.ts` — rutas públicas nuevas no se agregan solas a `isPublicPath`, y nadie las prueba con navegación directa sin sesión
+
+**Qué pasó:** En producción (Vercel), navegar directo a `/forgot-password`
+sin sesión activa redirigía a `/login` en vez de mostrar el formulario de
+recuperación — el usuario quedó bloqueado fuera de su propia cuenta. El link
+"¿Olvidaste tu contraseña?" en `/login` sí navegaba bien (es un `<Link>`, no
+un submit accidental de formulario — se descartó esa hipótesis leyendo el
+código antes de tocar nada), pero la ruta de destino nunca llegaba a
+renderizarse.
+
+**Por qué:** `src/proxy.ts` (el middleware) mantiene su propia lista
+hardcodeada de rutas públicas (`isPublicPath`). Cuando `/forgot-password` y
+`/reset-password` se crearon (Sesión J.1.12), esa lista solo tenía
+`/login` y `/auth` — nadie la actualizó, porque el flujo que sí se probó en
+su momento fue el flujo completo iniciado *después* de loguearse o durante
+la sesión de recuperación activa (donde `user` no es `null` y el middleware
+deja pasar). El caso roto — visitante sin sesión llegando directo a
+`/forgot-password`, que es exactamente el caso real de un usuario que
+olvidó la contraseña — no se había ejercitado con Playwright navegando
+directo a la URL sin loguearse antes. El bug era 100% reproducible en local
+contra `next start` (`curl http://localhost:3000/forgot-password` sin
+cookies devolvía `307` a `/login`); no era nada específico de caché de
+Vercel ni de variables de entorno de producción.
+
+**Qué hacer:** Toda ruta nueva pensada para visitantes sin sesión
+(`/forgot-password`, `/reset-password`, futuras como `/invitacion/[token]`)
+tiene que agregarse explícitamente a `isPublicPath` en `src/proxy.ts` en el
+mismo cambio que la crea — no asumir que "es como `/login`" alcanza. Al
+probar cualquier ruta pública nueva, el caso que hay que ejercitar con
+Playwright es el acceso *directo y sin sesión* (`page.goto` a la URL final,
+sin loguearse antes en el mismo test), no solo el flujo feliz que empieza
+logueado o que llega ahí por un link interno — un link interno puede
+enmascarar el problema si el usuario que hace click ya tiene sesión activa
+en otra pestaña o cookie vieja no expirada.

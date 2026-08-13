@@ -837,7 +837,7 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   $10 — todos intactos. Ver lecciones nuevas §38-§40.
 
 - **Sesión J.1.17 — Deploy a producción + fuente nativa + rediseño de gráficos +
-  reestructuración de nav (commit pendiente):**
+  reestructuración de nav (commit `b80f62d`):**
   T0 (falso positivo de hidratación): buscado `bis_skin_checked` en todo `src/`
   con ripgrep — cero coincidencias. Confirmado: es un atributo que inyectan
   extensiones de navegador tipo Bitdefender/Avast "anti-tracking" en el DOM
@@ -935,6 +935,42 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   fetch, no lógica financiera pura). Sin bugs nuevos encontrados en producto
   (a diferencia de J.1.16) — las 5 tareas fueron implementaciones limpias,
   verificadas con tsc incremental después de cada una. Sin lecciones nuevas.
+
+- **Sesión J.1.18 — Fix crítico: `/forgot-password` inaccesible en producción
+  (commit pendiente):** usuario bloqueado fuera de su cuenta en Vercel —
+  navegar directo a `/forgot-password` sin sesión redirigía a `/login`.
+  **Causa raíz confirmada con evidencia real** (no teoría): `src/proxy.ts`
+  (middleware) mantiene su propia lista `isPublicPath`, que solo incluía
+  `/login` y `/auth` — nunca se actualizó cuando `/forgot-password` y
+  `/reset-password` se crearon (Sesión J.1.12). Reproducido primero contra
+  `npm run build && npm run start` real: `curl http://localhost:3000/forgot-password`
+  sin cookies devolvía `307` a `/login` — idéntico en local y en Vercel, no
+  era caché de Vercel ni env vars (se descartó explícitamente antes de
+  tocar código). El link "¿Olvidaste tu contraseña?" en `/login` en sí
+  estaba bien (`<Link href="/forgot-password">`, no un submit de formulario
+  mal tipado) — nunca fue el problema, era la ruta de destino la que no
+  renderizaba. Fix: agregado `/forgot-password` y `/reset-password` a
+  `isPublicPath` en `proxy.ts`. **Otras rutas públicas afectadas:**
+  `/reset-password` tenía el mismo bug (confirmado con el mismo método,
+  `curl` sin cookies devolvía `307` a `/login`) — ya arreglado con el mismo
+  fix. Ninguna otra ruta pública además de estas dos (`/login` y `/auth/*`
+  ya estaban exceptuadas correctamente). **QA con Playwright headed
+  (`headless:false, slowMo:300`) contra el build de producción real:**
+  navegación directa a `/forgot-password` sin sesión → se queda en
+  `/forgot-password` (antes redirigía); `/login` → click en "¿Olvidaste tu
+  contraseña?" → navega a `/forgot-password`, formulario carga; envío del
+  formulario con el usuario de test llega hasta la API de Supabase (se
+  confirmó que la request real se dispara — Supabase devolvió "email rate
+  limit exceeded" por envíos previos de sesiones anteriores contra el mismo
+  email de test, no un bug de la app); `/reset-password` sin sesión de
+  recuperación activa → redirige correctamente a `/forgot-password` (lógica
+  propia de esa página, antes nunca se ejecutaba porque el middleware
+  interceptaba antes). **Cierre:** tsc limpio, build limpio (29 rutas),
+  84/84 tests unitarios verdes (sin tests nuevos — fix de una línea de
+  routing, no lógica financiera). Lección nueva: ver
+  `docs/lecciones-aprendidas.md §41` (rutas públicas nuevas no se agregan
+  solas a `isPublicPath`; probarlas siempre con navegación directa sin
+  sesión, no solo vía link interno).
 
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
