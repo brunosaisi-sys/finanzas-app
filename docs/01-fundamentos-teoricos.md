@@ -463,6 +463,33 @@ la UI, nunca como un dato prometido.
 insuficiente), no hay nada que anualizar — la función devuelve `null` y la UI no
 muestra ningún número. Nunca se inventa ni se interpola.
 
+### 8.8 Evolución del valor del portafolio — aproximación por forward-fill (Sesión J.1.16)
+
+> Implementado en `buildPortfolioSeries` (`src/lib/finance/portfolioSeries.ts`).
+
+Muestra cómo varió el valor TOTAL del portafolio en el tiempo (gráfico de línea en
+`/inversiones`). No es TWR (§8.2, pendiente de `holding_events` en Sesión J.2): la app no
+guarda `quantity` histórica por holding, solo la actual, y no todos los holdings acumulan
+historial de precio (`holding_price_history`, migración 022 — hoy solo lo llenan los FCI
+con auto-sync, ver lección §27).
+
+**Método (aproximación declarada, no oculta):**
+
+1. Fechas de muestra = unión de todas las fechas con precio real registrado (de
+   cualquier holding) dentro de la ventana elegida (mes/año) — nunca se inventan fechas.
+2. En cada fecha de muestra, el precio de cada holding es el último precio conocido de
+   SU PROPIO historial en o antes de esa fecha (forward-fill). Si un holding no tiene
+   ningún precio histórico hasta esa fecha (típico de acciones/CEDEARs con precio
+   manual, sin auto-sync), se usa su precio actual como aproximación constante hacia
+   atrás.
+3. La cantidad (`quantity`) usada es siempre la ACTUAL — no se trackean cambios de
+   cantidad en el tiempo (mismo gap de la lección §26, split de CEDEAR).
+
+**Regla dura:** si ningún holding del usuario tiene al menos 2 puntos de historial real
+dentro de la ventana, no se dibuja ninguna línea — no existe variación real que mostrar,
+y una línea plana sería una invención. La UI etiqueta el gráfico como "estimado a partir
+del historial disponible", nunca como una medición exacta.
+
 ---
 
 ## 7. Bibliografía / fuentes a citar en la app

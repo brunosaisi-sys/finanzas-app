@@ -863,6 +863,98 @@ comprometer arquitectura nueva solo para un producto.
 
 ---
 
+## 38. Server Component → Client Component con una función como prop — falla en runtime, no en build ni en tsc, y queda invisible si el array está vacío
+
+**Qué pasó:** Al implementar el click-para-filtrar del gráfico de torta de
+`/movimientos` (Sesión J.1.16), `MovimientosCharts` (Client Component)
+recibía un prop `buildCategoryHref={(name) => buildHref({ categoria: name })}`
+— una función definida en `movimientos/page.tsx` (Server Component). `tsc` y
+`next build` pasaron limpios, y el QA inicial (sin gastos cargados este mes)
+no mostró ningún error porque `categoryTotalsByCurrency` estaba vacío y el
+`.map()` que instancia `<MovimientosCharts>` nunca llegó a ejecutarse — el
+componente jamás se serializó de verdad. Recién al crear un gasto real
+(dato real, no simulado) y volver a cargar la página apareció un
+"Runtime Error: Functions cannot be passed directly to Client Components
+unless you explicitly expose it by marking it with 'use server'".
+
+**Por qué:** El límite Server→Client de Next.js serializa las props que
+cruzan ese límite (son literalmente enviadas como JSON al bundle del
+cliente) — funciones/closures no son serializables, así que Next.js las
+rechaza en tiempo de ejecución. Ni `tsc` ni `next build` detectan esto
+(ambos ven tipos de TypeScript válidos, no analizan serializabilidad en
+runtime), así que el error solo aparece cuando el componente cliente
+realmente se renderiza con ese prop.
+
+**Qué hacer:** Nunca pasar una función definida en un Server Component como
+prop a un Client Component. En su lugar, pasar los DATOS que esa función
+necesitaría (ej. un objeto `Record<string,string>` con los params actuales
+de la URL) y reconstruir la lógica (por simple que sea) dentro del propio
+Client Component. Y, lección general de proceso: un componente que solo se
+renderiza cuando hay datos reales (listas que pueden estar vacías) puede
+esconder errores de runtime durante toda una sesión de QA si esa sesión no
+llega a tener datos que disparen el `.map()`/`.filter()` que lo instancia —
+probar con al menos un caso de datos reales no vacíos antes de dar por
+cerrada una feature nueva de UI.
+
+---
+
+## 39. Filtro construido a partir de una etiqueta de agrupación (`"Sin categoría"`) no matchea el dato real (`null`)
+
+**Qué pasó:** El gráfico de torta de `/movimientos` agrupa gastos sin
+categoría bajo la etiqueta `"Sin categoría"` (para que sumen al 100% del
+gráfico) y esa porción es clickeable para filtrar la lista, navegando a
+`?categoria=Sin+categoría`. Con datos reales (un gasto de prueba sin
+categoría) el click filtraba a "Sin movimientos con estos filtros" — 0
+resultados — a pesar de que el gasto sin categoría SÍ estaba en la lista sin
+filtrar.
+
+**Por qué:** El filtro comparaba `e.sub === categoriaParam`. Para gastos sin
+categoría, `e.sub` es `null` (no hay fila en `categories`) — nunca el string
+`"Sin categoría"`, que es puramente una etiqueta de display inventada por el
+código del gráfico para la agregación. `null === "Sin categoría"` es
+`false` siempre. El selector de categoría de `/movimientos` (dropdown de
+"Más filtros", Sesión J.1.15) nunca expuso este caso porque sus opciones
+salen de `expenses.filter(e => e.sub)` — un gasto sin categoría jamás
+apareció como opción seleccionable ahí, así que el mismatch quedó latente
+hasta que el gráfico de torta (Sesión J.1.16) expuso un camino nuevo
+(click en la porción) que sí puede generar esa URL.
+
+**Qué hacer:** Cuando una etiqueta de UI para "agrupar lo que no tiene X"
+(`"Sin categoría"`, `"Sin cuenta"`, etc.) se usa también como valor
+filtrable, tratarla como caso especial explícito en el filtro (`categoriaParam
+=== SIN_CATEGORIA ? e.sub == null : e.sub === categoriaParam`), no asumir que
+comparar contra el string de la etiqueta alguna vez va a ser cierto. Una
+constante compartida (`SIN_CATEGORIA`) entre el punto que genera la etiqueta
+y el punto que filtra por ella evita que los dos lugares definan el mismo
+concepto con literales distintos que puedan divergir.
+
+---
+
+## 40. Big Shoulders Display no existe como familia separada en next/font/google
+
+**Qué pasó:** El prototipo de Claude Design especificaba la fuente "Big
+Shoulders Display" (así aparece en el `<link>` de Google Fonts del .dc.html).
+`import { Big_Shoulders_Display } from "next/font/google"` falló con
+`TS2305: Module has no exported member 'Big_Shoulders_Display'`.
+
+**Por qué:** Se confirmó (no asumido) revisando `font-data.json` dentro del
+paquete `next` instalado: el catálogo bundleado solo tiene `Big_Shoulders`,
+`Big_Shoulders_Inline` y `Big_Shoulders_Stencil` — sin ninguna variante
+"Display" ni "Text" separada. Google Fonts fusionó esa variante dentro de la
+familia "Big Shoulders" a secas en algún momento; el nombre "Big Shoulders
+Display" que aparece en `<link>`s de Google Fonts más viejos (como el que
+generó el prototipo) sigue funcionando vía CSS API pero ya no es un nombre
+de familia propio en el catálogo actual que `next/font/google` empaqueta.
+
+**Qué hacer:** Ante un `next/font/google` que no exporta el nombre esperado,
+no asumir que la fuente no existe — grepear `font-data.json` del paquete
+instalado (`node_modules/next/dist/compiled/@next/font/dist/google/font-data.json`)
+por el nombre base (sin el sufijo de variante) antes de descartarla o
+sustituirla por otra. `Big_Shoulders` es el export correcto para lo que el
+diseño llama "Big Shoulders Display".
+
+---
+
 ## 15. Playwright — @supabase/ssr usa cookies base64, no localStorage
 
 **Qué pasó:** Los scripts de QA buscaban el token de sesión en `localStorage`, pero `@supabase/ssr`

@@ -45,18 +45,18 @@ export default function PortfolioValueToggle({
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+        <p className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide">
           Valor total del portafolio
         </p>
         {bothCurrencies && (
-          <div className="flex rounded-lg overflow-hidden border border-gray-200 text-[11px]">
+          <div className="flex bg-fz-surface rounded-lg p-0.5 gap-0.5 text-[11px]">
             {(["ARS", "USD"] as const).map((cur) => (
               <button
                 key={cur}
                 type="button"
                 onClick={() => setDisplay(cur)}
-                className={`px-2 py-1 font-medium transition-colors ${
-                  display === cur ? "bg-gray-900 text-white" : "bg-white text-gray-500"
+                className={`px-2.5 py-1 rounded-md font-bold transition-colors ${
+                  display === cur ? "bg-fz-accent text-fz-accent-text" : "text-fz-text-secondary"
                 }`}
               >
                 {cur}
@@ -67,8 +67,8 @@ export default function PortfolioValueToggle({
       </div>
 
       {needsRate && (
-        <div className="flex items-center gap-2 bg-amber-50 rounded-lg px-2.5 py-1.5">
-          <span className="text-[11px] text-amber-700 font-medium shrink-0">
+        <div className="flex items-center gap-2 bg-fz-surface rounded-lg px-2.5 py-1.5">
+          <span className="text-[11px] text-fz-text-secondary font-medium shrink-0">
             Tipo MEP para consolidar:
           </span>
           <input
@@ -78,20 +78,20 @@ export default function PortfolioValueToggle({
             placeholder="ej. 1200"
             value={mepRate}
             onChange={(e) => setMepRate(e.target.value)}
-            className="w-24 border border-amber-200 rounded px-2 py-0.5 text-xs text-gray-900 bg-white focus:outline-none focus:ring-1 focus:ring-amber-400 text-right"
+            className="w-24 border border-fz-border rounded px-2 py-0.5 text-xs text-fz-text bg-fz-bg focus:outline-none focus:ring-1 focus:ring-fz-accent text-right"
           />
         </div>
       )}
 
       {showValue ? (
         <div>
-          <p className="text-3xl font-bold text-gray-900 tabular-nums">
+          <p className="font-display font-extrabold text-4xl text-fz-text tabular-nums">
             {formatCurrency(consolidatedValue, display)}
           </p>
           {consolidatedPnlPct != null && (
             <p
-              className={`text-sm font-semibold tabular-nums ${
-                consolidatedPnl >= 0 ? "text-green-600" : "text-red-600"
+              className={`text-sm font-semibold tabular-nums font-mono ${
+                consolidatedPnl >= 0 ? "text-fz-accent" : "text-fz-negative"
               }`}
             >
               {consolidatedPnl >= 0 ? "+" : ""}
@@ -101,7 +101,7 @@ export default function PortfolioValueToggle({
           )}
         </div>
       ) : (
-        <p className="text-sm text-gray-400">Ingresá el tipo MEP para ver el total consolidado.</p>
+        <p className="text-sm text-fz-text-tertiary">Ingresá el tipo MEP para ver el total consolidado.</p>
       )}
     </div>
   );

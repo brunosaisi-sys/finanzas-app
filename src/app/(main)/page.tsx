@@ -1,10 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import LogoutButton from "@/components/LogoutButton";
+import EyeToggle from "@/components/EyeToggle";
+import { Money } from "@/components/Money";
 import { formatCurrency, formatARS, formatUSD } from "@/lib/format";
 import { getLeafAccounts } from "@/lib/accounts";
-import { AlertTriangle, CreditCard, Wallet, Home as HomeIcon, TrendingUp, Receipt } from "lucide-react";
+import { AlertTriangle, CreditCard, Wallet, Home as HomeIcon, TrendingUp, Receipt, Settings } from "lucide-react";
 import type { Account, Currency } from "@/types";
 
 // Sesión J.1.12, TAREA 5 — la ocurrencia de un día de mes (closing_day/due_day,
@@ -221,15 +222,43 @@ export default async function DashboardPage() {
   const monthName = now.toLocaleDateString("es-AR", { month: "long" });
 
   return (
-    <div className="p-4 max-w-lg mx-auto space-y-6">
+    <div className="p-4 max-w-lg mx-auto space-y-6 pb-24 bg-fz-bg min-h-screen -mt-[1px]">
       {/* Header */}
       <div className="flex items-center justify-between pt-2">
         <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Finanzas</h1>
-          <p className="text-xs text-gray-400 mt-0.5">{user.email}</p>
+          <h1 className="font-display font-extrabold text-[30px] leading-none text-fz-text uppercase tracking-wide">
+            Finanzas
+          </h1>
+          <p className="text-[13px] text-fz-text-tertiary mt-1">{user.email}</p>
         </div>
-        <LogoutButton />
+        <div className="flex items-center gap-2">
+          <EyeToggle />
+          <Link
+            href="/configuracion"
+            className="w-9 h-9 rounded-xl bg-fz-surface border border-fz-border flex items-center justify-center text-fz-text-secondary"
+            aria-label="Configuración"
+          >
+            <Settings size={18} />
+          </Link>
+        </div>
       </div>
+
+      {/* Saldo total consolidado — hero card principal (TAREA 4, mismo
+          tratamiento que el prototipo: c.surfaceHigh, el número más grande de
+          toda la pantalla). */}
+      <section className="bg-fz-surface-high rounded-[22px] p-5">
+        <p className="text-xs font-semibold uppercase tracking-wide text-fz-text-tertiary">
+          Saldo total consolidado
+        </p>
+        <p className="font-display font-extrabold text-[42px] leading-tight text-fz-text mt-1">
+          <Money>{formatARS(arsBalance)}</Money>
+        </p>
+        {usdBalance > 0 && (
+          <p className="text-sm font-semibold text-fz-text-secondary font-mono mt-1">
+            + <Money>{formatUSD(usdBalance)}</Money> en dólares
+          </p>
+        )}
+      </section>
 
       {/* Tarjetas sin cierre/vencimiento configurado — aviso persistente, no es
           un banner de fecha próxima (Sesión J.1.12, TAREA 5b). */}
@@ -239,15 +268,15 @@ export default async function DashboardPage() {
             <Link
               key={card.id}
               href={`/cuentas?editar=${card.id}`}
-              className="block bg-red-50 border border-red-200 rounded-xl px-4 py-3"
+              className="block bg-fz-negative-soft rounded-xl px-4 py-3"
             >
               <div className="flex items-start gap-3">
-                <AlertTriangle size={18} className="text-red-500 shrink-0 mt-0.5" />
+                <AlertTriangle size={18} className="text-fz-negative shrink-0 mt-0.5" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-red-900">
+                  <p className="text-sm font-medium text-fz-text">
                     Falta configurar {card.name}
                   </p>
-                  <p className="text-xs text-red-700">
+                  <p className="text-xs text-fz-text-secondary">
                     Completá el día de cierre y vencimiento para ver cuánto vas a
                     pagar cada mes →
                   </p>
@@ -268,30 +297,24 @@ export default async function DashboardPage() {
               <Link
                 key={`${s.cardId}-${s.currency}`}
                 href="/cuotas"
-                className={`block border rounded-xl px-4 py-3 ${
-                  allPaid
-                    ? "bg-green-50 border-green-200"
-                    : "bg-indigo-50 border-indigo-200"
+                className={`block rounded-xl px-4 py-3 ${
+                  allPaid ? "bg-fz-accent-soft" : "bg-fz-surface-high"
                 }`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p
-                      className={`text-sm font-medium ${allPaid ? "text-green-900" : "text-indigo-900"}`}
-                    >
+                    <p className="text-sm font-medium text-fz-text">
                       {s.cardName} · vence{" "}
                       {s.dueDate.toLocaleDateString("es-AR", { day: "numeric", month: "short" })}
                     </p>
-                    <p className={`text-xs ${allPaid ? "text-green-700" : "text-indigo-700"}`}>
+                    <p className={`text-xs ${allPaid ? "text-fz-accent" : "text-fz-text-secondary"}`}>
                       {allPaid
                         ? "Ya pagaste todas las cuotas de este vencimiento ✓"
                         : `${s.pendingCount} de ${s.totalCount} cuota${s.totalCount !== 1 ? "s" : ""} sin pagar`}
                     </p>
                   </div>
-                  <p
-                    className={`text-sm font-semibold tabular-nums shrink-0 ${allPaid ? "text-green-900" : "text-indigo-900"}`}
-                  >
-                    {formatCurrency(s.total, s.currency)}
+                  <p className="text-sm font-semibold tabular-nums font-mono shrink-0 text-fz-text">
+                    <Money>{formatCurrency(s.total, s.currency)}</Money>
                   </p>
                 </div>
               </Link>
@@ -306,14 +329,14 @@ export default async function DashboardPage() {
           {reminders.map((r, i) => (
             <div
               key={i}
-              className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex items-start gap-3"
+              className="bg-fz-surface border border-fz-border rounded-xl px-4 py-3 flex items-start gap-3"
             >
-              <CreditCard size={18} className="text-amber-600 shrink-0 mt-0.5" />
+              <CreditCard size={18} className="text-fz-negative shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-medium text-amber-900">
+                <p className="text-sm font-medium text-fz-text">
                   {r.type} {r.name}
                 </p>
-                <p className="text-xs text-amber-700">
+                <p className="text-xs text-fz-text-secondary">
                   {r.daysLeft === 0
                     ? `Hoy (día ${r.day})`
                     : `En ${r.daysLeft} día${r.daysLeft !== 1 ? "s" : ""} (día ${r.day})`}
@@ -331,16 +354,16 @@ export default async function DashboardPage() {
             <Link
               key={inc.id}
               href={`/ingresos/distribuir?ingreso_id=${inc.id}`}
-              className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center justify-between"
+              className="bg-fz-accent-soft rounded-xl px-4 py-3 flex items-center justify-between"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <Wallet size={18} className="text-indigo-600 shrink-0" />
+                <Wallet size={18} className="text-fz-accent shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-indigo-900">
+                  <p className="text-sm font-medium text-fz-text">
                     Sueldo sin distribuir
                   </p>
-                  <p className="text-xs text-indigo-600 tabular-nums">
-                    {formatCurrency(Number(inc.amount), inc.currency as "ARS" | "USD")} ·{" "}
+                  <p className="text-xs text-fz-accent tabular-nums font-mono">
+                    <Money>{formatCurrency(Number(inc.amount), inc.currency as "ARS" | "USD")}</Money> ·{" "}
                     {new Date(inc.date + "T00:00:00").toLocaleDateString("es-AR", {
                       day: "numeric",
                       month: "short",
@@ -348,7 +371,7 @@ export default async function DashboardPage() {
                   </p>
                 </div>
               </div>
-              <span className="text-sm text-indigo-600 shrink-0 ml-3">Distribuir →</span>
+              <span className="text-sm text-fz-accent shrink-0 ml-3">Distribuir →</span>
             </Link>
           ))}
         </section>
@@ -362,40 +385,37 @@ export default async function DashboardPage() {
             <Link
               key={cur}
               href="/compartidos"
-              className="bg-indigo-50 border border-indigo-200 rounded-xl px-4 py-3 flex items-center justify-between"
+              className="bg-fz-accent-soft rounded-xl px-4 py-3 flex items-center justify-between"
             >
               <div className="flex items-center gap-3 min-w-0">
-                <Wallet size={18} className="text-indigo-600 shrink-0" />
+                <Wallet size={18} className="text-fz-accent shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-sm font-medium text-indigo-900">
-                    Te deben {formatCurrency(total, cur)}
+                  <p className="text-sm font-medium text-fz-text">
+                    Te deben <Money>{formatCurrency(total, cur)}</Money>
                   </p>
-                  <p className="text-xs text-indigo-600">
+                  <p className="text-xs text-fz-accent">
                     {count} persona{count !== 1 ? "s" : ""} sin cobrar
                   </p>
                 </div>
               </div>
-              <span className="text-sm text-indigo-600 shrink-0 ml-3">Ver →</span>
+              <span className="text-sm text-fz-accent shrink-0 ml-3">Ver →</span>
             </Link>
           ))}
         </section>
       )}
 
-      {/* Gastos del mes — card "hero": la única sección con fondo de acento en
-          todo el dashboard (TAREA 7b, variación intencional: no todas las
-          cards llevan el mismo tratamiento). El número es el elemento más
-          grande y con más peso de la pantalla. */}
+      {/* Gastos del mes */}
       <section>
-        <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">
+        <h2 className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide mb-2">
           Gastos de {monthName}
         </h2>
-        <div className="bg-indigo-50 border border-indigo-200 rounded-2xl p-4">
+        <div className="bg-fz-surface border border-fz-border rounded-2xl p-4">
           {arsExpenses === 0 && usdExpenses === 0 ? (
             <div className="text-center space-y-2">
-              <p className="text-sm text-gray-400">Sin gastos este mes</p>
+              <p className="text-sm text-fz-text-tertiary">Sin gastos este mes</p>
               <Link
                 href="/nuevo-gasto"
-                className="text-sm font-medium text-gray-900 underline"
+                className="text-sm font-medium text-fz-text underline"
               >
                 Registrar gasto
               </Link>
@@ -403,13 +423,13 @@ export default async function DashboardPage() {
           ) : (
             <div className="space-y-1">
               {arsExpenses > 0 && (
-                <p className="text-4xl font-bold text-gray-900 tabular-nums">
-                  {formatARS(arsExpenses)}
+                <p className="font-display font-extrabold text-4xl text-fz-text tabular-nums">
+                  <Money>{formatARS(arsExpenses)}</Money>
                 </p>
               )}
               {usdExpenses > 0 && (
-                <p className="text-sm text-gray-500 tabular-nums">
-                  + {formatUSD(usdExpenses)} en dólares
+                <p className="text-sm text-fz-text-secondary tabular-nums font-mono">
+                  + <Money>{formatUSD(usdExpenses)}</Money> en dólares
                 </p>
               )}
             </div>
@@ -420,55 +440,55 @@ export default async function DashboardPage() {
       {/* Saldos */}
       <section>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+          <h2 className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide">
             Saldos
           </h2>
           <div className="flex items-center gap-3">
             <Link
               href="/ingresos/nuevo"
-              className="text-xs font-medium bg-indigo-600 text-white px-2.5 py-1 rounded-lg"
+              className="text-xs font-medium bg-fz-accent text-fz-accent-text px-2.5 py-1 rounded-lg"
             >
               + Ingreso
             </Link>
-            <Link href="/ingresos" className="text-xs text-gray-500 hover:text-gray-900">
+            <Link href="/ingresos" className="text-xs text-fz-text-secondary hover:text-fz-text">
               Ver ingresos →
             </Link>
           </div>
         </div>
 
         {leafAccounts.length === 0 ? (
-          <div className="bg-white rounded-2xl p-4 shadow-sm text-center space-y-2">
-            <p className="text-sm text-gray-400">Todavía no cargaste cuentas</p>
-            <Link href="/cuentas" className="text-sm font-medium text-gray-900 underline">
+          <div className="bg-fz-surface border border-fz-border rounded-2xl p-4 text-center space-y-2">
+            <p className="text-sm text-fz-text-tertiary">Todavía no cargaste cuentas</p>
+            <Link href="/cuentas" className="text-sm font-medium text-fz-text underline">
               Agregar cuentas
             </Link>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-fz-surface border border-fz-border rounded-2xl overflow-hidden">
             {leafAccounts.map((account, i) => (
               <div
                 key={account.id}
                 className={`flex items-center justify-between px-4 py-3 ${
-                  i > 0 ? "border-t border-gray-100" : ""
+                  i > 0 ? "border-t border-fz-border" : ""
                 }`}
               >
-                <p className="text-sm font-medium text-gray-900">{account.name}</p>
-                <p className="text-sm text-gray-600 tabular-nums">
-                  {formatCurrency(Number(account.balance), account.currency)}
+                <p className="text-sm font-medium text-fz-text">{account.name}</p>
+                <p className="text-sm text-fz-text-secondary tabular-nums font-mono">
+                  <Money>{formatCurrency(Number(account.balance), account.currency)}</Money>
                 </p>
               </div>
             ))}
-            <div className="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
-              <p className="text-xs font-medium text-gray-500">Total ARS</p>
-              <p className="text-sm font-semibold text-gray-900 tabular-nums">
-                {formatARS(arsBalance)}
+            <div className="flex items-center justify-between px-4 py-3 border-t border-fz-border bg-fz-surface-high">
+              <p className="text-xs font-medium text-fz-text-secondary">Total ARS</p>
+              <p className="text-sm font-semibold text-fz-text tabular-nums font-mono">
+                <Money>{formatARS(arsBalance)}</Money>
               </p>
             </div>
             {usdBalance > 0 && (
-              <div className="flex items-center justify-between px-4 py-3 border-t border-gray-100 bg-gray-50">
-                <p className="text-xs font-medium text-gray-500">Total USD</p>
-                <p className="text-sm font-semibold text-gray-900 tabular-nums">
-                  {formatUSD(usdBalance)}
+              <div className="flex items-center justify-between px-4 py-3 border-t border-fz-border bg-fz-surface-high">
+                <p className="text-xs font-medium text-fz-text-secondary">Total USD</p>
+                <p className="text-sm font-semibold text-fz-text tabular-nums font-mono">
+                  <Money>{formatUSD(usdBalance)}</Money>
                 </p>
               </div>
             )}
@@ -479,17 +499,17 @@ export default async function DashboardPage() {
       {/* Accesos rápidos */}
       <section>
         <div className="grid grid-cols-3 gap-2">
-          <Link href="/cuotas" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
-            <CreditCard size={20} className="mx-auto mb-1 text-gray-500" />
-            <p className="text-xs font-medium text-gray-700">Cuotas</p>
+          <Link href="/cuotas" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
+            <CreditCard size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
+            <p className="text-xs font-medium text-fz-text">Cuotas</p>
           </Link>
-          <Link href="/bienes" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
-            <HomeIcon size={20} className="mx-auto mb-1 text-gray-500" />
-            <p className="text-xs font-medium text-gray-700">Bienes</p>
+          <Link href="/bienes" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
+            <HomeIcon size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
+            <p className="text-xs font-medium text-fz-text">Bienes</p>
           </Link>
-          <Link href="/inversiones" className="bg-white rounded-xl shadow-sm px-3 py-3 text-center hover:bg-gray-50 transition-colors">
-            <TrendingUp size={20} className="mx-auto mb-1 text-gray-500" />
-            <p className="text-xs font-medium text-gray-700">Inversiones</p>
+          <Link href="/inversiones" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
+            <TrendingUp size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
+            <p className="text-xs font-medium text-fz-text">Inversiones</p>
           </Link>
         </div>
       </section>
@@ -497,26 +517,26 @@ export default async function DashboardPage() {
       {/* Últimos gastos */}
       <section>
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-xs font-medium text-gray-400 uppercase tracking-wide">
+          <h2 className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide">
             Últimos gastos
           </h2>
-          <Link href="/gastos" className="text-xs text-gray-500 hover:text-gray-900">
+          <Link href="/gastos" className="text-xs text-fz-text-secondary hover:text-fz-text">
             Ver todos →
           </Link>
         </div>
 
         {!recentExpenses || recentExpenses.length === 0 ? (
-          <div className="bg-white rounded-2xl p-4 shadow-sm text-center space-y-2">
-            <p className="text-sm text-gray-400">Sin gastos registrados</p>
+          <div className="bg-fz-surface border border-fz-border rounded-2xl p-4 text-center space-y-2">
+            <p className="text-sm text-fz-text-tertiary">Sin gastos registrados</p>
             <Link
               href="/nuevo-gasto"
-              className="text-sm font-medium text-gray-900 underline"
+              className="text-sm font-medium text-fz-text underline"
             >
               Registrar primer gasto
             </Link>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+          <div className="bg-fz-surface border border-fz-border rounded-2xl overflow-hidden">
             {recentExpenses.map((expense, i) => {
               const cat = expense.categories as unknown as {
                 name: string;
@@ -537,24 +557,24 @@ export default async function DashboardPage() {
                 <div
                   key={expense.id}
                   className={`flex items-center justify-between px-4 py-3 ${
-                    i > 0 ? "border-t border-gray-100" : ""
+                    i > 0 ? "border-t border-fz-border" : ""
                   }`}
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     {cat?.icon ? (
                       <span className="text-xl shrink-0">{cat.icon}</span>
                     ) : (
-                      <Receipt size={20} className="text-gray-400 shrink-0" />
+                      <Receipt size={20} className="text-fz-text-tertiary shrink-0" />
                     )}
                     <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">
+                      <p className="text-sm font-medium text-fz-text truncate">
                         {label}
                       </p>
-                      <p className="text-xs text-gray-400">{dateStr}</p>
+                      <p className="text-xs text-fz-text-tertiary">{dateStr}</p>
                     </div>
                   </div>
-                  <p className="text-sm font-semibold text-gray-900 tabular-nums ml-3 shrink-0">
-                    {formatCurrency(Number(expense.amount), expense.currency)}
+                  <p className="text-sm font-semibold text-fz-text tabular-nums font-mono ml-3 shrink-0">
+                    <Money>{formatCurrency(Number(expense.amount), expense.currency)}</Money>
                   </p>
                 </div>
               );

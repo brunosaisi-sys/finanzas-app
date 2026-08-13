@@ -721,6 +721,121 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   AAPL 150u @ $10 — todos intactos; cero residuo de datos "QA" en ninguna
   tabla (accounts/holdings/expenses/categories/incomes/expense_participants).
 
+- **Sesión J.1.16 — traducción del prototipo de Claude Design (sistema de diseño
+  completo, dark mode real, ocultar saldos, 3 gráficos interactivos en
+  /movimientos, gráfico faltante en /inversiones) (commit pendiente):**
+  Brief: `Diseño/Dashboard finanzas Argentina.zip` (`Finanzas Dashboard.dc.html`
+  + `MovRow.dc.html`, formato propio de Claude Design, no se puede pegar
+  directo — reconstruido como componentes React/Next.js reales). Carpeta
+  `Diseño/` queda en el filesystem local pero **no se agregó al commit**
+  (material de referencia del usuario, no código de producto — mismo criterio
+  que no versionar assets de diseño sueltos).
+  T1 (sistema de diseño base): paleta oklch del prototipo (`colors(dark)`)
+  migrada a tokens `fz-*` — declarados en `:root` (claro) y `.dark` (oscuro) y
+  expuestos como colores Tailwind de primera clase vía `@theme inline`
+  (`bg-fz-surface`, `text-fz-accent`, etc.), NO como arbitrary values
+  `bg-[var(--x)]` — ese patrón ya había fallado en Sesión J.1.15 (lección
+  §36); acá el valor SÍ es un token real de `@theme`, que es el mecanismo
+  soportado y confirmado funcionando con capturas antes/después. Acento nuevo:
+  verde-azulado oklch hue 175 (reemplaza el indigo de J.1.15). 3 tipografías
+  reales vía `next/font/google` (Big Shoulders, IBM Plex Sans, IBM Plex Mono)
+  — confirmado con Playwright que el `font-family` computado en el DOM
+  renderizado es el correcto, no solo el CSS (`body` → IBM Plex Sans, `h1` →
+  Big Shoulders). Nota real: el catálogo de `next/font/google` no expone "Big
+  Shoulders **Display**" como familia separada — Google fusionó esa variante
+  dentro de "Big Shoulders" a secas (confirmado en `font-data.json` del
+  paquete, no asumido) — `Big_Shoulders` es el export correcto. Dark mode real
+  con `next-themes` (`attribute="class"`, sin `enableSystem` — toggle
+  explícito, default "light"): persiste en localStorage, sin flash del tema
+  incorrecto al cargar (script bloqueante propio de la librería), **el
+  mecanismo es global** (clase `.dark` en `<html>`, cualquier componente que
+  use los tokens `fz-*` reacciona automáticamente sin código adicional) pero
+  la **piel visual** solo se tradujo en Inicio/Movimientos/Inversiones/
+  Configuración/BottomNav — las ~24 rutas no tocadas siguen con colores
+  Tailwind hardcodeados (`bg-white`, `text-gray-900`) que no reaccionan al
+  toggle, mismo alcance que TAREA 7 de J.1.15 pero dejado explícito acá
+  porque el brief pedía "toda la app" para el mecanismo (que sí se cumple) —
+  la piel visual completa de las 28 rutas queda fuera de alcance de una sola
+  sesión. Ocultar saldos: `Money.tsx` (`useSyncExternalStore` sobre
+  localStorage + evento custom, sin Context Provider — cualquier componente
+  cliente en cualquier pantalla puede usarlo) reemplaza el texto por "••••";
+  aplicado a todos los montos de las pantallas tocadas. `/configuracion`
+  (nueva ruta): toggle Claro/Oscuro + switch Ocultar saldos + Cerrar sesión —
+  se omitieron a propósito "Moneda principal" y "Notificaciones de
+  vencimientos" del mock (sin funcionalidad real detrás, agregar un toggle
+  sin efecto violaría la regla de no inventar funcionalidad).
+  T2 (`/movimientos`, 3 gráficos interactivos): selector Torta/Barras/Línea
+  (`MovimientosCharts.tsx`, Recharts) — Torta: gastos por categoría (mismo
+  dato que el gráfico de barras horizontales de J.1.15, ahora interactivo);
+  Barras: gastos vs. ingresos, 6 meses calendario, solo ARS (limitación
+  documentada, evita sumar monedas); Línea: gasto acumulado día a día dentro
+  del período navegado, solo ARS. Los 3 con `Tooltip` real (fecha/valor/
+  porcentaje al hover) y colores sólidos (`fz-accent`/`fz-negative`, no
+  paleta desaturada). Click en una porción o fila de la leyenda de la torta
+  navega con `?categoria=` (reusa el filtro server-side de J.1.15 TAREA 6 en
+  vez de duplicar lógica de filtrado en el cliente).
+  **2 bugs reales encontrados y corregidos durante el QA con datos reales**
+  (no simulado desde cero — ver lección nueva): (a) el prop `buildCategoryHref`
+  era una función pasada de un Server Component a un Client Component — Next.js
+  lo rechaza en runtime ("Functions cannot be passed directly to Client
+  Components"), invisible mientras la lista de categorías estaba vacía
+  (0 iteraciones del `.map()` que instancia el componente) y recién explotó
+  al cargar un gasto real; fix: pasar `currentParams` (objeto serializable) y
+  reconstruir el href dentro del cliente. (b) el filtro por categoría
+  comparaba `e.sub === categoriaParam`, pero los gastos sin categoría tienen
+  `sub = null`, no el string `"Sin categoría"` que sí usa el gráfico para
+  agruparlos — clickear esa porción de la torta siempre devolvía 0
+  resultados; fix: caso especial `categoriaParam === SIN_CATEGORIA ? e.sub ==
+  null : ...`.
+  T3 (`/inversiones`, gráfico de línea faltante): **confirmado leyendo el
+  .dc.html** (no asumido) — el prototipo calcula `invLinePts`/`invLinePath`
+  (`buildLineChart`) pero solo los renderiza dentro de la tarjeta "Resumen" de
+  Inicio (`resumenIsInversiones`), nunca en la pantalla `isInversiones` en sí.
+  Agregado `buildPortfolioSeries` (`src/lib/finance/portfolioSeries.ts`,
+  documentado en `docs/01-fundamentos-teoricos.md §8.8`, 4 tests nuevos):
+  aproximación por forward-fill declarada — fechas de muestra = unión de
+  `recorded_at` reales dentro de la ventana (nunca inventadas); precio de
+  cada holding en cada fecha = su último precio conocido en o antes de esa
+  fecha, o su precio actual como aproximación constante si no tiene
+  historial; `[]` explícito (sin línea) si ningún holding tiene ≥2 puntos
+  reales en la ventana — nunca una línea plana inventada. `InversionesChart.tsx`
+  la renderiza con el mismo criterio de contraste/tooltip que TAREA 2.
+  **QA con datos reales:** holding temporal + 3 puntos de historial real
+  (`holding_price_history`) → curva con forma real (baja y sube seguiendo los
+  3 precios insertados), tooltip con fecha+valor correcto — confirmado con
+  capturas, no solo código; datos de prueba eliminados después (holding
+  desvinculado → DELETE directo válido, lección §35 punto 2).
+  T4 (Inicio + Cuentas): **Inicio reskinneado completo** — hero "Saldo total
+  consolidado" (`bg-fz-surface-high`, número `font-display` 42px), avisos con
+  tokens semánticos, `EyeToggle` + link a `/configuracion` en el header. **Cuentas
+  NO se tocó** — decisión explícita de alcance, no olvido: `CuentasTree.tsx` +
+  `CuentaActions.tsx` + `FciFundSelector.tsx` suman 1624 líneas de UI que edita
+  saldos, vincula holdings y linkea tarjetas — recolorear todo eso de forma
+  apurada al final de una sesión ya larga (con QA y cierre todavía pendientes)
+  es más riesgo que valor sobre UI que mueve dinero real. Queda pendiente,
+  documentado, para la próxima sesión — mismo criterio que J.1.14 T9 ("mejor 2
+  pantallas bien traducidas que 5 a medio hacer", instrucción explícita del
+  brief).
+  T5 (iconografía): se **mantiene lucide-react**, no se migra a los SVG
+  custom del prototipo (`icons(c)` en el .dc.html). Decisión: lucide ya es la
+  iconografía de las 25 rutas no tocadas por esta sesión Y por J.1.15 — migrar
+  a SVG custom ahora habría creado DOS sistemas de íconos conviviendo en la
+  misma app (inconsistencia que esta sesión busca reducir, no crear). Los SVG
+  del prototipo son ~15 íconos hand-drawn con equivalentes directos y de
+  calidad igual o mejor en lucide (home, list, trending-up, landmark, plus, x,
+  eye/eye-off, settings, chevrons, arrow-left-right, filter, target,
+  credit-card). Fidelidad visual al mock pierde contra consistencia
+  transversal de la app — juicio de diseño, no una limitación técnica.
+  **Cierre de sesión:** tsc limpio, build limpio (29 rutas — nueva
+  `/configuracion`), 84/84 tests unitarios verdes (4 nuevos en
+  `portfolioSeries.test.ts`). `next-themes` agregado como dependencia nueva
+  (dark mode, sin costo — mismo criterio que lucide-react/recharts en
+  sesiones anteriores). QA con Playwright headed + datos reales de Supabase
+  (holding temporal + gasto temporal, creados y eliminados correctamente vía
+  UI/RPC, nunca DELETE crudo sobre `expenses`). Auditoría final de fixtures:
+  Cocos Capital $252.500,01 (exacto), Visa Test SD $0, holding AAPL 150u @
+  $10 — todos intactos. Ver lecciones nuevas §38-§40.
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -840,7 +955,8 @@ Migraciones ejecutadas:
 ### Rutas implementadas
 | Ruta | Descripción |
 |------|-------------|
-| `/` | Dashboard: gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Inversiones |
+| `/` | Dashboard: hero "Saldo total consolidado", gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Inversiones; toggle ocultar saldos + link a Configuración en el header — reskin completo Sesión J.1.16, TAREA 4 |
+| `/configuracion` | Toggle modo Claro/Oscuro, switch Ocultar saldos, Cerrar sesión — Sesión J.1.16, TAREA 1 |
 | `/login` | Auth email + password (Supabase Auth); link "¿Olvidaste tu contraseña?" |
 | `/forgot-password` | Pide email, llama `resetPasswordForEmail` (Supabase Auth) |
 | `/reset-password` | Formulario de contraseña nueva; protegido — redirige a `/forgot-password` si no hay sesión de recuperación activa |
@@ -852,7 +968,7 @@ Migraciones ejecutadas:
 | `/nuevo-gasto` | Alias rápido para iOS Shortcuts |
 | `/categorias` | Onboarding de categorías con defaults |
 | `/cuotas` | Cuotas pendientes agrupadas por tarjeta+mes; nombre tarjeta, "Vence el día X", "Pagar todas (N)" con modo "una cuenta con conversión MEP" o "cada moneda por separado" si el grupo mezcla monedas (Sesión J.1.15, TAREA 1), advertencia si sin closing/due |
-| `/inversiones` | Holdings: valor+P&L combinados y prominentes por posición, selector de período (Este mes/Este año) para el % de rendimiento, `PortfolioValueToggle` ARS/USD consolidado con MEP, ticker/tipo/VCP colapsados en "Detalles técnicos", `DeleteHoldingButton` (bloqueado si la cuenta tiene el holding vinculado) — Sesión J.1.15, TAREA 3/4 |
+| `/inversiones` | Holdings: valor+P&L combinados y prominentes por posición, gráfico de evolución del portafolio (línea, Recharts, aproximación forward-fill — §8.8 fundamentos), selector de período (Este mes/Este año) para el % de rendimiento y el gráfico, `PortfolioValueToggle` ARS/USD consolidado con MEP, ticker/tipo/VCP colapsados en "Detalles técnicos", `DeleteHoldingButton` (bloqueado si la cuenta tiene el holding vinculado) — Sesión J.1.15 TAREA 3/4, gráfico agregado en Sesión J.1.16 TAREA 3 |
 | `/inversiones/nueva` | Formulario nueva posición: Cantidad separada de Moneda (moneda se muestra junto al precio); toggle "Precio exacto"/"% de ganancia" (deriva precio de compra); tipo CEDEAR con datalist de tickers reales (data912) que autocompleta precio actual |
 | `/bienes` | Lista de bienes con sinking + maintenance + Meta por bien; modo manual muestra badge "manual" |
 | `/bienes/nuevo` | Formulario con defaults por categoría; sección "Detalles del auto" (segmento/bought_used/tasas+fuente); sección "Objetivo de ahorro" (toggle calculado/manual) |
@@ -865,7 +981,7 @@ Migraciones ejecutadas:
 | `/objetivos/nuevo` | Formulario nueva meta: nombre, monto+moneda (toggle ARS/USD), plazo en meses, cuenta opcional; preview live "necesitás aportar X/mes" |
 | `/gastos/[id]/editar` | Editar gasto: monto (read-only para crédito con badge), merchant, descripción, categoría, fecha; eliminar con reversión de saldo atómica |
 | `/categorias/nueva` | Formulario nueva categoría |
-| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14) + filtro de categoría y rango de monto combinables (Sesión J.1.15, TAREA 6); gráfico de barras por categoría (Recharts) por moneda |
+| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14) + filtro de categoría y rango de monto combinables (Sesión J.1.15, TAREA 6); selector Torta/Barras/Línea (Recharts, interactivo con tooltip, click en categoría filtra la lista) por moneda — Sesión J.1.16, TAREA 2 |
 | `/compartidos` | Gastos compartidos: pendientes de cobro arriba (botón "Ya me pagaron"), ya cobrados colapsados abajo — Sesión J.1.15, TAREA 8 |
 
 ### Componentes y libs
@@ -1121,65 +1237,103 @@ confirmado en QA de la sesión.
 - WhatsApp Cloud API (bot, solo mensajes self-initiated)
 - Recharts (gráficos)
 - lucide-react (íconos — Sesión J.1.15, reemplaza emoji de chrome)
+- next-themes (dark mode — Sesión J.1.16, toggle claro/oscuro persistido)
 - PWA: next-pwa/Serwist (instalable, offline)
 
-## Sistema de diseño (Sesión J.1.15, TAREA 7)
+## Sistema de diseño (Sesión J.1.16 — reemplaza los valores de J.1.15)
 
-Base para Inicio (`/`), `/movimientos` e `/inversiones` — y referencia
-obligatoria para sesiones futuras que toquen otras pantallas (rediseño
-completo de las ~28 rutas queda fuera de alcance de esta sesión; estas 3 son
-la base a replicar, no reinventar).
+Traducido del prototipo de Claude Design (`Diseño/Dashboard finanzas
+Argentina.zip`, no versionado — ver checkpoint de sesión). Base para Inicio
+(`/`), `/movimientos`, `/inversiones`, `/configuracion` y `BottomNav` — y
+referencia obligatoria para sesiones futuras que toquen otras pantallas
+(rediseño completo de las ~28 rutas restantes, incluida `/cuentas`, queda
+fuera de alcance de esta sesión — ver checkpoint, TAREA 4).
 
-**Paleta** (Tailwind por nombre — no se inventaron hex nuevos, se formalizó lo
-que ya aparecía disperso en el código):
-- Neutro/ink: `gray-900` (`#111827`) — texto principal y botones primarios en
-  TODA la app (no se tocó fuera de las 3 pantallas — cambiarlo ahí rompería
-  consistencia con las 25 rutas no tocadas).
-- Acento: `indigo-600` (`#4F46E5`) fuerte, `indigo-50` (`#EEF2FF`) suave — uso
-  moderado: botón "+" de BottomNav, tab activo, UN hero card por pantalla
-  (nunca en botones de acción primaria). Ya aparecía en VCP badges y banners
-  de distribución antes de esta sesión.
-- Semánticos (sin cambios): `green-600` ingreso/positivo, `red-600`
-  gasto/negativo/error, `amber-600` advertencia/MEP.
-- Fondo: `gray-50` (body), cards en blanco — el hero card de cada pantalla usa
-  `indigo-50`/`indigo-200` para diferenciarse de las cards de lista regulares
-  (variación intencional, TAREA 7b).
-- **Sin modo oscuro:** se sacó el bloque `@media (prefers-color-scheme: dark)`
-  de `globals.css` — ningún componente ajusta sus colores para dark mode
-  (`bg-white`/`text-gray-900` hardcodeados en todos lados), así que dejarlo
-  activo era un bug latente de contraste, no una feature funcionando.
+**Paleta** — tokens `fz-*` en `src/app/globals.css`, `:root` (claro) +
+`.dark` (oscuro, aplicado por `next-themes` como clase en `<html>`),
+expuestos como colores Tailwind reales vía `@theme inline` (`bg-fz-surface`,
+no `bg-[var(--fz-surface)]` — ver lección §36, ese patrón de arbitrary value
+no resolvía de forma confiable):
 
-**Tipografía:** Space Grotesk (`next/font/google`, geométrica, con carácter en
-la "G"/"S" — no Inter/Manrope) en toda la app vía `layout.tsx`/`globals.css`
-(la fuente es global por naturaleza, no se puede scopear a 3 pantallas). Bug
-preexistente corregido de paso: `globals.css` pisaba el `font-family` del
-`body` con `Arial, Helvetica, sans-serif`, así que Geist (cargada antes) nunca
-se aplicaba realmente. Escala (ya existente en el código, ahora formalizada):
-- Título de pantalla: `text-2xl font-semibold` (`text-xl` en pantallas con
-  menos jerarquía, ej. `/inversiones`).
-- Número hero (saldo total, valor de portafolio): `text-3xl`/`text-4xl
-  font-bold` — el elemento más grande y con más peso de su card.
-- Cuerpo/label: `text-sm font-medium`.
-- Dato secundario/hint: `text-xs`/`text-[11px] text-gray-400`.
+| Token | Claro | Oscuro | Uso |
+|---|---|---|---|
+| `fz-bg` | `oklch(0.985 0.004 175)` | `oklch(0.17 0.012 250)` | fondo de página |
+| `fz-surface` | `oklch(0.998 0.002 175)` | `oklch(0.223 0.014 250)` | cards regulares |
+| `fz-surface-high` | `oklch(0.955 0.007 175)` | `oklch(0.275 0.017 250)` | hero cards, tabs inactivos |
+| `fz-border` | `oklch(0.90 0.007 175)` | `oklch(0.33 0.017 250)` | bordes de card |
+| `fz-text` | `oklch(0.22 0.02 175)` | `oklch(0.96 0.005 250)` | texto principal |
+| `fz-text-secondary` | `oklch(0.46 0.02 175)` | `oklch(0.72 0.014 250)` | texto secundario |
+| `fz-text-tertiary` | `oklch(0.58 0.015 175)` | `oklch(0.55 0.014 250)` | labels, hints |
+| `fz-accent` | `oklch(0.50 0.11 175)` | `oklch(0.78 0.13 175)` | acento verde-azulado — también color de "positivo/ingreso" (reemplaza `indigo-600` Y `green-600` juntos) |
+| `fz-accent-soft` | `oklch(0.93 0.045 175)` | `oklch(0.30 0.06 175)` | fondo de banners positivos |
+| `fz-negative` | `oklch(0.55 0.16 25)` | `oklch(0.72 0.15 25)` | gasto/error/negativo |
+| `fz-negative-soft` | `oklch(0.94 0.05 25)` | `oklch(0.30 0.07 25)` | fondo de avisos de error |
+| `fz-nav-bg` | `#ffffff` | `oklch(0.20 0.013 250)` | fondo de BottomNav |
+
+Colores semánticos que NO son parte del sistema `fz-*` (amber para
+avisos/MEP, y algunos usos puntuales sin migrar como `amber-600`/`blue-600`
+en `CuentasTree.tsx`) se mantienen como literales Tailwind — quedan fuera del
+toggle de modo oscuro hasta que se rediseñe esa pantalla.
+
+**Tipografía** — 3 fuentes reales vía `next/font/google` (`src/app/layout.tsx`),
+confirmadas con Playwright en el DOM renderizado (no solo el CSS, lección
+"Geist nunca se aplicaba" de J.1.15 vuelta a chequear explícitamente):
+- **Big Shoulders** (`--font-big-shoulders`, clase utilitaria `font-display`)
+  — títulos de pantalla y números hero. Nota: el catálogo de Google Fonts NO
+  tiene "Big Shoulders Display" como familia separada, la fusionó dentro de
+  "Big Shoulders" — confirmado en el `font-data.json` del paquete `next`, no
+  asumido.
+- **IBM Plex Sans** (`--font-ibm-plex-sans`) — tipografía base de TODA la app
+  (reemplaza Space Grotesk; es global por naturaleza, igual que en J.1.15).
+- **IBM Plex Mono** (`--font-ibm-plex-mono`, clase `font-mono`, también
+  global — sobreescribe el `font-mono` default de Tailwind) — valores
+  monetarios (`tabular-nums font-mono` en todo monto mostrado).
+
+Escala: título de pantalla `font-display font-extrabold text-2xl` (uppercase);
+número hero `font-display font-extrabold text-3xl`–`text-[42px]`; cuerpo
+`text-sm font-medium`; hint `text-xs`/`text-[11px] text-fz-text-tertiary`.
+
+**Dark mode:** `next-themes` (`attribute="class"`, `defaultTheme="light"`,
+`enableSystem={false}`) — toggle explícito en `/configuracion`, persistido en
+localStorage, sin flash del tema incorrecto. El MECANISMO es global (clase
+`.dark` en `<html>`, cualquier componente con tokens `fz-*` reacciona sin
+código extra); la PIEL VISUAL solo se tradujo en las pantallas listadas
+arriba — ver checkpoint de sesión para el detalle de alcance.
+
+**Ocultar saldos:** `src/components/Money.tsx` (`<Money>{texto}</Money>`,
+`useHideBalances()`/`setHideBalances()`) — reemplaza cualquier monto
+formateado por "••••", persistido en localStorage vía `useSyncExternalStore`
+(sin Context Provider, usable desde cualquier client component). Aplicado a
+todos los montos de las pantallas tocadas por esta sesión.
 
 **Espaciado:** sin cambios — `space-y-4`/`space-y-6` entre secciones,
-`rounded-xl`/`rounded-2xl` en cards, `px-4 py-3` en filas de lista (criterio
-ya establecido, ver `agente-ux`).
+`rounded-xl`/`rounded-2xl`/`rounded-[22px]` (hero cards) en cards, `px-4 py-3`
+en filas de lista (criterio ya establecido, ver `agente-ux`).
 
-**Íconos:** `lucide-react`, `size={18-26}` según contexto, reemplaza TODO
-emoji de "chrome" de la app (navegación, banners, accesos rápidos, estados
-vacíos). Los emoji elegidos por el usuario (ícono de una categoría) NO se
-tocaron — son contenido, no chrome.
+**Íconos:** `lucide-react` (decisión re-confirmada en Sesión J.1.16, TAREA 5
+— NO se migró a los SVG custom del prototipo de Claude Design, para no crear
+dos sistemas de íconos conviviendo en la misma app; ver checkpoint de
+sesión). `size={18-26}` según contexto. Los emoji elegidos por el usuario
+(ícono de categoría) NO se tocan — son contenido, no chrome.
 
-**Prohibido explícitamente (y verificado que no aparece, TAREA 7a/7d):** dark
-mode con acento dorado/ámbar, gradientes decorativos, glassmorphism, todo
-centrado, mismo radio/sombra en cada card sin variación, emoji como sistema
-de navegación, Inter/Manrope por default.
+**Gráficos:** Recharts (ya en el stack desde J.1.14) — Pie/Bar/Line con
+`Tooltip` real (nunca gráficos "mudos") y colores tomados de los tokens
+`fz-accent`/`fz-negative` (nunca una paleta desaturada). Patrón para
+pasar interactividad de un gráfico (Client Component) a la URL que vive en
+un Server Component: pasar los PARAMS actuales (objeto serializable), nunca
+una función/closure — Next.js rechaza pasar funciones de Server a Client
+Components en runtime (bug real encontrado y corregido en esta sesión, ver
+`docs/lecciones-aprendidas.md`).
 
-**Nota de proceso:** el brief mencionaba una skill `frontend-design` ya
-disponible en el entorno — no apareció en el listado de skills de esta
-sesión (`.claude/skills/` solo tiene los 4 agentes del proyecto). Se aplicaron
-los lineamientos 7a/7b/7d del brief directamente.
+**Prohibido explícitamente (verificado que no aparece):** dark mode con
+acento dorado/ámbar, gradientes decorativos, glassmorphism, todo centrado,
+mismo radio/sombra en cada card sin variación, emoji como sistema de
+navegación, Inter/Manrope/Space Grotesk por default.
+
+**Nota de proceso:** igual que en J.1.15, la skill `frontend-design`
+mencionada en el brief no apareció en el listado de skills disponibles de
+esta sesión (`.claude/skills/` solo tiene los 4 agentes del proyecto). Se
+aplicaron los lineamientos del brief directamente.
 
 ## Restricción dura: COSTO CERO
 

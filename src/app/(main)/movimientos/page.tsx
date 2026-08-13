@@ -1,9 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { Wallet, Receipt } from "lucide-react";
+import { Wallet, Receipt, SlidersHorizontal } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
-import MovimientosChart from "./_components/MovimientosChart";
+import { Money } from "@/components/Money";
+import MovimientosCharts from "./_components/MovimientosCharts";
 import type { Currency } from "@/types";
 
 function mesLabel(yearMonth: string) {
@@ -47,6 +48,16 @@ function weekRange(now: Date): { desde: string; hasta: string } {
 function fmtShort(dateStr: string) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("es-AR", { day: "numeric", month: "short" });
 }
+
+// TAREA 2 (Sesión J.1.16): el gráfico de torta agrupa gastos sin categoría
+// bajo esta etiqueta (para no dejarlos fuera del 100%) y el click en esa
+// porción navega con ?categoria=Sin+categoría — pero esa etiqueta no es un
+// valor real de `sub` (que para esos gastos es `null`, no el string "Sin
+// categoría"). Sin este caso especial, filtrar por esa etiqueta comparaba
+// `null === "Sin categoría"` y devolvía siempre 0 resultados (bug real
+// encontrado en el QA de esta sesión, con datos reales — ver
+// docs/lecciones-aprendidas.md).
+const SIN_CATEGORIA = "Sin categoría";
 
 export default async function MovimientosPage({
   searchParams,
@@ -192,7 +203,11 @@ export default async function MovimientosPage({
   // (semánticamente "quiero ver los gastos de tal categoría").
   let filteredExpenses = expenses;
   let filteredIncomes = categoriaParam ? [] : incomes;
-  if (categoriaParam) filteredExpenses = filteredExpenses.filter((e) => e.sub === categoriaParam);
+  if (categoriaParam) {
+    filteredExpenses = filteredExpenses.filter((e) =>
+      categoriaParam === SIN_CATEGORIA ? e.sub == null : e.sub === categoriaParam
+    );
+  }
   if (montoMin != null) {
     filteredExpenses = filteredExpenses.filter((e) => e.amount >= montoMin);
     filteredIncomes = filteredIncomes.filter((i) => i.amount >= montoMin);
@@ -212,19 +227,70 @@ export default async function MovimientosPage({
   const isCurrent = !isWeek && !isCustom && yearMonth === currentYearMonth();
   const activeFilter = isWeek ? "semana" : isCustom ? "custom" : yearMonth === currentYearMonth() ? "mes" : yearMonth === prevMes(currentYearMonth()) ? "mes_pasado" : "mes";
 
-  // TAREA 8b: gastos por categoría, agrupados por moneda (nunca sumados entre
-  // monedas distintas — mismo principio que TAREA 3). Sesión J.1.15: ahora se
-  // construye a partir de filteredExpenses, para que el gráfico refleje también
-  // el filtro de categoría/monto de TAREA 6.
+  // TAREA 8b (Sesión J.1.14) / TAREA 2 (Sesión J.1.16): gastos por categoría,
+  // agrupados por moneda (nunca sumados entre monedas distintas — mismo
+  // principio que TAREA 3 de Sesión J.1.14). Se construye a partir de
+  // filteredExpenses, para que el gráfico refleje también el filtro de
+  // categoría/monto de TAREA 6.
   const categoryTotalsByCurrency = new Map<Currency, Map<string, { icon: string; amount: number }>>();
   for (const e of filteredExpenses) {
-    const catName = e.sub ?? "Sin categoría";
+    const catName = e.sub ?? SIN_CATEGORIA;
     if (!categoryTotalsByCurrency.has(e.currency)) categoryTotalsByCurrency.set(e.currency, new Map());
     const m = categoryTotalsByCurrency.get(e.currency)!;
     const existing = m.get(catName) ?? { icon: e.icon, amount: 0 };
     existing.amount += e.amount;
     m.set(catName, existing);
   }
+
+  // TAREA 2a (Sesión J.1.16): gráfico de barras "gastos vs. ingresos" — 6
+  // meses calendario terminando en el mes actual real (independiente del
+  // período navegado arriba, igual criterio que el prototipo). Solo ARS: es
+  // la moneda ampliamente dominante en la app y evita sumar monedas distintas
+  // en un mismo total (regla dura del proyecto) — limitación documentada, no
+  // un descarte silencioso.
+  const nowReal = new Date();
+  const sixStart = fmtDate(new Date(nowReal.getFullYear(), nowReal.getMonth() - 5, 1));
+  const sixEnd = fmtDate(new Date(nowReal.getFullYear(), nowReal.getMonth() + 1, 0));
+  const [{ data: trendExpensesData }, { data: trendIncomesData }] = await Promise.all([
+    supabase.from("expenses").select("amount, date").eq("currency", "ARS").gte("date", sixStart).lte("date", sixEnd),
+    supabase.from("incomes").select("amount, date").eq("currency", "ARS").gte("date", sixStart).lte("date", sixEnd),
+  ]);
+  const monthBuckets: { key: string; label: string; gastos: number; ingresos: number }[] = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(nowReal.getFullYear(), nowReal.getMonth() - i, 1);
+    monthBuckets.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      label: d.toLocaleDateString("es-AR", { month: "short" }),
+      gastos: 0,
+      ingresos: 0,
+    });
+  }
+  const bucketByKey = new Map(monthBuckets.map((b) => [b.key, b]));
+  for (const e of trendExpensesData ?? []) {
+    const b = bucketByKey.get(e.date.slice(0, 7));
+    if (b) b.gastos += Number(e.amount);
+  }
+  for (const inc of trendIncomesData ?? []) {
+    const b = bucketByKey.get(inc.date.slice(0, 7));
+    if (b) b.ingresos += Number(inc.amount);
+  }
+  const monthlyComparativa = monthBuckets.map(({ label, gastos, ingresos }) => ({ label, gastos, ingresos }));
+
+  // TAREA 2a: gasto acumulado día a día DENTRO del período navegado, solo ARS
+  // (mismo motivo que arriba), a partir de filteredExpenses (respeta filtro
+  // de categoría/monto — a diferencia de la comparativa mensual, acá sí tiene
+  // sentido: "cuánto llevo gastado en lo que estoy mirando").
+  const arsExpensesInPeriod = filteredExpenses.filter((e) => e.currency === "ARS");
+  const dayTotals = new Map<string, number>();
+  for (const e of arsExpensesInPeriod) {
+    dayTotals.set(e.date, (dayTotals.get(e.date) ?? 0) + e.amount);
+  }
+  const sortedDays = Array.from(dayTotals.keys()).sort();
+  let running = 0;
+  const cumulativeLine = sortedDays.map((day) => {
+    running += dayTotals.get(day)!;
+    return { label: fmtShort(day), value: running };
+  });
 
   // Helper para combinar filtros: cualquier link/form de esta página parte de
   // los params actuales y solo pisa los que le corresponden — así el filtro de
@@ -251,24 +317,26 @@ export default async function MovimientosPage({
 
   const pillClass = (active: boolean) =>
     `text-xs font-medium rounded-full px-3 py-1.5 transition-colors shrink-0 ${
-      active ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+      active ? "bg-fz-accent text-fz-accent-text" : "bg-fz-surface-high text-fz-text-secondary"
     }`;
 
   return (
-    <div className="p-4 max-w-lg mx-auto space-y-4 pb-24">
+    <div className="p-4 max-w-lg mx-auto space-y-4 pb-24 bg-fz-bg min-h-screen -mt-[1px]">
       {/* Header */}
       <div className="flex items-center justify-between pt-2">
-        <h1 className="text-2xl font-semibold text-gray-900">Movimientos</h1>
+        <h1 className="font-display font-extrabold text-[28px] leading-none text-fz-text uppercase tracking-wide">
+          Movimientos
+        </h1>
         <div className="flex gap-2">
           <Link
             href="/gastos/nuevo"
-            className="text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full px-3 py-1.5 transition-colors"
+            className="text-xs font-medium text-fz-text-secondary bg-fz-surface-high hover:opacity-80 rounded-full px-3 py-1.5 transition-opacity"
           >
             + Gasto
           </Link>
           <Link
             href="/ingresos/nuevo"
-            className="text-xs font-medium text-white bg-gray-900 hover:bg-gray-700 rounded-full px-3 py-1.5 transition-colors"
+            className="text-xs font-medium text-fz-accent-text bg-fz-accent hover:opacity-90 rounded-full px-3 py-1.5 transition-opacity"
           >
             + Ingreso
           </Link>
@@ -302,35 +370,35 @@ export default async function MovimientosPage({
           <form
             method="GET"
             action="/movimientos"
-            className="absolute right-0 mt-2 z-10 bg-white rounded-xl shadow-lg border border-gray-200 p-3 space-y-2 w-64"
+            className="absolute right-0 mt-2 z-10 bg-fz-surface rounded-xl shadow-lg border border-fz-border p-3 space-y-2 w-64"
           >
             <input type="hidden" name="range" value="custom" />
             {categoriaParam && <input type="hidden" name="categoria" value={categoriaParam} />}
             {montoMinParam && <input type="hidden" name="montoMin" value={montoMinParam} />}
             {montoMaxParam && <input type="hidden" name="montoMax" value={montoMaxParam} />}
             <div>
-              <label className="block text-[10px] text-gray-500 mb-0.5">Desde</label>
+              <label className="block text-[10px] text-fz-text-tertiary mb-0.5">Desde</label>
               <input
                 type="date"
                 name="desde"
                 defaultValue={isCustom ? desde : desde}
                 required
-                className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+                className="w-full border border-fz-border bg-fz-bg text-fz-text rounded-lg px-2 py-1 text-xs"
               />
             </div>
             <div>
-              <label className="block text-[10px] text-gray-500 mb-0.5">Hasta</label>
+              <label className="block text-[10px] text-fz-text-tertiary mb-0.5">Hasta</label>
               <input
                 type="date"
                 name="hasta"
                 defaultValue={isCustom ? hasta : hasta}
                 required
-                className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+                className="w-full border border-fz-border bg-fz-bg text-fz-text rounded-lg px-2 py-1 text-xs"
               />
             </div>
             <button
               type="submit"
-              className="w-full bg-gray-900 text-white rounded-lg py-1.5 text-xs font-medium"
+              className="w-full bg-fz-accent text-fz-accent-text rounded-lg py-1.5 text-xs font-medium"
             >
               Aplicar
             </button>
@@ -340,24 +408,25 @@ export default async function MovimientosPage({
         {/* TAREA 6: filtros de categoría + rango de monto, combinables con el
             período elegido arriba (hidden inputs preservan mes/range/desde/hasta). */}
         <details className="relative shrink-0">
-          <summary className={`${pillClass(hasExtraFilters)} list-none cursor-pointer`}>
+          <summary className={`${pillClass(hasExtraFilters)} list-none cursor-pointer flex items-center gap-1`}>
+            <SlidersHorizontal size={12} />
             {hasExtraFilters ? "Filtros ✓" : "Más filtros"}
           </summary>
           <form
             method="GET"
             action="/movimientos"
-            className="absolute right-0 mt-2 z-10 bg-white rounded-xl shadow-lg border border-gray-200 p-3 space-y-2 w-64"
+            className="absolute right-0 mt-2 z-10 bg-fz-surface rounded-xl shadow-lg border border-fz-border p-3 space-y-2 w-64"
           >
             {mes && <input type="hidden" name="mes" value={mes} />}
             {range && <input type="hidden" name="range" value={range} />}
             {desdeParam && <input type="hidden" name="desde" value={desdeParam} />}
             {hastaParam && <input type="hidden" name="hasta" value={hastaParam} />}
             <div>
-              <label className="block text-[10px] text-gray-500 mb-0.5">Categoría</label>
+              <label className="block text-[10px] text-fz-text-tertiary mb-0.5">Categoría</label>
               <select
                 name="categoria"
                 defaultValue={categoriaParam ?? ""}
-                className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white"
+                className="w-full border border-fz-border bg-fz-bg text-fz-text rounded-lg px-2 py-1 text-xs"
               >
                 <option value="">Todas</option>
                 {categoryOptions.map(([name, icon]) => (
@@ -369,43 +438,43 @@ export default async function MovimientosPage({
             </div>
             <div className="flex gap-2">
               <div className="flex-1">
-                <label className="block text-[10px] text-gray-500 mb-0.5">Monto mín.</label>
+                <label className="block text-[10px] text-fz-text-tertiary mb-0.5">Monto mín.</label>
                 <input
                   type="number"
                   name="montoMin"
                   step="0.01"
                   min="0"
                   defaultValue={montoMinParam ?? ""}
-                  className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+                  className="w-full border border-fz-border bg-fz-bg text-fz-text rounded-lg px-2 py-1 text-xs"
                 />
               </div>
               <div className="flex-1">
-                <label className="block text-[10px] text-gray-500 mb-0.5">Monto máx.</label>
+                <label className="block text-[10px] text-fz-text-tertiary mb-0.5">Monto máx.</label>
                 <input
                   type="number"
                   name="montoMax"
                   step="0.01"
                   min="0"
                   defaultValue={montoMaxParam ?? ""}
-                  className="w-full border border-gray-300 rounded-lg px-2 py-1 text-xs"
+                  className="w-full border border-fz-border bg-fz-bg text-fz-text rounded-lg px-2 py-1 text-xs"
                 />
               </div>
             </div>
-            <p className="text-[10px] text-gray-400">
+            <p className="text-[10px] text-fz-text-tertiary">
               El rango de monto se aplica en la moneda propia de cada movimiento (sin convertir).
             </p>
             <div className="flex gap-2">
               {hasExtraFilters && (
                 <Link
                   href={buildHref({ categoria: null, montoMin: null, montoMax: null })}
-                  className="flex-1 text-center border border-gray-200 text-gray-600 rounded-lg py-1.5 text-xs font-medium"
+                  className="flex-1 text-center border border-fz-border text-fz-text-secondary rounded-lg py-1.5 text-xs font-medium"
                 >
                   Limpiar
                 </Link>
               )}
               <button
                 type="submit"
-                className="flex-1 bg-gray-900 text-white rounded-lg py-1.5 text-xs font-medium"
+                className="flex-1 bg-fz-accent text-fz-accent-text rounded-lg py-1.5 text-xs font-medium"
               >
                 Aplicar
               </button>
@@ -416,21 +485,21 @@ export default async function MovimientosPage({
 
       {/* Navegador de mes — solo tiene sentido en modo "mes" */}
       {!isWeek && !isCustom && (
-        <div className="flex items-center justify-between bg-white rounded-2xl px-4 py-3 shadow-sm">
+        <div className="flex items-center justify-between bg-fz-surface border border-fz-border rounded-2xl px-4 py-3">
           <Link
             href={buildHref({ mes: prevMes(yearMonth) })}
-            className="text-gray-400 hover:text-gray-900 transition-colors text-lg px-2 py-1"
+            className="text-fz-text-tertiary hover:text-fz-text transition-colors text-lg px-2 py-1"
             aria-label="Mes anterior"
           >
             ‹
           </Link>
-          <span className="text-sm font-medium text-gray-900 capitalize">
+          <span className="text-sm font-medium text-fz-text capitalize">
             {periodLabel}
           </span>
           <Link
             href={isCurrent ? buildHref({ mes: null }) : buildHref({ mes: nextMes(yearMonth) })}
             className={`text-lg px-2 py-1 transition-colors ${
-              isCurrent ? "text-gray-200 pointer-events-none" : "text-gray-400 hover:text-gray-900"
+              isCurrent ? "text-fz-border pointer-events-none" : "text-fz-text-tertiary hover:text-fz-text"
             }`}
             aria-label="Mes siguiente"
             aria-disabled={isCurrent}
@@ -440,56 +509,74 @@ export default async function MovimientosPage({
         </div>
       )}
       {(isWeek || isCustom) && (
-        <div className="bg-white rounded-2xl px-4 py-3 shadow-sm text-center">
-          <span className="text-sm font-medium text-gray-900">{periodLabel}</span>
+        <div className="bg-fz-surface border border-fz-border rounded-2xl px-4 py-3 text-center">
+          <span className="text-sm font-medium text-fz-text">{periodLabel}</span>
         </div>
       )}
 
       {/* Resumen rápido */}
       {all.length > 0 && (
         <div className="grid grid-cols-2 gap-2">
-          <div className="bg-red-50 rounded-xl px-4 py-3">
-            <p className="text-[11px] text-red-500 font-medium uppercase tracking-wide">Gastos</p>
-            <p className="text-base font-semibold text-red-700 tabular-nums">
-              {formatCurrency(totalGastos, "ARS")}
+          <div className="bg-fz-negative-soft rounded-xl px-4 py-3">
+            <p className="text-[11px] text-fz-negative font-medium uppercase tracking-wide">Gastos</p>
+            <p className="text-lg font-bold text-fz-text tabular-nums font-mono">
+              <Money>{formatCurrency(totalGastos, "ARS")}</Money>
             </p>
           </div>
-          <div className="bg-green-50 rounded-xl px-4 py-3">
-            <p className="text-[11px] text-green-600 font-medium uppercase tracking-wide">Ingresos</p>
-            <p className="text-base font-semibold text-green-700 tabular-nums">
-              {formatCurrency(totalIngresos, "ARS")}
+          <div className="bg-fz-accent-soft rounded-xl px-4 py-3">
+            <p className="text-[11px] text-fz-accent font-medium uppercase tracking-wide">Ingresos</p>
+            <p className="text-lg font-bold text-fz-text tabular-nums font-mono">
+              <Money>{formatCurrency(totalIngresos, "ARS")}</Money>
             </p>
           </div>
         </div>
       )}
 
-      {/* Gráfico de gastos por categoría (TAREA 8b) — uno por moneda presente */}
+      {/* Gráficos (TAREA 2 Sesión J.1.16) — uno por moneda con gastos presentes;
+          solo la instancia ARS recibe barras/línea (ver comentario arriba). */}
       {Array.from(categoryTotalsByCurrency.entries()).map(([cur, catMap]) => (
-        <MovimientosChart
+        <MovimientosCharts
           key={cur}
           currency={cur}
-          data={Array.from(catMap.entries()).map(([name, v]) => ({ name, icon: v.icon, amount: v.amount }))}
+          categoryData={Array.from(catMap.entries()).map(([name, v]) => ({ name, icon: v.icon, amount: v.amount }))}
+          monthlyComparativa={cur === "ARS" ? monthlyComparativa : null}
+          cumulativeLine={cur === "ARS" ? cumulativeLine : null}
+          activeCategory={categoriaParam ?? null}
+          currentParams={currentParams}
         />
       ))}
 
+      {/* Chip de filtro activo (categoría, aplicado por click en el gráfico o el form de filtros) */}
+      {categoriaParam && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-fz-text-secondary">Filtrando por</span>
+          <Link
+            href={buildHref({ categoria: null })}
+            className="flex items-center gap-1.5 bg-fz-accent-soft text-fz-accent rounded-full pl-3 pr-2 py-1 text-xs font-bold"
+          >
+            {categoriaParam} <span className="font-extrabold">×</span>
+          </Link>
+        </div>
+      )}
+
       {/* Lista unificada */}
       {all.length === 0 ? (
-        <div className="bg-white rounded-2xl p-6 shadow-sm text-center space-y-3">
-          <p className="text-sm text-gray-400">
+        <div className="bg-fz-surface border border-fz-border rounded-2xl p-6 text-center space-y-3">
+          <p className="text-sm text-fz-text-tertiary">
             {hasExtraFilters ? "Sin movimientos con estos filtros" : `Sin movimientos en ${periodLabel}`}
           </p>
           <div className="flex gap-3 justify-center">
-            <Link href="/gastos/nuevo" className="text-sm font-medium text-gray-900 underline">
+            <Link href="/gastos/nuevo" className="text-sm font-medium text-fz-text underline">
               Registrar gasto
             </Link>
-            <span className="text-gray-300">·</span>
-            <Link href="/ingresos/nuevo" className="text-sm font-medium text-gray-900 underline">
+            <span className="text-fz-border">·</span>
+            <Link href="/ingresos/nuevo" className="text-sm font-medium text-fz-text underline">
               Registrar ingreso
             </Link>
           </div>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+        <div className="bg-fz-surface border border-fz-border rounded-2xl overflow-hidden">
           {all.map((item, i) => {
             const dateStr = fmtShort(item.date);
             const isIngreso = item.kind === "ingreso";
@@ -497,28 +584,28 @@ export default async function MovimientosPage({
               <Link
                 key={`${item.kind}-${item.id}`}
                 href={item.href}
-                className={`flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors ${
-                  i > 0 ? "border-t border-gray-100" : ""
+                className={`flex items-center justify-between px-4 py-3 hover:bg-fz-surface-high transition-colors ${
+                  i > 0 ? "border-t border-fz-border" : ""
                 }`}
               >
                 <div className="flex items-center gap-3 min-w-0">
                   {/* Indicador de tipo */}
                   <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center text-base shrink-0 ${
-                      isIngreso ? "bg-green-100" : "bg-gray-100"
+                    className={`w-9 h-9 rounded-xl flex items-center justify-center text-base shrink-0 ${
+                      isIngreso ? "bg-fz-accent-soft" : "bg-fz-surface-high"
                     }`}
                   >
                     {isIngreso ? (
-                      <Wallet size={16} className="text-green-700" />
+                      <Wallet size={16} className="text-fz-accent" />
                     ) : "hasCategoryIcon" in item && item.hasCategoryIcon ? (
                       item.icon
                     ) : (
-                      <Receipt size={16} className="text-gray-500" />
+                      <Receipt size={16} className="text-fz-text-tertiary" />
                     )}
                   </div>
                   <div className="min-w-0">
-                    <p className="text-sm font-medium text-gray-900 truncate">{item.label}</p>
-                    <p className="text-xs text-gray-400 truncate">
+                    <p className="text-sm font-medium text-fz-text truncate">{item.label}</p>
+                    <p className="text-xs text-fz-text-tertiary truncate">
                       {dateStr}
                       {item.account && <> · {item.account}</>}
                       {item.sub && !isIngreso && <> · {item.sub}</>}
@@ -526,11 +613,12 @@ export default async function MovimientosPage({
                   </div>
                 </div>
                 <p
-                  className={`text-sm font-semibold tabular-nums ml-3 shrink-0 ${
-                    isIngreso ? "text-green-600" : "text-gray-900"
+                  className={`text-sm font-semibold tabular-nums font-mono ml-3 shrink-0 ${
+                    isIngreso ? "text-fz-accent" : "text-fz-text"
                   }`}
                 >
-                  {isIngreso ? "+" : "−"}{formatCurrency(item.amount, item.currency)}
+                  {isIngreso ? "+" : "−"}
+                  <Money>{formatCurrency(item.amount, item.currency)}</Money>
                 </p>
               </Link>
             );

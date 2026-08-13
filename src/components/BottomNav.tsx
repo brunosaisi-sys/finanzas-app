@@ -9,7 +9,9 @@ import type { LucideIcon } from "lucide-react";
 // Sesión J.1.15, TAREA 7a: emoji reemplazados por lucide-react — el set de
 // iconos elegido para todo el "chrome" de la app (nunca para contenido elegido
 // por el usuario, como el ícono de una categoría). Ver "Sistema de diseño" en
-// CLAUDE.md.
+// CLAUDE.md. Sesión J.1.16, TAREA 5: se mantiene lucide-react (no se migra a
+// los SVG custom del prototipo de Claude Design) — decisión documentada en
+// CLAUDE.md, sección "Sistema de diseño".
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/movimientos", label: "Movimientos", icon: Receipt },
@@ -51,19 +53,19 @@ export default function BottomNav() {
       {/* Bottom sheet */}
       {open && (
         <div className="fixed bottom-16 left-0 right-0 z-50 flex justify-center px-4">
-          <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl overflow-hidden">
+          <div className="w-full max-w-lg bg-fz-surface rounded-2xl shadow-xl overflow-hidden">
             {QUICK_ACTIONS.map((action, i) => (
               <button
                 key={action.href}
                 onClick={() => handleAction(action.href)}
-                className={`w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-gray-50 active:bg-gray-100 transition-colors ${
-                  i > 0 ? "border-t border-gray-100" : ""
+                className={`w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-fz-surface-high transition-colors ${
+                  i > 0 ? "border-t border-fz-border" : ""
                 }`}
               >
-                <span className="w-9 h-9 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
-                  <action.icon size={18} className="text-indigo-600" />
+                <span className="w-9 h-9 rounded-full bg-fz-accent-soft flex items-center justify-center shrink-0">
+                  <action.icon size={18} className="text-fz-accent" />
                 </span>
-                <span className="text-sm font-medium text-gray-900">{action.label}</span>
+                <span className="text-sm font-medium text-fz-text">{action.label}</span>
               </button>
             ))}
           </div>
@@ -71,7 +73,7 @@ export default function BottomNav() {
       )}
 
       {/* Nav bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-50 safe-area-pb">
+      <nav className="fixed bottom-0 left-0 right-0 bg-fz-nav-bg border-t border-fz-border z-50 safe-area-pb">
         <div className="flex items-stretch max-w-lg mx-auto">
           {NAV_ITEMS.slice(0, 2).map((item) => (
             <NavItem key={item.href} item={item} active={isActive(item.href)} />
@@ -86,13 +88,13 @@ export default function BottomNav() {
             aria-label="Acciones rápidas"
           >
             <span
-              className={`w-11 h-11 flex items-center justify-center rounded-full text-white shadow-md -mt-4 transition-colors ${
-                open ? "bg-gray-600" : "bg-indigo-600"
+              className={`w-11 h-11 flex items-center justify-center rounded-full shadow-md -mt-4 transition-colors ${
+                open ? "bg-fz-text-tertiary text-fz-bg" : "bg-fz-accent text-fz-accent-text"
               }`}
             >
               {open ? <X size={22} /> : <Plus size={22} />}
             </span>
-            <span className="text-[10px] text-gray-400 mt-1">Nuevo</span>
+            <span className="text-[10px] text-fz-text-tertiary mt-1">Nuevo</span>
           </button>
 
           {NAV_ITEMS.slice(2).map((item) => (
@@ -115,7 +117,7 @@ function NavItem({
     <Link
       href={item.href}
       className={`flex-1 flex flex-col items-center justify-center py-3 text-[10px] transition-colors ${
-        active ? "text-indigo-600 font-semibold" : "text-gray-400"
+        active ? "text-fz-accent font-semibold" : "text-fz-text-tertiary"
       }`}
     >
       <item.icon size={20} className="mb-0.5" strokeWidth={active ? 2.5 : 2} />

@@ -1,24 +1,83 @@
 @import "tailwindcss";
 
-/* Sistema de diseño (Sesión J.1.15, TAREA 7c) — documentado también en
-   CLAUDE.md. Acento indigo: ya aparecía disperso en el código (VCP, banners de
-   distribución) antes de esta sesión — se formaliza como la identidad de color
-   propia en vez de inventar una paleta nueva desde cero. */
+/* Sistema de diseño (Sesión J.1.16) — traducido del prototipo de Claude Design
+   ("Diseño/Dashboard finanzas Argentina.zip"), función colors(dark) del
+   archivo .dc.html. Reemplaza el acento indigo de la Sesión J.1.15 por el
+   verde-azulado (oklch hue 175) del nuevo diseño. Documentado también en
+   CLAUDE.md, sección "Sistema de diseño".
+
+   Los tokens fz-* viven en :root (claro) y se sobreescriben en .dark (oscuro,
+   clase que aplica next-themes en <html>). @theme los expone como colores
+   Tailwind de primera clase (bg-fz-surface, text-fz-text, etc.) — NO como
+   arbitrary values `bg-[var(--x)]`, que en Tailwind v4 no resolvían de forma
+   confiable para variables declaradas fuera de @theme (ver lección §36). Acá
+   el valor SÍ está declarado como token de @theme (apunta a la var en tiempo
+   de ejecución), que es el patrón soportado. */
 :root {
-  --background: #ffffff;
-  --foreground: #111827; /* gray-900 */
-  --accent: #4f46e5; /* indigo-600 */
-  --accent-soft: #eef2ff; /* indigo-50 */
+  --fz-bg: oklch(0.985 0.004 175);
+  --fz-surface: oklch(0.998 0.002 175);
+  --fz-surface-high: oklch(0.955 0.007 175);
+  --fz-border: oklch(0.90 0.007 175);
+  --fz-text: oklch(0.22 0.02 175);
+  --fz-text-secondary: oklch(0.46 0.02 175);
+  --fz-text-tertiary: oklch(0.58 0.015 175);
+  --fz-accent: oklch(0.50 0.11 175);
+  --fz-accent-soft: oklch(0.93 0.045 175);
+  --fz-accent-text: #ffffff;
+  --fz-negative: oklch(0.55 0.16 25);
+  --fz-negative-soft: oklch(0.94 0.05 25);
+  --fz-nav-bg: #ffffff;
+}
+
+.dark {
+  --fz-bg: oklch(0.17 0.012 250);
+  --fz-surface: oklch(0.223 0.014 250);
+  --fz-surface-high: oklch(0.275 0.017 250);
+  --fz-border: oklch(0.33 0.017 250);
+  --fz-text: oklch(0.96 0.005 250);
+  --fz-text-secondary: oklch(0.72 0.014 250);
+  --fz-text-tertiary: oklch(0.55 0.014 250);
+  --fz-accent: oklch(0.78 0.13 175);
+  --fz-accent-soft: oklch(0.30 0.06 175);
+  --fz-accent-text: oklch(0.14 0.02 175);
+  --fz-negative: oklch(0.72 0.15 25);
+  --fz-negative-soft: oklch(0.30 0.07 25);
+  --fz-nav-bg: oklch(0.20 0.013 250);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-space-grotesk);
+  --color-fz-bg: var(--fz-bg);
+  --color-fz-surface: var(--fz-surface);
+  --color-fz-surface-high: var(--fz-surface-high);
+  --color-fz-border: var(--fz-border);
+  --color-fz-text: var(--fz-text);
+  --color-fz-text-secondary: var(--fz-text-secondary);
+  --color-fz-text-tertiary: var(--fz-text-tertiary);
+  --color-fz-accent: var(--fz-accent);
+  --color-fz-accent-soft: var(--fz-accent-soft);
+  --color-fz-accent-text: var(--fz-accent-text);
+  --color-fz-negative: var(--fz-negative);
+  --color-fz-negative-soft: var(--fz-negative-soft);
+  --color-fz-nav-bg: var(--fz-nav-bg);
+
+  /* Tipografía (TAREA 1b): Big Shoulders Display para títulos/números grandes
+     (font-display), IBM Plex Sans como base de toda la app (reemplaza Space
+     Grotesk de la sesión anterior), IBM Plex Mono para valores monetarios
+     (reemplaza el font-mono por defecto de Tailwind app-wide). */
+  --font-display: var(--font-big-shoulders), sans-serif;
+  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), ui-monospace, monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
+  background: var(--fz-bg);
+  color: var(--fz-text);
+  font-family: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
 }
