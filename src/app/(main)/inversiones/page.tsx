@@ -10,10 +10,8 @@ import HoldingPositionEdit from "./_components/HoldingPositionEdit";
 import DeleteHoldingButton from "./_components/DeleteHoldingButton";
 import InversionesChart from "./_components/InversionesChart";
 import { FciRateCell, FciPortfolioSummary } from "./_components/FciRatesSection";
-import { autoSyncFciHoldings } from "@/lib/fciAutoSync";
-import { calcHoldingReturn, calcAnnualizedReturn, type PricePoint } from "@/lib/finance/holdingReturn";
-import { buildPortfolioSeries, type HoldingSnapshot } from "@/lib/finance/portfolioSeries";
-import type { Holding } from "@/types";
+import { calcHoldingReturn, calcAnnualizedReturn } from "@/lib/finance/holdingReturn";
+import { fetchInvestmentsSummary } from "@/lib/queries/investmentsSummary";
 
 const ASSET_LABELS: Record<string, string> = {
   accion: "Acción",
@@ -23,8 +21,6 @@ const ASSET_LABELS: Record<string, string> = {
   crypto: "Crypto",
   otro: "Otro",
 };
-
-type HoldingRow = Holding & { accounts: { name: string } | null };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -57,86 +53,36 @@ export default async function InversionesPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  // Solo carga holdings desde Supabase — renderiza inmediatamente.
-  // FCI rates se cargan en paralelo por holding via Suspense.
-  // El embed de accounts debe desambiguarse: desde la migración 021 hay dos FKs
-  // entre holdings y accounts (holdings.account_id -> accounts.id, y
-  // accounts.holding_id -> holdings.id), y PostgREST no puede elegir sola cuál
-  // usar para "accounts(name)" — devuelve error PGRST201, que quedaba silenciado
-  // porque no se chequeaba `error`, dejando data=null y la página vacía para
-  // TODOS los holdings, no solo el vinculado desde un bolsillo (Sesión J.1.11).
-  const [{ data }, { data: linkedAccountsData }] = await Promise.all([
-    supabase
-      .from("holdings")
-      .select("*, accounts!holdings_account_id_fkey(name)")
-      .order("created_at", { ascending: false }),
-    // TAREA 3: cuentas vinculadas a un holding (accounts.holding_id) — distinto de
-    // holdings.account_id (el "dueño"/broker, solo informativo). Un holding
-    // vinculado no se puede borrar directo, hay que desvincularlo primero.
+  // TAREA 3: cuentas vinculadas a un holding (accounts.holding_id) — distinto de
+  // holdings.account_id (el "dueño"/broker, solo informativo). Un holding
+  // vinculado no se puede borrar directo, hay que desvincularlo primero.
+  const now = new Date();
+  const windowStart = windowStartForPeriod(periodo, now);
+  const windowDays = windowDaysForPeriod(periodo, now);
+
+  // Fetch + auto-sync + histórico + evolución del portafolio: extraído a
+  // lib/queries/investmentsSummary.ts (Sesión J.1.17, TAREA 4) para reusar
+  // exactamente la misma lógica en el resumen de Inversiones de Inicio, sin
+  // duplicarla. El embed de accounts se desambigua adentro del helper (dos FKs
+  // entre holdings y accounts desde la migración 021 — ver Sesión J.1.11).
+  const [{ holdings, portfolioLinePoints, historyByHolding }, { data: linkedAccountsData }] = await Promise.all([
+    fetchInvestmentsSummary(supabase, windowStart, now),
     supabase.from("accounts").select("id, name, holding_id").not("holding_id", "is", null),
   ]);
-
-  const holdings = (data ?? []) as HoldingRow[];
   const linkedAccountByHoldingId = new Map<string, string>();
   for (const a of linkedAccountsData ?? []) {
     if (a.holding_id) linkedAccountByHoldingId.set(a.holding_id, a.name);
   }
 
-  // Auto-sync: actualiza current_price en DB si el VCP del feed difiere.
-  // El feed está cacheado 6h por Next.js — no se llama al RPC si el precio no cambió.
-  // También actualiza el array en memoria para que FciPortfolioSummary muestre valores frescos.
-  const updatedPrices = await autoSyncFciHoldings(supabase, holdings);
-  for (const h of holdings) {
-    if (updatedPrices.has(h.id)) h.current_price = updatedPrices.get(h.id)!;
-  }
-
-  const now = new Date();
-  const windowStart = windowStartForPeriod(periodo, now);
-  const windowDays = windowDaysForPeriod(periodo, now);
-
   // Retorno sobre el período elegido (§8.5/§8.7 fundamentos) a partir del histórico
   // propio de cada holding — hoy solo FCI acumula histórico real (auto-sync);
   // acciones/CEDEARs con precio manual no tienen suficientes puntos y
   // simplemente no muestran nada (Sesión J.1.13, TAREA 6, regla dura: nunca
-  // inventar el número). Best-effort: si holding_price_history no existe
-  // todavía, no bloquea el render de la lista.
+  // inventar el número).
   const returnByHolding = new Map<string, number | null>();
-  let portfolioLinePoints: { date: string; label: string; value: number }[] = [];
-  if (holdings.length > 0) {
-    try {
-      const { data: historyRows } = await supabase
-        .from("holding_price_history")
-        .select("holding_id, price, recorded_at")
-        .in("holding_id", holdings.map((h) => h.id));
-      const historyByHolding = new Map<string, PricePoint[]>();
-      for (const row of historyRows ?? []) {
-        const arr = historyByHolding.get(row.holding_id) ?? [];
-        arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
-        historyByHolding.set(row.holding_id, arr);
-      }
-      for (const h of holdings) {
-        const history = historyByHolding.get(h.id);
-        if (history) returnByHolding.set(h.id, calcHoldingReturn(history, windowDays));
-      }
-
-      // TAREA 3a (Sesión J.1.16): evolución del valor del portafolio — gráfico
-      // que el prototipo de Claude Design calculaba pero nunca mostraba en
-      // esta pantalla (ver docs/01-fundamentos-teoricos.md §8.8, aproximación
-      // por forward-fill declarada, no oculta).
-      const snapshots: HoldingSnapshot[] = holdings.map((h) => ({
-        id: h.id,
-        quantity: h.quantity,
-        fallbackPrice: h.current_price ?? h.avg_buy_price ?? null,
-        history: historyByHolding.get(h.id) ?? [],
-      }));
-      const series = buildPortfolioSeries(snapshots, windowStart, now);
-      portfolioLinePoints = series.map((p) => ({
-        ...p,
-        label: new Date(p.date + "T00:00:00").toLocaleDateString("es-AR", { day: "numeric", month: "short" }),
-      }));
-    } catch {
-      // holding_price_history todavía no existe — sin rendimiento, no bloquea
-    }
+  for (const h of holdings) {
+    const history = historyByHolding.get(h.id);
+    if (history && history.length > 0) returnByHolding.set(h.id, calcHoldingReturn(history, windowDays));
   }
 
   const periodLabel = periodo === "anio" ? "este año" : "este mes";

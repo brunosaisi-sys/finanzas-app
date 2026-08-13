@@ -5,6 +5,7 @@ import { Wallet, Receipt, SlidersHorizontal } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { Money } from "@/components/Money";
 import MovimientosCharts from "./_components/MovimientosCharts";
+import { aggregateCategoryTotals, fetchMonthlyComparativa } from "@/lib/queries/movimientosSummary";
 import type { Currency } from "@/types";
 
 function mesLabel(yearMonth: string) {
@@ -231,50 +232,18 @@ export default async function MovimientosPage({
   // agrupados por moneda (nunca sumados entre monedas distintas — mismo
   // principio que TAREA 3 de Sesión J.1.14). Se construye a partir de
   // filteredExpenses, para que el gráfico refleje también el filtro de
-  // categoría/monto de TAREA 6.
-  const categoryTotalsByCurrency = new Map<Currency, Map<string, { icon: string; amount: number }>>();
-  for (const e of filteredExpenses) {
-    const catName = e.sub ?? SIN_CATEGORIA;
-    if (!categoryTotalsByCurrency.has(e.currency)) categoryTotalsByCurrency.set(e.currency, new Map());
-    const m = categoryTotalsByCurrency.get(e.currency)!;
-    const existing = m.get(catName) ?? { icon: e.icon, amount: 0 };
-    existing.amount += e.amount;
-    m.set(catName, existing);
-  }
+  // categoría/monto de TAREA 6. Agregación extraída a
+  // lib/queries/movimientosSummary.ts (Sesión J.1.17, TAREA 4) para reusar
+  // la misma lógica en el resumen de Inicio, sin duplicarla.
+  const categoryDataByCurrency = aggregateCategoryTotals(filteredExpenses);
 
   // TAREA 2a (Sesión J.1.16): gráfico de barras "gastos vs. ingresos" — 6
   // meses calendario terminando en el mes actual real (independiente del
   // período navegado arriba, igual criterio que el prototipo). Solo ARS: es
   // la moneda ampliamente dominante en la app y evita sumar monedas distintas
   // en un mismo total (regla dura del proyecto) — limitación documentada, no
-  // un descarte silencioso.
-  const nowReal = new Date();
-  const sixStart = fmtDate(new Date(nowReal.getFullYear(), nowReal.getMonth() - 5, 1));
-  const sixEnd = fmtDate(new Date(nowReal.getFullYear(), nowReal.getMonth() + 1, 0));
-  const [{ data: trendExpensesData }, { data: trendIncomesData }] = await Promise.all([
-    supabase.from("expenses").select("amount, date").eq("currency", "ARS").gte("date", sixStart).lte("date", sixEnd),
-    supabase.from("incomes").select("amount, date").eq("currency", "ARS").gte("date", sixStart).lte("date", sixEnd),
-  ]);
-  const monthBuckets: { key: string; label: string; gastos: number; ingresos: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(nowReal.getFullYear(), nowReal.getMonth() - i, 1);
-    monthBuckets.push({
-      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
-      label: d.toLocaleDateString("es-AR", { month: "short" }),
-      gastos: 0,
-      ingresos: 0,
-    });
-  }
-  const bucketByKey = new Map(monthBuckets.map((b) => [b.key, b]));
-  for (const e of trendExpensesData ?? []) {
-    const b = bucketByKey.get(e.date.slice(0, 7));
-    if (b) b.gastos += Number(e.amount);
-  }
-  for (const inc of trendIncomesData ?? []) {
-    const b = bucketByKey.get(inc.date.slice(0, 7));
-    if (b) b.ingresos += Number(inc.amount);
-  }
-  const monthlyComparativa = monthBuckets.map(({ label, gastos, ingresos }) => ({ label, gastos, ingresos }));
+  // un descarte silencioso. Query extraída a movimientosSummary.ts (TAREA 4).
+  const monthlyComparativa = await fetchMonthlyComparativa(supabase);
 
   // TAREA 2a: gasto acumulado día a día DENTRO del período navegado, solo ARS
   // (mismo motivo que arriba), a partir de filteredExpenses (respeta filtro
@@ -532,19 +501,20 @@ export default async function MovimientosPage({
         </div>
       )}
 
-      {/* Gráficos (TAREA 2 Sesión J.1.16) — uno por moneda con gastos presentes;
-          solo la instancia ARS recibe barras/línea (ver comentario arriba). */}
-      {Array.from(categoryTotalsByCurrency.entries()).map(([cur, catMap]) => (
+      {/* Gráficos (TAREA 2 Sesión J.1.16, rediseñado TAREA 3 Sesión J.1.17) —
+          un solo bloque con toggle ARS/USD en vez de un donut separado por
+          moneda (antes aparecían dos, uno vacío la mayoría de las veces).
+          Barras/línea siguen siendo datasets solo-ARS (ver comentario arriba
+          de monthlyComparativa/cumulativeLine). */}
+      {Object.keys(categoryDataByCurrency).length > 0 && (
         <MovimientosCharts
-          key={cur}
-          currency={cur}
-          categoryData={Array.from(catMap.entries()).map(([name, v]) => ({ name, icon: v.icon, amount: v.amount }))}
-          monthlyComparativa={cur === "ARS" ? monthlyComparativa : null}
-          cumulativeLine={cur === "ARS" ? cumulativeLine : null}
+          categoryDataByCurrency={categoryDataByCurrency}
+          monthlyComparativa={monthlyComparativa}
+          cumulativeLine={cumulativeLine}
           activeCategory={categoriaParam ?? null}
           currentParams={currentParams}
         />
-      ))}
+      )}
 
       {/* Chip de filtro activo (categoría, aplicado por click en el gráfico o el form de filtros) */}
       {categoriaParam && (

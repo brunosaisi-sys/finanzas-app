@@ -2,56 +2,46 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  PieChart,
-  Pie,
-  Cell,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  CartesianGrid,
-} from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { formatCurrency } from "@/lib/format";
+import CategoryPieChart, { type CategorySlice } from "@/components/charts/CategoryPieChart";
+import MonthlyComparativaChart, { type MonthBar } from "@/components/charts/MonthlyComparativaChart";
 import type { Currency } from "@/types";
 
 // TAREA 2 (Sesión J.1.16): los 3 tipos de gráfico del prototipo de Claude
 // Design (torta/barras/línea, selector `chartTypes`), con la corrección
-// explícita pedida por el usuario: colores sólidos con buen contraste (los
-// tokens fz-accent/fz-negative, no versiones pálidas) y tooltips reales con
-// fecha/valor/porcentaje al pasar el mouse o tocar — el prototipo dibujaba
-// los 3 gráficos "mudos" (solo SVG estático), acá usan Recharts con Tooltip.
-// Click en una porción/leyenda de la torta filtra la lista por esa categoría
-// (mismo mecanismo `categoryFilter`/`catFilter` del prototipo), implementado
-// acá como navegación a la URL con `?categoria=`, reusando el filtro server-
-// side que ya existía (Sesión J.1.15, TAREA 6) en vez de duplicar lógica de
-// filtrado en el cliente.
+// explícita pedida por el usuario: colores sólidos con buen contraste y
+// tooltips reales con fecha/valor/porcentaje al pasar el mouse o tocar — el
+// prototipo dibujaba los 3 gráficos "mudos" (solo SVG estático), acá usan
+// Recharts con Tooltip. Click en una porción/leyenda de la torta filtra la
+// lista por esa categoría (mismo mecanismo `categoryFilter`/`catFilter` del
+// prototipo), implementado acá como navegación a la URL con `?categoria=`,
+// reusando el filtro server-side que ya existía (Sesión J.1.15, TAREA 6) en
+// vez de duplicar lógica de filtrado en el cliente.
+//
+// TAREA 3 (Sesión J.1.17): reemplaza los colores oklch generados por hue
+// aleatorio por categoría (se veían "poco profesionales") por una paleta
+// fija de 8 colores curados a mano (ver CategoryPieChart), y reemplaza el
+// patrón de "un gráfico de torta por moneda" (dos donuts separados, uno
+// vacío la mayoría de las veces) por UN solo bloque con toggle ARS/USD —
+// mismo patrón de pill toggle que `PortfolioValueToggle` en /inversiones.
+// Nunca convierte ni suma ARS+USD entre sí (principio ya establecido,
+// Sesión J.1.14 TAREA 3/8): el toggle solo cambia QUÉ dataset se muestra,
+// cada uno en su propia moneda. El render de torta y de barras se extrajo a
+// componentes compartidos (`src/components/charts/`) para reusarlos también
+// en el resumen de Inicio (TAREA 4), sin duplicar la lógica.
 
-const PIE_HUES = [175, 25, 300, 95, 250, 340, 60, 210];
-
-interface CategorySlice {
-  name: string;
-  icon: string;
-  amount: number;
-}
-interface MonthBar {
-  label: string;
-  gastos: number;
-  ingresos: number;
-}
 interface LinePoint {
   label: string;
   value: number;
 }
 
 interface Props {
-  currency: Currency;
-  categoryData: CategorySlice[];
+  /** Gastos por categoría, agrupados por moneda — nunca se suman entre sí. */
+  categoryDataByCurrency: Partial<Record<Currency, CategorySlice[]>>;
+  /** Comparativa mensual gastos/ingresos — solo ARS (ver comentario en la página). */
   monthlyComparativa: MonthBar[] | null;
+  /** Gasto acumulado del período — solo ARS. */
   cumulativeLine: LinePoint[] | null;
   activeCategory: string | null;
   /** Params de la URL actual (serializables) — Next.js no permite pasar
@@ -65,23 +55,25 @@ interface Props {
 type ChartType = "pie" | "bar" | "line";
 
 export default function MovimientosCharts({
-  currency,
-  categoryData,
+  categoryDataByCurrency,
   monthlyComparativa,
   cumulativeLine,
   activeCategory,
   currentParams,
 }: Props) {
   const router = useRouter();
+  const currencies = (Object.keys(categoryDataByCurrency) as Currency[]).filter(
+    (c) => (categoryDataByCurrency[c]?.length ?? 0) > 0
+  );
+  const [activeCurrency, setActiveCurrency] = useState<Currency>(
+    currencies.includes("ARS") ? "ARS" : currencies[0]
+  );
   const [chartType, setChartType] = useState<ChartType>("pie");
-  const hasExtra = !!monthlyComparativa && !!cumulativeLine;
 
-  if (categoryData.length === 0 && !hasExtra) return null;
+  const hasExtra = activeCurrency === "ARS" && !!monthlyComparativa && !!cumulativeLine;
+  if (currencies.length === 0) return null;
 
-  const pieData = [...categoryData]
-    .sort((a, b) => b.amount - a.amount)
-    .map((d, i) => ({ ...d, color: `oklch(0.58 0.15 ${PIE_HUES[i % PIE_HUES.length]})` }));
-  const total = pieData.reduce((s, d) => s + d.amount, 0);
+  const categoryData = categoryDataByCurrency[activeCurrency] ?? [];
 
   function selectCategory(name: string) {
     const merged = { ...currentParams };
@@ -92,126 +84,70 @@ export default function MovimientosCharts({
     router.push(qs ? `/movimientos?${qs}` : "/movimientos");
   }
 
+  function selectCurrency(cur: Currency) {
+    setActiveCurrency(cur);
+    // Barras/Línea son datasets solo-ARS (ver comentario en la página) — si el
+    // usuario pasa a USD estando en esas pestañas, no hay nada que mostrar.
+    if (cur !== "ARS" && chartType !== "pie") setChartType("pie");
+  }
+
   const tabs: { key: ChartType; label: string }[] = [{ key: "pie", label: "Torta" }];
   if (hasExtra) tabs.push({ key: "bar", label: "Barras" }, { key: "line", label: "Línea" });
 
   return (
     <div className="bg-fz-surface border border-fz-border rounded-2xl p-4">
-      <div className="flex items-center justify-between mb-3.5">
-        <p className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide">
-          {chartType === "pie" && `Gastos por categoría${currency !== "ARS" ? ` (${currency})` : ""}`}
-          {chartType === "bar" && "Gastos vs. ingresos (ARS, 6 meses)"}
-          {chartType === "line" && "Gasto acumulado del período (ARS)"}
+      <div className="flex items-center justify-between mb-3.5 gap-2">
+        <p className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide shrink-0">
+          {chartType === "pie" && "Gastos por categoría"}
+          {chartType === "bar" && "Gastos vs. ingresos (6 meses)"}
+          {chartType === "line" && "Gasto acumulado del período"}
         </p>
-        {tabs.length > 1 && (
-          <div className="flex bg-fz-surface-high rounded-lg p-0.5 gap-0.5 shrink-0">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                type="button"
-                onClick={() => setChartType(t.key)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
-                  chartType === t.key ? "bg-fz-accent text-fz-accent-text" : "text-fz-text-secondary"
-                }`}
-              >
-                {t.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {currencies.length > 1 && (
+            <div className="flex bg-fz-surface-high rounded-lg p-0.5 gap-0.5">
+              {currencies.map((cur) => (
+                <button
+                  key={cur}
+                  type="button"
+                  onClick={() => selectCurrency(cur)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                    activeCurrency === cur ? "bg-fz-accent text-fz-accent-text" : "text-fz-text-secondary"
+                  }`}
+                >
+                  {cur}
+                </button>
+              ))}
+            </div>
+          )}
+          {tabs.length > 1 && (
+            <div className="flex bg-fz-surface-high rounded-lg p-0.5 gap-0.5">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  onClick={() => setChartType(t.key)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-colors ${
+                    chartType === t.key ? "bg-fz-accent text-fz-accent-text" : "text-fz-text-secondary"
+                  }`}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {chartType === "pie" && pieData.length > 0 && (
-        <div className="flex items-center gap-4">
-          <div style={{ width: 120, height: 120 }} className="shrink-0">
-            <ResponsiveContainer>
-              <PieChart>
-                <Pie
-                  data={pieData}
-                  dataKey="amount"
-                  nameKey="name"
-                  innerRadius={38}
-                  outerRadius={58}
-                  paddingAngle={2}
-                  stroke="none"
-                  onClick={(d: { name?: string }) => d?.name && selectCategory(d.name)}
-                  cursor="pointer"
-                >
-                  {pieData.map((d) => (
-                    <Cell
-                      key={d.name}
-                      fill={d.color}
-                      opacity={activeCategory && activeCategory !== d.name ? 0.35 : 1}
-                    />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(value, name) => {
-                    const n = Number(value);
-                    return [
-                      `${formatCurrency(n, currency)} (${total ? Math.round((n / total) * 100) : 0}%)`,
-                      String(name),
-                    ];
-                  }}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
-            {pieData.map((d) => (
-              <button
-                key={d.name}
-                type="button"
-                onClick={() => selectCategory(d.name)}
-                className="flex items-center gap-2 text-left"
-                style={{ opacity: activeCategory && activeCategory !== d.name ? 0.4 : 1 }}
-              >
-                <span
-                  className="w-2 h-2 rounded-sm shrink-0"
-                  style={{ background: d.color }}
-                />
-                <span className="flex-1 min-w-0 text-xs font-medium text-fz-text truncate">
-                  {d.icon} {d.name}
-                </span>
-                <span className="text-[11px] font-mono font-semibold text-fz-text-secondary shrink-0">
-                  {total ? Math.round((d.amount / total) * 100) : 0}%
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+      {chartType === "pie" && (
+        <CategoryPieChart
+          data={categoryData}
+          currency={activeCurrency}
+          activeCategory={activeCategory}
+          onSelect={selectCategory}
+        />
       )}
 
-      {chartType === "bar" && monthlyComparativa && (
-        <>
-          <div className="flex gap-4 mb-2 text-[11px] text-fz-text-secondary">
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--fz-negative)" }} />
-              Gastos
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: "var(--fz-accent)" }} />
-              Ingresos
-            </span>
-          </div>
-          <div style={{ width: "100%", height: 160 }}>
-            <ResponsiveContainer>
-              <BarChart data={monthlyComparativa} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                <CartesianGrid vertical={false} stroke="var(--fz-border)" strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 10, fill: "var(--fz-text-tertiary)" }} axisLine={false} tickLine={false} />
-                <YAxis hide />
-                <Tooltip
-                  formatter={(value) => formatCurrency(Number(value), "ARS")}
-                  contentStyle={{ fontSize: 12, borderRadius: 8 }}
-                />
-                <Bar dataKey="gastos" fill="var(--fz-negative)" radius={[3, 3, 0, 0]} maxBarSize={14} />
-                <Bar dataKey="ingresos" fill="var(--fz-accent)" radius={[3, 3, 0, 0]} maxBarSize={14} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </>
-      )}
+      {chartType === "bar" && monthlyComparativa && <MonthlyComparativaChart data={monthlyComparativa} />}
 
       {chartType === "line" && cumulativeLine && (
         <div style={{ width: "100%", height: 160 }}>

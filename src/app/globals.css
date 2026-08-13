@@ -14,6 +14,8 @@
    el valor SÍ está declarado como token de @theme (apunta a la var en tiempo
    de ejecución), que es el patrón soportado. */
 :root {
+  --font-system: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    sans-serif;
   --fz-bg: oklch(0.985 0.004 175);
   --fz-surface: oklch(0.998 0.002 175);
   --fz-surface-high: oklch(0.955 0.007 175);
@@ -60,19 +62,31 @@
   --color-fz-negative-soft: var(--fz-negative-soft);
   --color-fz-nav-bg: var(--fz-nav-bg);
 
-  /* Tipografía (TAREA 1b): Big Shoulders Display para títulos/números grandes
-     (font-display), IBM Plex Sans como base de toda la app (reemplaza Space
-     Grotesk de la sesión anterior), IBM Plex Mono para valores monetarios
-     (reemplaza el font-mono por defecto de Tailwind app-wide). */
-  --font-display: var(--font-big-shoulders), sans-serif;
-  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, sans-serif;
-  --font-mono: var(--font-ibm-plex-mono), ui-monospace, monospace;
+  /* Tipografía (Sesión J.1.17, TAREA 2): reemplaza las 3 fuentes de
+     next/font/google de J.1.16 (Big Shoulders, IBM Plex Sans, IBM Plex Mono)
+     por la fuente nativa del sistema — en iPhone renderiza con SF Pro, sin
+     cargar ningún archivo. font-display, font-sans y font-mono apuntan las
+     3 al mismo stack: la jerarquía (títulos, números hero) se logra con
+     font-weight 700-800 + tamaño, no con una familia separada. Para montos
+     (que antes usaban IBM Plex Mono para alinear dígitos), font-mono +
+     font-variant-numeric: tabular-nums (abajo) logra el mismo alineamiento
+     prolijo con la fuente del sistema. */
+  --font-display: var(--font-system);
+  --font-sans: var(--font-system);
+  --font-mono: var(--font-system);
 }
 
 body {
   background: var(--fz-bg);
   color: var(--fz-text);
-  font-family: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-system);
+}
+
+/* Todo uso de la utilidad font-mono (valores monetarios en toda la app)
+   alinea los dígitos con tabular-nums — reemplaza la necesidad de una
+   fuente monoespaciada dedicada (IBM Plex Mono, Sesión J.1.16). */
+.font-mono {
+  font-variant-numeric: tabular-nums;
 }
 
 ::-webkit-scrollbar {

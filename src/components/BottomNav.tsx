@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Receipt, Landmark, Target, Plus, X, ArrowLeftRight, Wallet } from "lucide-react";
+import { Home, Receipt, Landmark, TrendingUp, Plus, X, ArrowLeftRight, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Sesión J.1.15, TAREA 7a: emoji reemplazados por lucide-react — el set de
@@ -12,11 +12,15 @@ import type { LucideIcon } from "lucide-react";
 // CLAUDE.md. Sesión J.1.16, TAREA 5: se mantiene lucide-react (no se migra a
 // los SVG custom del prototipo de Claude Design) — decisión documentada en
 // CLAUDE.md, sección "Sistema de diseño".
+// Sesión J.1.17, TAREA 5: Inversiones reemplaza a Metas en la barra — el
+// usuario pidió que Inversiones sea un tab de primer nivel. Metas (/objetivos)
+// no se elimina, se reubica como acceso rápido en Inicio (ver CLAUDE.md,
+// checkpoint de sesión, para el motivo de esa elección de lugar).
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Inicio", icon: Home },
   { href: "/movimientos", label: "Movimientos", icon: Receipt },
   { href: "/cuentas", label: "Cuentas", icon: Landmark },
-  { href: "/objetivos", label: "Metas", icon: Target },
+  { href: "/inversiones", label: "Inversiones", icon: TrendingUp },
 ];
 
 const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon }[] = [

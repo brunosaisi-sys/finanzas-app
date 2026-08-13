@@ -836,6 +836,106 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   Cocos Capital $252.500,01 (exacto), Visa Test SD $0, holding AAPL 150u @
   $10 — todos intactos. Ver lecciones nuevas §38-§40.
 
+- **Sesión J.1.17 — Deploy a producción + fuente nativa + rediseño de gráficos +
+  reestructuración de nav (commit pendiente):**
+  T0 (falso positivo de hidratación): buscado `bis_skin_checked` en todo `src/`
+  con ripgrep — cero coincidencias. Confirmado: es un atributo que inyectan
+  extensiones de navegador tipo Bitdefender/Avast "anti-tracking" en el DOM
+  antes de la hidratación de React, no lo genera el código de esta app. No
+  requiere fix — falso positivo conocido, no re-investigar en el futuro.
+  T1 (deploy a producción): (a) auditoría de seguridad — grep de
+  `service_role`/`SERVICE_ROLE` en `src/` (único resultado: un comentario en
+  `fciAutoSync.ts` que MENCIONA la lección §9, no una clave real);
+  `src/lib/supabase/client.ts` y `server.ts` usan únicamente
+  `NEXT_PUBLIC_SUPABASE_URL`/`NEXT_PUBLIC_SUPABASE_ANON_KEY`; `.env.local`
+  tiene exactamente esas dos variables y no está trackeado por git
+  (confirmado con `git ls-files`). **Sin bloqueante de seguridad.** (b)
+  `npm run build` limpio (29 rutas) + `npm run start` (servidor de
+  producción real, no dev) + Playwright headed contra `localhost:3000` en
+  modo producción: login real, formulario de `/gastos/nuevo` renderiza,
+  `/inversiones` carga con datos reales — cero errores de consola/runtime.
+  (c) `docs/deploy-produccion.md` nuevo: guía paso a paso en lenguaje simple
+  (`git push` primero — el repo local está 28 commits adelante de
+  `origin/main`, nunca pusheado —, Vercel conectado a GitHub vía
+  `brunosaisi-sys/finanzas-app`, las 2 env vars públicas, Redirect URL de
+  Supabase Auth con la URL real de Vercel además de localhost, checklist de
+  verificación desde el celular).
+  T2 (tipografía nativa del sistema): reemplazadas las 3 fuentes de
+  `next/font/google` de J.1.16 (Big Shoulders, IBM Plex Sans, IBM Plex Mono)
+  por `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`
+  (`--font-system` en `globals.css`) — en iPhone renderiza con SF Pro real,
+  sin descargar ningún archivo de fuente (el warning de Turbopack "Failed to
+  find font override values for font Big Shoulders" del build de J.1.16
+  desapareció al sacar el import). `--font-display`/`--font-sans`/
+  `--font-mono` apuntan los 3 al mismo stack — la jerarquía visual (títulos,
+  números hero) se logra con `font-weight`/tamaño (ya existente en las
+  clases `font-display font-extrabold`), no con una familia separada. Los
+  montos, que antes alineaban dígitos con IBM Plex Mono, ahora lo hacen con
+  una regla nueva `.font-mono { font-variant-numeric: tabular-nums }` en
+  `globals.css` — cualquier uso existente de la clase `font-mono` (ya
+  extendida por toda la app en sesiones previas) queda alineado sin tocar
+  cada call site. `layout.tsx` ya no importa `next/font/google`.
+  T3 (`/movimientos`, paleta + toggle ARS/USD): reemplazada la paleta oklch
+  de hue aleatorio por categoría (J.1.16) por `CHART_PALETTE`, 8 colores
+  fijos curados a mano (`src/components/charts/CategoryPieChart.tsx`) —
+  verificado con datos reales (2 categorías nuevas creadas vía UI) que la
+  torta usa los primeros 2 colores del array exacto, no oklch generado.
+  Eliminado el patrón de un `<MovimientosCharts>` por moneda (dos donuts,
+  uno vacío la mayoría de las veces): ahora un solo bloque recibe
+  `categoryDataByCurrency` (todas las monedas) y un toggle ARS/USD interno
+  (mismo pill toggle que `PortfolioValueToggle` en /inversiones) decide qué
+  dataset mostrar — nunca convierte ni suma ARS+USD entre sí. Si el usuario
+  cambia a USD estando en la pestaña Barras/Línea (datasets solo-ARS), el
+  tipo de gráfico vuelve a Torta automáticamente (no hay nada que mostrar en
+  USD ahí). El render de torta y de barras se extrajo a
+  `src/components/charts/CategoryPieChart.tsx` y `MonthlyComparativaChart.tsx`
+  para reusarlos en el resumen de Inicio (T4) sin duplicar lógica.
+  T4 (resumen con gráfico en Inicio): nueva sección `InicioResumen`
+  (`(main)/_components/InicioResumen.tsx`) con tabs Gastos/Comparativa/
+  Inversiones — mismo concepto que la sección "Resumen" del prototipo de
+  Claude Design. "Comparativa" (gastos vs. ingresos, 6 meses) hace también
+  de resumen de ingresos: mostrar ingresos aislados sin el contraste de
+  gastos daría menos información que el gráfico ya existente de
+  /movimientos, así que se reusa tal cual en vez de crear un gráfico nuevo.
+  "Inversiones" reusa directamente `FciPortfolioSummary` (valor total +
+  toggle ARS/USD con MEP) y `InversionesChart` (evolución del portafolio,
+  §8.8 fundamentos) de /inversiones — ambos Server/Client Components ya
+  existentes, sin reescribir su lógica. Extracción para evitar duplicar
+  fetch+cálculo: `src/lib/queries/movimientosSummary.ts`
+  (`aggregateCategoryTotals` pura + `fetchCategoryTotalsByCurrency`/
+  `fetchMonthlyComparativa`, usadas ahora por Inicio Y por /movimientos) y
+  `src/lib/queries/investmentsSummary.ts` (`fetchInvestmentsSummary`: fetch +
+  auto-sync FCI + forward-fill de portafolio, usada ahora por Inicio Y por
+  /inversiones — /inversiones también se simplificó al consumir este
+  helper). Click en una categoría del resumen de Inicio navega a
+  `/movimientos?categoria=` (mismo mecanismo de T3, no uno nuevo).
+  T5 (BottomNav — Inversiones reemplaza a Metas): `NAV_ITEMS` en
+  `BottomNav.tsx` cambia el 4to tab de `/objetivos` (Target) a `/inversiones`
+  (TrendingUp). Metas NO se elimina — se reubica como tile en "Accesos
+  rápidos" de Inicio, reemplazando ahí a la tile de Inversiones (que ya no
+  hace falta como acceso rápido porque ahora vive en la barra). Decisión de
+  lugar: Inicio ya tenía ese grid de 3 accesos visible sin scroll extra, así
+  que mover Metas ahí no agrega una pantalla nueva ni toca Cuentas ni
+  Configuración (ambas fuera de alcance esta sesión).
+  **QA con Playwright headed + datos reales:** login → build de producción
+  real (`next start`, T1) sin errores; fuente del sistema confirmada en el
+  DOM renderizado (`getComputedStyle(body).fontFamily` = el stack nuevo, no
+  solo el CSS — mismo chequeo que J.1.16 hizo para Big Shoulders); 2 gastos
+  reales con categorías nuevas distintas → torta con 2 colores exactos de
+  `CHART_PALETTE` (no aleatorios); BottomNav con Inversiones activo y
+  resaltado; tile Metas visible y funcional en Inicio; resumen de Inicio
+  (3 tabs) con datos reales — Inversiones muestra el valor real del
+  portafolio del holding AAPL de fixture; dark mode confirmado en Inicio
+  tras el cambio de fuente (mecanismo J.1.16 intacto). Datos y categorías de
+  prueba eliminados al cierre (categorías vía REST autenticado — no tienen
+  UI de borrado y no afectan `accounts.balance`, mismo criterio que el
+  carve-out de holdings desvinculados, lección §35 punto 2).
+  **Cierre de sesión:** tsc limpio, build limpio (29 rutas, sin warning de
+  fuente), 84/84 tests unitarios verdes (sin tests nuevos — cambios de UI/
+  fetch, no lógica financiera pura). Sin bugs nuevos encontrados en producto
+  (a diferencia de J.1.16) — las 5 tareas fueron implementaciones limpias,
+  verificadas con tsc incremental después de cada una. Sin lecciones nuevas.
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -955,7 +1055,7 @@ Migraciones ejecutadas:
 ### Rutas implementadas
 | Ruta | Descripción |
 |------|-------------|
-| `/` | Dashboard: hero "Saldo total consolidado", gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Inversiones; toggle ocultar saldos + link a Configuración en el header — reskin completo Sesión J.1.16, TAREA 4 |
+| `/` | Dashboard: hero "Saldo total consolidado", resumen con gráfico Gastos/Comparativa/Inversiones (Sesión J.1.17, TAREA 4), gastos del mes, saldos, últimos gastos, botón "+ Ingreso"; grid de accesos rápidos Cuotas/Bienes/Metas; toggle ocultar saldos + link a Configuración en el header |
 | `/configuracion` | Toggle modo Claro/Oscuro, switch Ocultar saldos, Cerrar sesión — Sesión J.1.16, TAREA 1 |
 | `/login` | Auth email + password (Supabase Auth); link "¿Olvidaste tu contraseña?" |
 | `/forgot-password` | Pide email, llama `resetPasswordForEmail` (Supabase Auth) |
@@ -977,15 +1077,15 @@ Migraciones ejecutadas:
 | `/ingresos/nuevo` | Formulario ingreso: tipo (sueldo→distribuir, freelance/otro→inicio) |
 | `/ingresos/[id]/editar` | Editar ingreso: monto/moneda (read-only si distribuido), tipo, cuenta, fecha, nota; eliminar con advertencia explícita si distribuido (saldos no se revierten) |
 | `/ingresos/distribuir` | Vista unificada de distribución: sinAsignar live en header, obligaciones (no edit.), metas same-currency + other-currency interactuables, fondo emergencia con toggle $/% y saldo manual editable, 50/30/20 con toggle $/% + categorías custom, sección teórica colapsable → RPC `confirm_distribution_with_contributions` |
-| `/objetivos` | Lista de SavingsTargets (bienes+objetivos): progress bars, badges Bien/Objetivo, AportarButton; resumen total mensual arriba; link a /bienes para detalles de mantenimiento |
+| `/objetivos` | Lista de SavingsTargets (bienes+objetivos): progress bars, badges Bien/Objetivo, AportarButton; resumen total mensual arriba; link a /bienes para detalles de mantenimiento — acceso reubicado a la tile "Metas" de Inicio desde que Inversiones ocupa su lugar en BottomNav (Sesión J.1.17, TAREA 5) |
 | `/objetivos/nuevo` | Formulario nueva meta: nombre, monto+moneda (toggle ARS/USD), plazo en meses, cuenta opcional; preview live "necesitás aportar X/mes" |
 | `/gastos/[id]/editar` | Editar gasto: monto (read-only para crédito con badge), merchant, descripción, categoría, fecha; eliminar con reversión de saldo atómica |
 | `/categorias/nueva` | Formulario nueva categoría |
-| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14) + filtro de categoría y rango de monto combinables (Sesión J.1.15, TAREA 6); selector Torta/Barras/Línea (Recharts, interactivo con tooltip, click en categoría filtra la lista) por moneda — Sesión J.1.16, TAREA 2 |
+| `/movimientos` | Lista unificada gastos+ingresos; filtro de período (Esta semana / Este mes / Mes pasado / Rango personalizado, Sesión J.1.14) + filtro de categoría y rango de monto combinables (Sesión J.1.15, TAREA 6); selector Torta/Barras/Línea (Recharts, interactivo con tooltip, click en categoría filtra la lista) con toggle ARS/USD y paleta fija curada (Sesión J.1.17, TAREA 3, reemplaza el selector-por-moneda y la paleta aleatoria de J.1.16) |
 | `/compartidos` | Gastos compartidos: pendientes de cobro arriba (botón "Ya me pagaron"), ya cobrados colapsados abajo — Sesión J.1.15, TAREA 8 |
 
 ### Componentes y libs
-- `BottomNav` — Inicio · Gastos · [+] · Cuentas · Metas; botón [+] abre bottom sheet con overlay (z-40) + 3 acciones rápidas: Nuevo gasto / Nuevo ingreso / Transferencia
+- `BottomNav` — Inicio · Movimientos · [+] · Cuentas · Inversiones (Metas reubicada a Inicio, Sesión J.1.17 TAREA 5); botón [+] abre bottom sheet con overlay (z-40) + 3 acciones rápidas: Nuevo gasto / Nuevo ingreso / Transferencia
 - `LogoutButton` (Server Action)
 - Dashboard (`(main)/page.tsx`) — banner recordatorio N=3 días antes de closing_day o
   due_day de cualquier tarjeta de crédito activa; `daysUntil(targetDay, today)` maneja
@@ -1240,14 +1340,16 @@ confirmado en QA de la sesión.
 - next-themes (dark mode — Sesión J.1.16, toggle claro/oscuro persistido)
 - PWA: next-pwa/Serwist (instalable, offline)
 
-## Sistema de diseño (Sesión J.1.16 — reemplaza los valores de J.1.15)
+## Sistema de diseño (Sesión J.1.17 — reemplaza la tipografía de J.1.16)
 
 Traducido del prototipo de Claude Design (`Diseño/Dashboard finanzas
-Argentina.zip`, no versionado — ver checkpoint de sesión). Base para Inicio
-(`/`), `/movimientos`, `/inversiones`, `/configuracion` y `BottomNav` — y
-referencia obligatoria para sesiones futuras que toquen otras pantallas
-(rediseño completo de las ~28 rutas restantes, incluida `/cuentas`, queda
-fuera de alcance de esta sesión — ver checkpoint, TAREA 4).
+Argentina.zip`, no versionado — ver checkpoint de sesión J.1.16). Base para
+Inicio (`/`), `/movimientos`, `/inversiones`, `/configuracion` y `BottomNav`
+— y referencia obligatoria para sesiones futuras que toquen otras pantallas
+(rediseño completo de las ~28 rutas restantes, incluida `/cuentas`, sigue
+fuera de alcance — ver checkpoint J.1.16, TAREA 4). La paleta, el dark mode
+y "ocultar saldos" son de J.1.16 y no cambiaron esta sesión; la tipografía
+sí — ver abajo.
 
 **Paleta** — tokens `fz-*` en `src/app/globals.css`, `:root` (claro) +
 `.dark` (oscuro, aplicado por `next-themes` como clase en `<html>`),
@@ -1275,19 +1377,21 @@ avisos/MEP, y algunos usos puntuales sin migrar como `amber-600`/`blue-600`
 en `CuentasTree.tsx`) se mantienen como literales Tailwind — quedan fuera del
 toggle de modo oscuro hasta que se rediseñe esa pantalla.
 
-**Tipografía** — 3 fuentes reales vía `next/font/google` (`src/app/layout.tsx`),
-confirmadas con Playwright en el DOM renderizado (no solo el CSS, lección
-"Geist nunca se aplicaba" de J.1.15 vuelta a chequear explícitamente):
-- **Big Shoulders** (`--font-big-shoulders`, clase utilitaria `font-display`)
-  — títulos de pantalla y números hero. Nota: el catálogo de Google Fonts NO
-  tiene "Big Shoulders Display" como familia separada, la fusionó dentro de
-  "Big Shoulders" — confirmado en el `font-data.json` del paquete `next`, no
-  asumido.
-- **IBM Plex Sans** (`--font-ibm-plex-sans`) — tipografía base de TODA la app
-  (reemplaza Space Grotesk; es global por naturaleza, igual que en J.1.15).
-- **IBM Plex Mono** (`--font-ibm-plex-mono`, clase `font-mono`, también
-  global — sobreescribe el `font-mono` default de Tailwind) — valores
-  monetarios (`tabular-nums font-mono` en todo monto mostrado).
+**Tipografía (Sesión J.1.17 — reemplaza las 3 fuentes de Google de J.1.16):**
+fuente nativa del sistema — `--font-system:
+-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif` en
+`src/app/globals.css`, sin `next/font/google`, sin `layout.tsx` cargando
+ningún archivo de fuente. En iPhone renderiza con **SF Pro real** (la fuente
+nativa de iOS) — cero descarga, cero flash de fuente. `--font-display`,
+`--font-sans` y `--font-mono` apuntan los 3 al mismo stack; la jerarquía
+visual (títulos, números hero) se logra con `font-weight`/tamaño, no con una
+familia separada — confirmado con Playwright que el `font-family` computado
+en el DOM renderizado es el stack del sistema (mismo chequeo que J.1.16 hizo
+para Big Shoulders/IBM Plex, y que J.1.15 hizo para el bug de Geist).
+`font-mono` (usado en todo monto, patrón `tabular-nums font-mono` ya
+extendido por la app) alinea dígitos vía una regla nueva
+`.font-mono { font-variant-numeric: tabular-nums }` en `globals.css`, sin
+depender de una fuente monoespaciada dedicada.
 
 Escala: título de pantalla `font-display font-extrabold text-2xl` (uppercase);
 número hero `font-display font-extrabold text-3xl`–`text-[42px]`; cuerpo
@@ -1318,12 +1422,22 @@ sesión). `size={18-26}` según contexto. Los emoji elegidos por el usuario
 
 **Gráficos:** Recharts (ya en el stack desde J.1.14) — Pie/Bar/Line con
 `Tooltip` real (nunca gráficos "mudos") y colores tomados de los tokens
-`fz-accent`/`fz-negative` (nunca una paleta desaturada). Patrón para
-pasar interactividad de un gráfico (Client Component) a la URL que vive en
-un Server Component: pasar los PARAMS actuales (objeto serializable), nunca
-una función/closure — Next.js rechaza pasar funciones de Server a Client
-Components en runtime (bug real encontrado y corregido en esta sesión, ver
-`docs/lecciones-aprendidas.md`).
+`fz-accent`/`fz-negative`, o de `CHART_PALETTE` para series categóricas
+(torta por categoría) — 8 colores fijos curados a mano
+(`src/components/charts/CategoryPieChart.tsx`, Sesión J.1.17, TAREA 3;
+reemplaza el hue oklch aleatorio de J.1.16, que se veía "poco profesional").
+Componentes de gráfico compartidos (`src/components/charts/`) para no
+duplicar el render entre /movimientos y el resumen de Inicio:
+`CategoryPieChart` (torta + leyenda, click filtra), `MonthlyComparativaChart`
+(barras gastos/ingresos). Series por moneda (ARS/USD) nunca se suman entre
+sí — un pill toggle (mismo patrón que `PortfolioValueToggle` de
+/inversiones) decide cuál mostrar, un solo bloque en vez de un gráfico
+duplicado por moneda (J.1.17, TAREA 3). Patrón para pasar interactividad de
+un gráfico (Client Component) a la URL que vive en un Server Component:
+pasar los PARAMS actuales (objeto serializable), nunca una función/closure —
+Next.js rechaza pasar funciones de Server a Client Components en runtime
+(bug real encontrado y corregido en Sesión J.1.16, ver
+`docs/lecciones-aprendidas.md §38`).
 
 **Prohibido explícitamente (verificado que no aparece):** dark mode con
 acento dorado/ámbar, gradientes decorativos, glassmorphism, todo centrado,

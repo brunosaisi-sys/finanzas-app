@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
@@ -5,7 +6,12 @@ import EyeToggle from "@/components/EyeToggle";
 import { Money } from "@/components/Money";
 import { formatCurrency, formatARS, formatUSD } from "@/lib/format";
 import { getLeafAccounts } from "@/lib/accounts";
-import { AlertTriangle, CreditCard, Wallet, Home as HomeIcon, TrendingUp, Receipt, Settings } from "lucide-react";
+import { AlertTriangle, CreditCard, Wallet, Home as HomeIcon, Target, Receipt, Settings } from "lucide-react";
+import InicioResumen from "./_components/InicioResumen";
+import { fetchCategoryTotalsByCurrency, fetchMonthlyComparativa } from "@/lib/queries/movimientosSummary";
+import { fetchInvestmentsSummary } from "@/lib/queries/investmentsSummary";
+import { FciPortfolioSummary } from "./inversiones/_components/FciRatesSection";
+import InversionesChart from "./inversiones/_components/InversionesChart";
 import type { Account, Currency } from "@/types";
 
 // Sesión J.1.12, TAREA 5 — la ocurrencia de un día de mes (closing_day/due_day,
@@ -44,30 +50,46 @@ export default async function DashboardPage() {
   reminderCutoff.setDate(reminderCutoff.getDate() - UNDISTRIBUTED_REMINDER_DAYS);
   const reminderCutoffStr = reminderCutoff.toISOString().split("T")[0];
 
-  const [{ data: accounts }, { data: monthExpenses }, { data: recentExpenses }, { data: undistributedSueldos }] =
-    await Promise.all([
-      supabase.from("accounts").select("*").order("created_at"),
-      supabase
-        .from("expenses")
-        .select("amount, currency")
-        .gte("date", firstDay)
-        .lte("date", lastDay),
-      supabase
-        .from("expenses")
-        .select(
-          "id, amount, currency, merchant, description, date, categories(name, icon)"
-        )
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(5),
-      supabase
-        .from("incomes")
-        .select("id, amount, currency, date")
-        .eq("type", "sueldo")
-        .eq("distributed", false)
-        .lte("date", reminderCutoffStr)
-        .order("date", { ascending: false }),
-    ]);
+  // TAREA 4 (Sesión J.1.17): resumen con gráfico (Gastos/Comparativa/
+  // Inversiones) — mismas queries/lógica que /movimientos y /inversiones,
+  // reusadas vía lib/queries/ para no duplicarlas (ver InicioResumen).
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  const [
+    { data: accounts },
+    { data: monthExpenses },
+    { data: recentExpenses },
+    { data: undistributedSueldos },
+    categoryDataByCurrency,
+    monthlyComparativa,
+    investmentsSummary,
+  ] = await Promise.all([
+    supabase.from("accounts").select("*").order("created_at"),
+    supabase
+      .from("expenses")
+      .select("amount, currency")
+      .gte("date", firstDay)
+      .lte("date", lastDay),
+    supabase
+      .from("expenses")
+      .select(
+        "id, amount, currency, merchant, description, date, categories(name, icon)"
+      )
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(5),
+    supabase
+      .from("incomes")
+      .select("id, amount, currency, date")
+      .eq("type", "sueldo")
+      .eq("distributed", false)
+      .lte("date", reminderCutoffStr)
+      .order("date", { ascending: false }),
+    fetchCategoryTotalsByCurrency(supabase, firstDay, lastDay),
+    fetchMonthlyComparativa(supabase),
+    fetchInvestmentsSummary(supabase, monthStart, now),
+  ]);
+  const { holdings: investmentHoldings, portfolioLinePoints } = investmentsSummary;
 
   // TAREA 8 (Sesión J.1.15): "Te deben $X de N personas" — gastos compartidos
   // sin cobrar, agrupados por moneda (nunca sumados entre monedas, TAREA 3/8
@@ -259,6 +281,23 @@ export default async function DashboardPage() {
           </p>
         )}
       </section>
+
+      {/* TAREA 4 (Sesión J.1.17): resumen con gráfico — tabs Gastos/
+          Comparativa/Inversiones, mismo concepto que la sección "Resumen"
+          del prototipo de Claude Design. */}
+      <InicioResumen
+        categoryDataByCurrency={categoryDataByCurrency}
+        monthlyComparativa={monthlyComparativa}
+        hasInvestments={investmentHoldings.length > 0}
+        inversionesSlot={
+          <>
+            <Suspense fallback={null}>
+              <FciPortfolioSummary holdings={investmentHoldings} />
+            </Suspense>
+            <InversionesChart points={portfolioLinePoints} />
+          </>
+        }
+      />
 
       {/* Tarjetas sin cierre/vencimiento configurado — aviso persistente, no es
           un banner de fecha próxima (Sesión J.1.12, TAREA 5b). */}
@@ -507,9 +546,9 @@ export default async function DashboardPage() {
             <HomeIcon size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
             <p className="text-xs font-medium text-fz-text">Bienes</p>
           </Link>
-          <Link href="/inversiones" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
-            <TrendingUp size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
-            <p className="text-xs font-medium text-fz-text">Inversiones</p>
+          <Link href="/objetivos" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
+            <Target size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
+            <p className="text-xs font-medium text-fz-text">Metas</p>
           </Link>
         </div>
       </section>
