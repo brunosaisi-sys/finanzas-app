@@ -82,7 +82,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
         {isCredito ? (
           <div className="bg-gray-50 rounded-lg px-3 py-2">
             <p className="text-sm font-semibold text-gray-900">
-              {formatInputAmount(Math.round(expense.amount).toString(), "ARS")}
+              {formatInputAmount(expense.amount.toString(), "ARS")}
             </p>
             <p className="text-[11px] text-gray-400 mt-0.5">
               El monto de gastos en cuotas no se puede editar
@@ -97,7 +97,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
                 value={amount}
                 onChange={setAmount}
                 placeholder="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
               />
             ) : (
               <input
@@ -108,7 +108,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
                 step="any"
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
               />
             )}
             {amount && expense.currency === "ARS" && (
@@ -138,7 +138,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
           value={merchant}
           onChange={(e) => setMerchant(e.target.value)}
           placeholder="Ej: Carrefour, YPF"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         />
       </div>
 
@@ -148,7 +148,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
         <select
           value={categoryId}
           onChange={(e) => setCategoryId(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         >
           <option value="">Sin categoría</option>
           {categories.map((cat) => (
@@ -168,7 +168,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
           type="text"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         />
       </div>
 
@@ -180,7 +180,7 @@ export default function EditExpenseForm({ expense, accounts, categories }: Props
           required
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         />
       </div>
 

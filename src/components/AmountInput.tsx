@@ -18,6 +18,11 @@ interface Props {
 // con montos reales que sí tienen centavos (ej. cuotas divididas). Acepta hasta
 // 2 decimales, con "," o "." como separador decimal (ambos se normalizan a "."
 // en el valor interno, que es el que consume parseFloat en los server actions).
+// Sesión J.1.19: ese fix arreglaba el parseo, pero `inputMode="numeric"` sigue
+// mostrando el teclado tipo-teléfono en iOS (sin tecla "," ni "."), así que en
+// un iPhone real seguía siendo imposible tipear decimales — invisible en QA
+// porque Playwright escribe el valor directo, sin pasar por el teclado nativo.
+// `inputMode="decimal"` es el que sí incluye separador decimal en iOS/Android.
 export default function AmountInput({
   value,
   onChange,
@@ -50,7 +55,7 @@ export default function AmountInput({
   return (
     <input
       type="text"
-      inputMode="numeric"
+      inputMode="decimal"
       required={required}
       value={displayValue}
       onChange={handleChange}

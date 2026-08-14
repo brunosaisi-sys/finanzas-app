@@ -93,13 +93,6 @@ export default async function CuentasPage() {
     fciHoldingsList.map((h) => [h.id, h.ticker ?? h.name])
   );
 
-  // Auto-sync: si el VCP del feed difiere del current_price almacenado,
-  // llama sync_holding_balance RPC que actualiza holdings + accounts.balance de forma atómica.
-  // Throttle natural: el feed está cacheado 6h. El RPC no se llama si el precio no cambió.
-  const updatedPrices = await autoSyncFciHoldings(supabase, fciHoldingsList);
-  // Mapa quantity para calcular el nuevo saldo en memoria (evita re-fetch)
-  const holdingQuantityMap = new Map(fciHoldingsList.map((h) => [h.id, h.quantity]));
-
   // ─── Catálogo de fondos por institución (Sesión J.1.7, TAREA 2) ─────────────
   // Solo para cuentas sin holding vinculado aún, cuya institución matchea una de
   // las 5 verificadas (ver docs/lecciones-aprendidas.md §21). Un solo fetch del
@@ -115,6 +108,36 @@ export default async function CuentasPage() {
     if (instId) institutionsNeeded.set(instId, a.id);
   }
 
+  // Sesión J.1.19, TAREA 3: estas 3 llamadas (auto-sync FCI, histórico de precios,
+  // catálogo de fondos por institución) no dependen una de la otra — antes corrían
+  // en secuencia (3 round-trips encadenados a Supabase/ArgentinaDatos), que medido
+  // con Playwright era el principal contribuyente a los ~2-3s de /cuentas. Ahora
+  // corren en paralelo. `.catch(() => null)` preserva el comportamiento "best-effort"
+  // que antes daba el try/catch de historyRows (holding_price_history puede no
+  // existir todavía) sin que un rechazo tumbe el Promise.all completo.
+  const [updatedPrices, historyRows, raw] = await Promise.all([
+    // Auto-sync: si el VCP del feed difiere del current_price almacenado, llama
+    // sync_holding_balance RPC que actualiza holdings + accounts.balance de forma
+    // atómica. Throttle natural: el feed está cacheado 6h.
+    autoSyncFciHoldings(supabase, fciHoldingsList),
+    fciHoldingsList.length > 0
+      ? Promise.resolve(
+          supabase
+            .from("holding_price_history")
+            .select("holding_id, price, recorded_at")
+            .in(
+              "holding_id",
+              fciHoldingsList.map((h) => h.id)
+            )
+        )
+          .then((r) => r.data)
+          .catch(() => null)
+      : Promise.resolve(null),
+    institutionsNeeded.size > 0 ? fetchAllFciFundsRaw() : Promise.resolve(null),
+  ]);
+  // Mapa quantity para calcular el nuevo saldo en memoria (evita re-fetch)
+  const holdingQuantityMap = new Map(fciHoldingsList.map((h) => [h.id, h.quantity]));
+
   // Rendimiento 30d de cada holding FCI a partir de su histórico propio
   // (holding_price_history, migración 022). Se calcula para TODOS los holdings FCI
   // del usuario — no solo los que matchean el catálogo de una institución — porque
@@ -126,34 +149,22 @@ export default async function CuentasPage() {
   // inventa un valor (docs/01-fundamentos-teoricos.md §8.5).
   const holdingReturnByHoldingId = new Map<string, number | null>();
   if (fciHoldingsList.length > 0) {
-    try {
-      const { data: historyRows } = await supabase
-        .from("holding_price_history")
-        .select("holding_id, price, recorded_at")
-        .in(
-          "holding_id",
-          fciHoldingsList.map((h) => h.id)
-        );
-      const historyByHolding = new Map<string, PricePoint[]>();
-      for (const row of historyRows ?? []) {
-        const arr = historyByHolding.get(row.holding_id) ?? [];
-        arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
-        historyByHolding.set(row.holding_id, arr);
-      }
-      for (const h of fciHoldingsList) {
-        const history = historyByHolding.get(h.id);
-        if (history) holdingReturnByHoldingId.set(h.id, calcHoldingReturn(history));
-      }
-    } catch {
-      // holding_price_history todavía no existe (migración 022 pendiente) — sin rendimiento, no bloquea
+    const historyByHolding = new Map<string, PricePoint[]>();
+    for (const row of historyRows ?? []) {
+      const arr = historyByHolding.get(row.holding_id) ?? [];
+      arr.push({ price: Number(row.price), recorded_at: row.recorded_at });
+      historyByHolding.set(row.holding_id, arr);
+    }
+    for (const h of fciHoldingsList) {
+      const history = historyByHolding.get(h.id);
+      if (history) holdingReturnByHoldingId.set(h.id, calcHoldingReturn(history));
     }
   }
 
   const fciCatalogByInstitution = new Map<string, FciFundGroup[]>();
   if (institutionsNeeded.size > 0) {
-    const raw = await fetchAllFciFundsRaw();
     for (const instId of institutionsNeeded.keys()) {
-      fciCatalogByInstitution.set(instId, groupFundsForInstitution(raw, instId));
+      fciCatalogByInstitution.set(instId, groupFundsForInstitution(raw ?? [], instId));
     }
 
     // Rendimiento 30d en el catálogo: solo si el usuario ya tiene, en cualquier

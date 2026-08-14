@@ -13,7 +13,6 @@ import type { DepItem } from "../actions";
 import Link from "next/link";
 import type { AccountType, Currency } from "@/types";
 import FciFundSelector, { type FciFundOption } from "./FciFundSelector";
-import { calcAnnualizedReturn } from "@/lib/finance/holdingReturn";
 
 const TYPE_OPTIONS: { value: AccountType; label: string }[] = [
   { value: "banco", label: "Banco / Billetera" },
@@ -249,16 +248,6 @@ export default function CuentaActions({
                     {(linkedHoldingReturn30d * 100).toFixed(1)}% · 30d
                   </span>
                 )}
-                {/* TNA estimada — proyección lineal del 30d (§8.7 fundamentos),
-                    Sesión J.1.13, TAREA 6. Nunca reemplaza al 30d real, va al lado. */}
-                {holdingIdEdit === holdingId &&
-                  calcAnnualizedReturn(linkedHoldingReturn30d) != null && (
-                    <span className="text-[10px] text-gray-400 tabular-nums shrink-0">
-                      · TNA est.{" "}
-                      {calcAnnualizedReturn(linkedHoldingReturn30d)! >= 0 ? "+" : ""}
-                      {(calcAnnualizedReturn(linkedHoldingReturn30d)! * 100).toFixed(0)}%
-                    </span>
-                  )}
                 <button
                   type="button"
                   onClick={() => setHoldingIdEdit(null)}
@@ -270,12 +259,11 @@ export default function CuentaActions({
               <p className="text-[10px] text-gray-400 leading-snug">
                 El saldo se actualizará automáticamente cuando se sincronice el VCP del fondo.
               </p>
-              {holdingIdEdit === holdingId &&
-                calcAnnualizedReturn(linkedHoldingReturn30d) != null && (
-                  <p className="text-[10px] text-gray-400 leading-snug">
-                    TNA est.: proyectada del último mes, no garantizada.
-                  </p>
-                )}
+              {holdingIdEdit === holdingId && linkedHoldingReturn30d != null && (
+                <p className="text-[10px] text-gray-400 leading-snug">
+                  Rendimiento realizado — la app no tiene acceso a la TNA oficial del fondo.
+                </p>
+              )}
             </div>
           )}
 

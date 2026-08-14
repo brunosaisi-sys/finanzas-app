@@ -266,7 +266,7 @@ export default function ExpenseForm({
                 value={amount}
                 onChange={setAmount}
                 placeholder="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
               />
             ) : (
               <input
@@ -278,7 +278,7 @@ export default function ExpenseForm({
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 placeholder="0"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900 text-right text-lg font-semibold"
               />
             )}
             {amount && currency === "ARS" && (
@@ -482,7 +482,7 @@ export default function ExpenseForm({
           value={merchant}
           onChange={(e) => setMerchant(e.target.value)}
           placeholder="Ej: Carrefour, YPF, Rappi, Farmacity"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         />
         {merchants.length > 0 && (
           <datalist id="merchant-list">
@@ -505,7 +505,7 @@ export default function ExpenseForm({
             }
             setCategoryId(e.target.value);
           }}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         >
           <option value="">Sin categoría</option>
           {categoriesList.map((cat) => (
@@ -524,7 +524,7 @@ export default function ExpenseForm({
               value={newCategoryName}
               onChange={(e) => setNewCategoryName(e.target.value)}
               placeholder="Nombre de la categoría"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
             />
             <div className="grid grid-cols-8 gap-1">
               {NEW_CATEGORY_ICONS.map((emoji) => (
@@ -572,7 +572,7 @@ export default function ExpenseForm({
           required
           value={date}
           onChange={(e) => setDate(e.target.value)}
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         />
       </div>
 
@@ -587,7 +587,7 @@ export default function ExpenseForm({
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder="Ej: Compra semanal"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
+          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gray-900 bg-white text-gray-900"
         />
       </div>
 

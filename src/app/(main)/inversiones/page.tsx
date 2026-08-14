@@ -10,7 +10,7 @@ import HoldingPositionEdit from "./_components/HoldingPositionEdit";
 import DeleteHoldingButton from "./_components/DeleteHoldingButton";
 import InversionesChart from "./_components/InversionesChart";
 import { FciRateCell, FciPortfolioSummary } from "./_components/FciRatesSection";
-import { calcHoldingReturn, calcAnnualizedReturn } from "@/lib/finance/holdingReturn";
+import { calcHoldingReturn } from "@/lib/finance/holdingReturn";
 import { fetchInvestmentsSummary } from "@/lib/queries/investmentsSummary";
 
 const ASSET_LABELS: Record<string, string> = {
@@ -192,7 +192,6 @@ export default async function InversionesPage({
             const pnlPct =
               pnl != null && cost > 0 ? (pnl / cost) * 100 : null;
             const periodReturn = returnByHolding.get(holding.id) ?? null;
-            const tnaEstimada = calcAnnualizedReturn(periodReturn);
             const isFci = holding.asset_type === "fci";
 
             return (
@@ -234,16 +233,10 @@ export default async function InversionesPage({
                             {periodReturn >= 0 ? "+" : ""}
                             {(periodReturn * 100).toFixed(1)}% · {periodLabel}
                           </span>
-                          {tnaEstimada != null && (
-                            <span className="text-fz-text-tertiary ml-1.5 font-sans">
-                              TNA estimada {tnaEstimada >= 0 ? "+" : ""}
-                              {(tnaEstimada * 100).toFixed(0)}%
-                            </span>
-                          )}
                         </p>
-                        {tnaEstimada != null && (
+                        {isFci && (
                           <p className="text-[10px] text-fz-text-tertiary">
-                            proyectada del último mes, no garantizada
+                            rendimiento realizado — la app no tiene acceso a la TNA oficial del fondo
                           </p>
                         )}
                       </div>

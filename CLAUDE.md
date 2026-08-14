@@ -972,6 +972,123 @@ Ver [docs/historial-sesiones.md](docs/historial-sesiones.md) para el detalle com
   solas a `isPublicPath`; probarlas siempre con navegación directa sin
   sesión, no solo vía link interno).
 
+- **Sesión J.1.19 — 7 tareas: regresión crítica de decimales + lentitud +
+  contraste + password/Google + overflow + TNA (commit pendiente):**
+  T1 (CRÍTICO — decimales en monto de gasto): la lógica de parseo de
+  `AmountInput.tsx` (fix de J.1.14) seguía siendo correcta — no hubo
+  regresión de código ahí. La causa real: `inputMode="numeric"` (presente
+  desde el mismo commit de J.1.14) le pide a iOS el teclado tipo-teléfono,
+  **sin tecla de coma ni punto** — un usuario real nunca pudo tipear
+  decimales en el campo ARS, aunque `ExpenseForm.tsx` ya usaba
+  `inputMode="decimal"` correctamente para el input nativo de USD al lado.
+  Invisible en todo el QA anterior porque Playwright siempre usó
+  `.fill()`/teclado físico, que no pasa por el teclado virtual real. Fix:
+  `inputMode="decimal"` en `AmountInput.tsx`. De paso corregido:
+  `EditExpenseForm.tsx` todavía redondeaba a entero el monto de cuotas de
+  crédito en su vista de solo-lectura (residuo, no afecta al monto
+  editable). Test de regresión nuevo: `AmountInput.test.tsx` (jsdom,
+  `jest-environment-jsdom` agregado como devDependency), verifica el
+  atributo `inputMode` directamente — no solo el parseo — para que este
+  bug específico no pueda volver a colarse en silencio. Ver
+  `docs/lecciones-aprendidas.md §42`.
+  T2 (zoom automático de iOS): causa real distinta a la teorizada —
+  `text-lg` (18px) ya era suficiente, pero varios inputs de monto
+  (`ExpenseForm.tsx`, `EditExpenseForm.tsx`, `HoldingForm.tsx`) tenían
+  `text-sm` Y `text-lg` en la misma clase (conflicto silencioso, dependía
+  del orden interno del CSS generado por Tailwind). Se sacó el `text-sm`
+  redundante — el font-size real queda inequívocamente en 18px, confirmado
+  con Playwright (`getComputedStyle`).
+  T3 (lentitud de navegación, 2-3s): medido con Playwright contra
+  `next start` real (Performance API, no teoría): `/inversiones` ~2.9s,
+  `/cuentas` ~2.1s — bastante más que `/movimientos`/`/gastos/nuevo`
+  (~1-1.4s). Causa: 2-3 llamadas a Supabase/ArgentinaDatos en secuencia
+  (`fetchInvestmentsSummary`, y por separado en `/cuentas`) que no
+  dependían entre sí, sumando su latencia de red en vez de correr en
+  paralelo. Fix: `Promise.all` en `src/lib/queries/investmentsSummary.ts`
+  y `src/app/(main)/cuentas/page.tsx`. Medido de nuevo tras el fix:
+  `/inversiones` 2901ms→1444ms, `/cuentas` 2070ms→1044ms (~50% menos, misma
+  máquina/datos/build). `/movimientos` y `/gastos/nuevo` (el camino más
+  usado) ya estaban bien y no se tocaron. Ver
+  `docs/lecciones-aprendidas.md §43`.
+  T4 (contraste modo oscuro): causa real confirmada en `globals.css` —
+  `body { color: var(--fz-text) }` (necesario para el sistema `fz-*`) se
+  hereda por cascada a CUALQUIER texto, incluidas las ~24 rutas no
+  migradas al sistema de diseño (Comercio/Categoría/Nota entre ellas, que
+  nunca tuvieron `text-gray-900` explícito porque antes no hacía falta).
+  Fix: `bg-white text-gray-900` explícitos en Comercio/Categoría/Nota/Fecha
+  de `ExpenseForm.tsx` y `EditExpenseForm.tsx` — corrección puntual, no
+  migración de diseño (la piel visual completa de esas rutas sigue fuera
+  de alcance, decisión ya tomada en J.1.16/17). El mismo patrón late en
+  otros 14 archivos del proyecto — documentado sin tocar, ver
+  `docs/lecciones-aprendidas.md §44`.
+  T5a (password recovery en producción): confirmado con `git log
+  origin/main` que el commit `73865ec` (fix de J.1.18) **sí llegó a
+  GitHub** — `git status -sb` mostró `main` sincronizado con
+  `origin/main`, así que Vercel debería haber redesplegado automáticamente
+  (según `docs/deploy-produccion.md`). Re-verificado con `curl` contra el
+  build de producción local (mismo código que está en `origin/main`):
+  `/forgot-password` sigue en 200, `/reset-password` sigue redirigiendo
+  correctamente — el fix de código sigue intacto, ningún commit posterior
+  lo tocó. **No se pudo probar la URL real de Vercel** (no está
+  documentada en el repo ni disponible en este entorno) — si el usuario
+  sigue viendo el bug en producción, lo más probable no es el código sino
+  el Paso 3 de `docs/deploy-produccion.md` (Redirect URLs de Supabase para
+  el dominio de producción), que es un paso manual en el dashboard de
+  Supabase que Claude Code no puede ejecutar ni verificar.
+  T5b (login con Google): se encontró que el commit `5dcccc4` (hecho por
+  el usuario directamente, fuera de Claude Code) que agregó
+  `signInWithOAuth` a `/login` **no pisó ningún rediseño fz-\***  — se
+  comparó contra el commit anterior (`73865ec`) con `git diff` y el único
+  cambio real es la función `loginConGoogle` + el botón + el divisor "O
+  continuá con"; el resto de `/login` usa las mismas clases `gray-900`/
+  `bg-white` de siempre (esa ruta nunca estuvo en el alcance de la
+  migración `fz-*` de J.1.16/17, a diferencia de lo que asumía el brief de
+  esta sesión). Conclusión: no había nada que "reintegrar". Verificado con
+  Playwright que el botón "Google" dispara `signInWithOAuth` y redirige de
+  verdad a `accounts.google.com` con `redirect_uri` apuntando al callback
+  de Supabase correcto; `/auth/callback` ya soportaba el flujo (sin
+  cambios, confirmado leyendo el código). Nota aparte: ese mismo commit
+  subió la carpeta `Diseño/` al repo — Sesión J.1.16 había decidido
+  explícitamente NO versionarla (material de referencia, no código de
+  producto). No se tocó el tracking de git de esa carpeta en esta sesión
+  (fue una acción directa del usuario, no de Claude Code) — queda
+  señalado acá para que el usuario decida si la saca del repo.
+  T6 (overflow de botones de gráfico en `/movimientos`): confirmado en
+  `MovimientosCharts.tsx` — el título y el grupo de botones (Torta/Barras/
+  Línea + toggle ARS/USD) compartían `shrink-0`, así que ninguno cedía
+  espacio; con las 3 pestañas y el toggle de moneda activos a la vez en
+  390px, el conjunto no entraba. Fix: el título ahora trunca (`truncate
+  min-w-0 flex-1`), los botones (interactivos) nunca se achican.
+  Verificado con Playwright a 390px: `scrollWidth === clientWidth`, sin
+  overflow horizontal.
+  T7 (TNA real para FCI): investigado con fuentes citadas — el feed de
+  ArgentinaDatos que ya usa la app no expone ningún campo de tasa anual
+  declarada (confirmado contra su documentación pública, mismo hallazgo
+  que la lección §17 pero ahora específico al campo TNA); la API de CAFCI
+  (la fuente primaria real) no tiene una API pública, documentada y
+  estable — solo tooling de terceros no oficial. Sin fuente gratuita real,
+  se retiró la proyección "TNA estimada" (`calcAnnualizedReturn`, código
+  muerto eliminado junto a sus tests) de `/inversiones` y de la vista de
+  cuenta vinculada en `/cuentas` — ambas muestran ahora solo el
+  rendimiento REALIZADO del período, con el texto "la app no tiene acceso
+  a la TNA oficial del fondo". Decisión y fuentes documentadas en
+  `docs/01-fundamentos-teoricos.md §8.7` (reescrita, ya no describe una
+  fórmula vigente sino por qué se retiró).
+  **QA con Playwright headed (`headless:false, slowMo:300`) contra el
+  build de producción real, un solo script cubriendo las 7 tareas con
+  evidencia real de Supabase:** botón Google → redirige a
+  `accounts.google.com` de verdad; `/forgot-password`/`/reset-password`
+  sin sesión, ambos correctos; `inputMode="decimal"` confirmado + "1234,56"
+  tipeado con `page.keyboard.type` (no `.fill()`) → gasto guardado en
+  Supabase con `amount=1234.56` exacto (verificado por REST, limpiado con
+  `delete_expense_with_balance`); font-size del monto = 18px; Comercio en
+  modo oscuro con color de texto distinto del fondo; `/movimientos` a
+  390px sin overflow; cero apariciones de "TNA" en `/inversiones`/
+  `/cuentas`. **Cierre:** tsc limpio, build limpio (29 rutas), 84/84 tests
+  unitarios verdes (4 nuevos en `AmountInput.test.tsx`, 4 eliminados de
+  `holdingReturn.test.ts` junto con `calcAnnualizedReturn`). Scripts de
+  QA y capturas temporales eliminados.
+
 - **Sesión J.2 — Inversiones:** implementar TWR (§8 fundamentos); precio promedio derivado
   de monto/cantidad (no campo obligatorio); rendimiento de fondos en billeteras/bancos;
   rediseño de orden de campos en formulario (Precio antes de Cantidad — ver
@@ -1187,9 +1304,11 @@ Migraciones ejecutadas:
   `confirmDistributionWithContributions` (llama RPC migración 011, actualizada en 024 para
   debitar la cuenta de origen antes de acreditar destinos — movimiento neutro), `updateEmergencyFund`,
   `redirectToDistribute`, `setEmergencyFundAmount` (SET directo de current_amount, no +=)
-- `AmountInput` (`src/components/AmountInput.tsx`) — `type="text" inputMode="numeric"`;
-  dígitos crudos mientras escribe (evita conflicto de cursor); `Intl.NumberFormat("es-AR",
-  { maximumFractionDigits: 0 })` al blur; solo enteros ARS
+- `AmountInput` (`src/components/AmountInput.tsx`) — `type="text" inputMode="decimal"`
+  (Sesión J.1.19: era `"numeric"`, que en iOS no tiene tecla de coma/punto — ver
+  `docs/lecciones-aprendidas.md §42`); dígitos crudos mientras escribe (evita conflicto
+  de cursor); acepta hasta 2 decimales ("," o "." como separador); `Intl.NumberFormat
+  ("es-AR", { maximumFractionDigits: 2 })` al blur. Test de regresión: `AmountInput.test.tsx`
 - `inversiones/_components/HoldingPriceEdit.tsx` — Ciclo idle→edit→saving; llama
   `updateHoldingPrice` server action + `router.refresh()`
 - `inversiones/_components/HoldingPositionEdit.tsx` — Sesión J.1.13: ciclo idle→edit→saving,

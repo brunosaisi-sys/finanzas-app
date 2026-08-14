@@ -97,7 +97,12 @@ export default function MovimientosCharts({
   return (
     <div className="bg-fz-surface border border-fz-border rounded-2xl p-4">
       <div className="flex items-center justify-between mb-3.5 gap-2">
-        <p className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide shrink-0">
+        {/* Sesión J.1.19, TAREA 6: título y controles compartían `shrink-0`, así
+            que ninguno cedía espacio — con torta/barras/línea + toggle USD
+            activos a la vez, el grupo de botones se cortaba en viewport móvil
+            (390px). El título puede truncar (es solo un label), los botones
+            (interactivos) nunca deben achicarse ni recortarse. */}
+        <p className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide truncate min-w-0 flex-1">
           {chartType === "pie" && "Gastos por categoría"}
           {chartType === "bar" && "Gastos vs. ingresos (6 meses)"}
           {chartType === "line" && "Gasto acumulado del período"}

@@ -436,32 +436,46 @@ precio de compra real puede diferir si hubo múltiples compras a precios distint
 roadmap Sesión J.4, `docs/lecciones-aprendidas.md`); este modo asume una única compra al
 precio implícito calculado.
 
-### 8.7 TNA estimada — proyección lineal del retorno de 30 días (Sesión J.1.13)
+### 8.7 TNA estimada — retirada (Sesión J.1.13, revertida en J.1.19)
 
-> Implementado en `calcAnnualizedReturn` (`src/lib/finance/holdingReturn.ts`), a
-> partir del retorno de 30 días de §8.5.
+**Historial:** entre la Sesión J.1.13 y J.1.19 la app mostró una "TNA
+estimada" (`calcAnnualizedReturn`, `retorno_30d × 365/30`) junto al
+rendimiento realizado de cada holding FCI — una proyección lineal explícita
+("a este ritmo, así vendría rindiendo en un año"), etiquetada como no
+garantizada.
 
-El usuario quiere ver el mismo tipo de estimación que ya muestran apps de
-referencia como Mercado Pago o Cocos en sus propias pantallas: una proyección de
-"a este ritmo, así vendría rindiendo en un año", no una tasa contractual. Se
-calcula escalando linealmente el retorno de 30 días ya calculado (§8.5):
+**Por qué se retiró (Sesión J.1.19, TAREA 7):** el usuario pidió investigar
+si existe una fuente gratuita que exponga la TNA/tasa REAL declarada por el
+fondo (no un cálculo propio a partir del VCP), para reemplazar la proyección
+por el dato oficial. Investigación con fuentes citadas:
 
-```
-tna_estimada = retorno_30d × (365 / 30)
-```
+- El feed de ArgentinaDatos que ya usa la app (`/api/finanzas/fci/*`, ver
+  §8.5) documenta su schema como `{fondo, tipo, fecha, vcp, ccp, patrimonio,
+  horizonte}` — confirmado consultando la documentación pública
+  (`argentinadatos.com/docs/operations/get-finanzas-fci-renta-fija-fecha`).
+  **No expone ningún campo de tasa anual declarada**, solo el valor de
+  cuotaparte (mismo hallazgo que la lección §17, ahora confirmado también
+  para el campo TNA específicamente).
+- CAFCI (Cámara Argentina de Fondos Comunes de Inversión, la fuente primaria
+  real de estos datos) no publica una API pública, documentada y estable.
+  Lo único encontrado es tooling de terceros no oficial y no documentado
+  (ej. `github.com/fedemoglia/cafci-api`, scripts para Google Sheets sin
+  endpoints ni contrato publicados) — no cumple la barra de "fuente
+  confiable" del proyecto (misma regla aplicada en la lección §37: no
+  integrar una fuente que no se pueda citar con confianza).
 
-**Es una proyección lineal, no una tasa garantizada.** No es TIR, no es
-interés compuesto proyectado, ni un promedio histórico — es literalmente el
-desempeño de los últimos 30 días, escalado a un año calendario, asumiendo
-(sin ninguna base estadística) que el ritmo se mantiene constante. Un activo de
-renta variable puede tener un mes excepcionalmente bueno o malo que, anualizado
-así, da un número poco representativo — por eso se etiqueta explícitamente como
-"TNA estimada" con la aclaración "proyectada del último mes, no garantizada" en
-la UI, nunca como un dato prometido.
-
-**Regla dura (igual que §8.5):** si no hay retorno de 30 días (historial
-insuficiente), no hay nada que anualizar — la función devuelve `null` y la UI no
-muestra ningún número. Nunca se inventa ni se interpola.
+**Decisión (regla dura del proyecto — no inventar datos, §8.5):** sin una
+fuente gratuita real de la tasa declarada, la proyección anualizada se
+retira por completo — no se reemplaza por una fórmula alternativa sin
+fuente. `calcAnnualizedReturn` se eliminó de `src/lib/finance/holdingReturn.ts`
+(dead code tras el retiro de su único uso). `/inversiones` y la vista de
+cuenta vinculada en `/cuentas` (`CuentaActions.tsx`) muestran únicamente el
+**rendimiento realizado** del período (§8.5, ya implementado, sin cambios),
+con el texto "rendimiento realizado — la app no tiene acceso a la TNA
+oficial del fondo" en vez de cualquier extrapolación a un año. Si en el
+futuro aparece una fuente gratuita, documentada y estable para la tasa
+declarada, esta sección debe actualizarse citándola explícitamente antes de
+reintegrar cualquier proyección anualizada.
 
 ### 8.8 Evolución del valor del portafolio — aproximación por forward-fill (Sesión J.1.16)
 

@@ -1007,3 +1007,111 @@ sin loguearse antes en el mismo test), no solo el flujo feliz que empieza
 logueado o que llega ahí por un link interno — un link interno puede
 enmascarar el problema si el usuario que hace click ya tiene sesión activa
 en otra pestaña o cookie vieja no expirada.
+
+---
+
+## 42. `inputMode="numeric"` bloquea la tecla decimal en el teclado real de iOS — invisible para cualquier QA que use `.fill()`/`.type()`
+
+**Qué pasó:** El usuario reportó (Sesión J.1.19) que seguía sin poder
+cargar montos con decimales en un iPhone real, a pesar de que la Sesión
+J.1.14 ya había "arreglado" ese mismo bug. Investigando el historial de
+`AmountInput.tsx`, la lógica de parseo (acepta "," y ".", normaliza a 2
+decimales) nunca cambió desde J.1.14 y seguía siendo correcta — no hubo
+ninguna regresión de código ahí. El campo tenía `inputMode="numeric"`
+desde ese mismo commit de J.1.14.
+
+**Por qué:** `inputMode="numeric"` le pide a iOS/Android el teclado
+numérico tipo-teléfono (solo dígitos 0–9), que **no tiene tecla de coma ni
+de punto**. `inputMode="decimal"` es el que sí incluye un separador
+decimal. El propio `ExpenseForm.tsx` ya usaba `inputMode="decimal"` en el
+input nativo de montos en USD (`type="number"`) — la inconsistencia estaba
+solo en `AmountInput.tsx` (el usado para ARS, la moneda por defecto).
+Ninguna sesión anterior lo detectó porque todo el QA de este proyecto usa
+Playwright `page.fill()`/`.fill()` (setea el value del DOM directo) o
+escribe con teclado físico de escritorio — ninguno de los dos pasa por el
+teclado virtual real de iOS, que es el único lugar donde `inputMode`
+importa.
+
+**Qué hacer:** Para cualquier input numérico pensado para mobile,
+`inputMode="decimal"` si el usuario puede necesitar cargar centavos,
+`inputMode="numeric"` solo si el valor es estrictamente un entero (ej.
+cantidad de cuotas). El test de regresión (`AmountInput.test.tsx`) ahora
+verifica el atributo `inputMode` directamente en vez de solo la lógica de
+parseo — un test que solo cubre la función de parseo puede seguir en verde
+mientras el bug real (a nivel de atributo HTML / teclado del dispositivo)
+sigue ahí. Ver también: al escribir QA con Playwright para inputs
+numéricos, usar `page.keyboard.type()` sobre el elemento enfocado en vez
+de `.fill()` cuando lo que se quiere probar es justamente el
+comportamiento de tipeo — `.fill()` sigue sin simular el teclado virtual
+de iOS, pero al menos ejercita el `onChange` real en vez de setear el DOM
+por fuera de React.
+
+---
+
+## 43. Round-trips secuenciales a Supabase en Server Components — el mayor contribuyente a la lentitud percibida de navegación
+
+**Qué pasó:** El usuario reportó que las transiciones entre pantallas
+tardaban 2-3 segundos, "pesado para uso diario". Medido con Playwright
+contra el build de producción real (`next start`, Performance API,
+`page.goto({waitUntil:"load"})`): `/inversiones` tardaba ~2.9s y `/cuentas`
+~2.1s, mientras que `/movimientos` y `/gastos/nuevo` (que no comparten el
+código de sync de FCI) ya estaban en ~1-1.4s.
+
+**Por qué:** `fetchInvestmentsSummary` (usada por `/` y `/inversiones`) y
+la carga de `/cuentas` hacían 2-3 llamadas a Supabase/ArgentinaDatos EN
+SECUENCIA (`await` uno después del otro) que en realidad no dependían
+entre sí: la consulta de `holding_price_history` no necesita esperar a que
+termine el auto-sync de VCP (`autoSyncFciHoldings`) para poder correr — sólo
+necesita los IDs de los holdings, que ya se conocían desde el primer
+`select`. Cada round-trip a Supabase (base remota, sin instancia cercana)
+tiene un piso de latencia real de red de ~300-900ms; encadenar 3 de esos en
+vez de correrlos en paralelo con `Promise.all` era pura suma innecesaria de
+esa latencia.
+
+**Qué hacer:** Al agregar una consulta nueva dentro de un Server Component
+o de una función de `lib/queries/`, preguntarse explícitamente "¿esta
+consulta necesita el RESULTADO de la anterior, o solo corrió después por
+casualidad de cómo se escribió el código?" — si es lo segundo, va en el
+mismo `Promise.all`. `.catch(() => null)` (sobre un `Promise.resolve(...)`
+si el valor es un `PromiseLike` de Supabase, que no tiene `.catch` propio)
+preserva el comportamiento "best-effort" de un `try/catch` individual sin
+que un solo rechazo tumbe todo el batch. Aplicado en
+`src/lib/queries/investmentsSummary.ts` y `src/app/(main)/cuentas/page.tsx`:
+~50% de reducción medida en `/inversiones` (2901ms→1444ms) y `/cuentas`
+(2070ms→1044ms) sobre la misma máquina, mismos datos, mismo build.
+
+---
+
+## 44. `body { color: var(--fz-text) }` global se filtra a cualquier input sin color explícito de las rutas no migradas al sistema de diseño
+
+**Qué pasó:** El usuario reportó texto invisible (blanco sobre blanco) en
+los campos de Comercio, Categoría y Nota al cargar un gasto en modo
+oscuro.
+
+**Por qué:** `globals.css` define `body { color: var(--fz-text); }` —
+correcto y necesario para que el sistema de diseño `fz-*` (Sesión J.1.16)
+funcione en las rutas migradas. Pero `--fz-text` es casi blanco en modo
+oscuro (`.dark`), y esa regla se hereda por cascada a CUALQUIER texto de
+CUALQUIER ruta, migrada o no. Los inputs de `ExpenseForm.tsx`/
+`EditExpenseForm.tsx` (rutas explícitamente NO migradas — ver "Sistema de
+diseño" en CLAUDE.md) nunca tuvieron un `text-gray-900` explícito porque,
+en modo claro, el texto por defecto ya se veía negro (heredaba el negro
+por defecto del navegador, no un token). El bug estaba dormido desde antes
+de que existiera el dark mode — recién se activó cuando `body` empezó a
+declarar un `color` propio que sí cambia con el tema.
+
+**Qué hacer:** En una ruta que NO participa del sistema `fz-*` (todavía
+sin migrar), cualquier input de texto/select necesita `bg-white
+text-gray-900` EXPLÍCITOS — no alcanza con que "ya se viera bien" en modo
+claro, porque un `color` heredado sin especificar puede cambiar de golpe
+si un ancestro (como `body`) empieza a declarar el suyo. No se migran
+estas rutas al sistema `fz-*` completo en este fix (decisión de alcance ya
+tomada en J.1.16/17: la piel visual completa de las ~24 rutas restantes
+queda para una sesión dedicada) — el fix acá es puramente de corrección
+(texto legible), no de diseño. El mismo patrón (`border-gray-300` sin
+`bg-white`/`text-gray-900` explícitos) se encontró en otros 14 archivos
+del proyecto (grep: `border-gray-300 rounded-lg` sin color explícito) —
+no se tocaron todos en esta sesión (fuera del alcance reportado:
+categoría/comercio/nota), pero es el mismo bug latente en cualquiera de
+esas pantallas en modo oscuro. Documentado acá para no tener que
+redescubrirlo.
