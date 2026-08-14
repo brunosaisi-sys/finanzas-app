@@ -1,0 +1,1038 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  body{margin:0}
+  ::-webkit-scrollbar{display:none}
+  * { -ms-overflow-style: none; scrollbar-width: none; box-sizing: border-box; }
+</style>
+</helmet>
+
+<div style="width:100%;min-height:100vh;background:#0b0d0e;display:flex;align-items:center;justify-content:center;padding:48px 16px;font-family:'IBM Plex Sans',sans-serif">
+  <x-import component-from-global-scope="IOSDevice" from="./ios-frame.jsx" dark="{{ dark }}" width="402" height="874" hint-size="402,874">
+    <div style="width:100%;height:100%;display:flex;flex-direction:column;background:{{ c.bg }};color:{{ c.textPrimary }};font-family:'IBM Plex Sans',sans-serif;overflow:hidden;position:relative">
+
+      <div style="flex:1 1 auto;overflow-y:auto;padding-top:54px">
+
+        <!-- ===================== INICIO ===================== -->
+        <sc-if value="{{ isInicio }}" hint-placeholder-val="{{ true }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Inicio">
+          <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px">
+            <div>
+              <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:30px;letter-spacing:0.2px;color:{{ c.textPrimary }};line-height:1">FINANZAS</div>
+              <div style="font-size:13px;color:{{ c.textTertiary }};margin-top:3px">brunosaisi07@gmail.com</div>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center">
+              <div onClick="{{ toggleHide }}" style="width:38px;height:38px;border-radius:12px;background:{{ c.surface }};display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid {{ c.border }}">
+                {{ eyeIcon }}
+              </div>
+              <div onClick="{{ goConfig }}" style="width:38px;height:38px;border-radius:12px;background:{{ c.surface }};display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px solid {{ c.border }}">
+                {{ icons.gear }}
+              </div>
+            </div>
+          </div>
+
+          <div style="background:{{ c.surfaceHigh }};border-radius:22px;padding:22px;margin-bottom:16px">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }}">Saldo total consolidado</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:42px;letter-spacing:0.2px;margin-top:4px;color:{{ c.textPrimary }}">{{ totalARSDisplay }}</div>
+            <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:{{ c.textSecondary }};margin-top:4px">+ {{ totalUSDDisplay }} en dólares</div>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }};margin:4px 2px 8px">Avisos</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:22px">
+            <div onClick="{{ goDistribute }}" style="background:{{ c.accentSoft }};border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer">
+              <div style="width:34px;height:34px;border-radius:10px;background:{{ c.accent }};display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ icons.transfer }}</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:600;color:{{ c.textPrimary }}">Sueldo sin distribuir</div>
+                <div style="font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:{{ c.textSecondary }};margin-top:1px">{{ sueldoDisplay }} · 29 jun</div>
+              </div>
+              <div style="font-size:13px;font-weight:700;color:{{ c.accent }}">Distribuir →</div>
+            </div>
+            <div onClick="{{ goCuotas }}" style="background:{{ c.negativeSoft }};border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:pointer">
+              <div style="width:34px;height:34px;border-radius:10px;background:{{ c.negative }};display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ icons.card }}</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:600;color:{{ c.textPrimary }}">Mastercard sin vencimiento configurado</div>
+                <div style="font-size:13px;color:{{ c.textSecondary }};margin-top:1px">Configurá la fecha para no perderte un pago</div>
+              </div>
+              <div style="font-size:13px;font-weight:700;color:{{ c.negative }}">Configurar →</div>
+            </div>
+            <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 16px;display:flex;align-items:center;gap:12px">
+              <div style="width:34px;height:34px;border-radius:10px;background:{{ c.surfaceHigh }};display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ icons.card2 }}</div>
+              <div style="flex:1">
+                <div style="font-size:14px;font-weight:600;color:{{ c.textPrimary }}">Visa · vence 7 ago</div>
+                <div style="font-size:13px;color:{{ c.textSecondary }};margin-top:1px">Ya pagaste todas las cuotas de este vencimiento</div>
+              </div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;color:{{ c.textPrimary }}">{{ visaDisplay }}</div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:24px">
+            <div onClick="{{ goCuotas }}" style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer">
+              {{ icons.card }}
+              <div style="font-size:12.5px;font-weight:600;color:{{ c.textPrimary }}">Cuotas</div>
+            </div>
+            <div onClick="{{ goMetas }}" style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer">
+              {{ icons.target }}
+              <div style="font-size:12.5px;font-weight:600;color:{{ c.textPrimary }}">Metas</div>
+            </div>
+            <div onClick="{{ goInversiones }}" style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 10px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer">
+              {{ icons.trending }}
+              <div style="font-size:12.5px;font-weight:600;color:{{ c.textPrimary }}">Inversiones</div>
+            </div>
+          </div>
+
+          <!-- RESUMEN switchable chart -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 10px">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }}">Resumen</div>
+          </div>
+          <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:18px;padding:16px;margin-bottom:24px">
+            <div style="display:flex;background:{{ c.surfaceHigh }};border-radius:10px;padding:3px;gap:2px;margin-bottom:16px">
+              <sc-for list="{{ resumenTabs }}" as="rt" hint-placeholder-count="3">
+                <div onClick="{{ rt.select }}" style="flex:1;text-align:center;padding:8px 4px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;background:{{ rt.bg }};color:{{ rt.color }}">{{ rt.label }}</div>
+              </sc-for>
+            </div>
+
+            <sc-if value="{{ resumenIsGastos }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:18px">
+                <div style="position:relative;width:112px;height:112px;flex-shrink:0">
+                  <svg viewBox="0 0 120 120" style="width:100%;height:100%;transform:rotate(-90deg)">
+                    <circle cx="60" cy="60" r="46" fill="none" stroke="{{ c.surfaceHigh }}" stroke-width="15"></circle>
+                    <sc-for list="{{ donutSegments }}" as="seg" hint-placeholder-count="5">
+                      <circle cx="60" cy="60" r="46" fill="none" stroke="{{ seg.color }}" stroke-width="15" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"></circle>
+                    </sc-for>
+                  </svg>
+                  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                    <div style="font-size:9.5px;font-weight:600;color:{{ c.textTertiary }};text-transform:uppercase;letter-spacing:0.3px">Total</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:{{ c.textPrimary }}">{{ donutTotalDisplay }}</div>
+                  </div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
+                  <sc-for list="{{ pieLegend }}" as="l" hint-placeholder-count="5">
+                    <div onClick="{{ l.select }}" style="display:flex;align-items:center;gap:7px;cursor:pointer">
+                      <div style="width:8px;height:8px;border-radius:2px;background:{{ l.color }};flex-shrink:0"></div>
+                      <div style="flex:1;font-size:12px;font-weight:600;color:{{ c.textPrimary }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.name }}</div>
+                      <div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:{{ c.textSecondary }};flex-shrink:0">{{ l.pct }}%</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="font-size:12px;color:{{ c.textTertiary }};margin-top:14px;padding-top:12px;border-top:1px solid {{ c.border }}">{{ donutTotalDisplay }} en {{ catCount }} categorías este mes</div>
+            </sc-if>
+
+            <sc-if value="{{ resumenIsComparativa }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:14px;margin-bottom:12px">
+                <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:2px;background:{{ c.negative }}"></div><div style="font-size:11.5px;color:{{ c.textSecondary }}">Gastos</div></div>
+                <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:2px;background:{{ c.accent }}"></div><div style="font-size:11.5px;color:{{ c.textSecondary }}">Ingresos</div></div>
+              </div>
+              <svg viewBox="0 0 300 132" style="width:100%;height:148px">
+                <sc-for list="{{ barGridLines }}" as="gl" hint-placeholder-count="3">
+                  <line x1="30" x2="300" y1="{{ gl.y }}" y2="{{ gl.y }}" stroke="{{ c.border }}" stroke-width="1" stroke-dasharray="3,3"></line>
+                  <text x="0" y="{{ gl.y }}" fill="{{ c.textTertiary }}" font-size="9" dominant-baseline="middle">{{ gl.label }}</text>
+                </sc-for>
+                <sc-for list="{{ barItems }}" as="bi" hint-placeholder-count="6">
+                  <rect x="{{ bi.ax }}" y="{{ bi.ay }}" width="12" height="{{ bi.ah }}" rx="2" fill="{{ c.negative }}"></rect>
+                  <rect x="{{ bi.bx }}" y="{{ bi.by }}" width="12" height="{{ bi.bh }}" rx="2" fill="{{ c.accent }}"></rect>
+                  <text x="{{ bi.cx }}" y="128" fill="{{ c.textTertiary }}" font-size="9.5" text-anchor="middle">{{ bi.label }}</text>
+                </sc-for>
+              </svg>
+              <div style="font-size:12px;color:{{ c.textTertiary }};margin-top:8px;padding-top:12px;border-top:1px solid {{ c.border }}">Promedio mensual {{ avgMonthlyDisplay }} · {{ momComparisonText }}</div>
+            </sc-if>
+
+            <sc-if value="{{ resumenIsInversiones }}" hint-placeholder-val="{{ false }}">
+              <svg viewBox="0 0 300 132" style="width:100%;height:148px">
+                <sc-for list="{{ invLineGridLines }}" as="gl" hint-placeholder-count="3">
+                  <line x1="30" x2="300" y1="{{ gl.y }}" y2="{{ gl.y }}" stroke="{{ c.border }}" stroke-width="1" stroke-dasharray="3,3"></line>
+                  <text x="0" y="{{ gl.y }}" fill="{{ c.textTertiary }}" font-size="9" dominant-baseline="middle">{{ gl.label }}</text>
+                </sc-for>
+                <path d="{{ invLineArea }}" fill="{{ c.accentSoft }}" stroke="none"></path>
+                <path d="{{ invLinePath }}" fill="none" stroke="{{ c.accent }}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <sc-for list="{{ invLinePts }}" as="pt" hint-placeholder-count="6">
+                  <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="3" fill="{{ c.accent }}"></circle>
+                  <text x="{{ pt.x }}" y="128" fill="{{ c.textTertiary }}" font-size="9.5" text-anchor="middle">{{ pt.day }}</text>
+                </sc-for>
+              </svg>
+              <div style="font-size:12px;color:{{ c.textTertiary }};margin-top:8px;padding-top:12px;border-top:1px solid {{ c.border }}">{{ totalARSDisplay }} de patrimonio invertido · +{{ invGrowthPct }}% en 6 meses</div>
+            </sc-if>
+          </div>
+
+          <div style="display:flex;align-items:center;justify-content:space-between;margin:4px 2px 8px">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }}">Últimos gastos</div>
+            <div onClick="{{ goMovimientos }}" style="font-size:13px;font-weight:600;color:{{ c.accent }};cursor:pointer">Ver todos →</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ recentMovs }}" as="m" hint-placeholder-count="3">
+              <dc-import name="MovRow" mov="{{ m }}" c="{{ c }}" style="display:block" hint-size="100%,56px"></dc-import>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== MOVIMIENTOS ===================== -->
+        <sc-if value="{{ isMovimientos }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Movimientos">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:28px;color:{{ c.textPrimary }}">MOVIMIENTOS</div>
+            <div onClick="{{ toggleFilterSheet }}" style="width:36px;height:36px;border-radius:11px;background:{{ c.surface }};border:1px solid {{ c.border }};display:flex;align-items:center;justify-content:center;cursor:pointer">{{ icons.filter }}</div>
+          </div>
+
+          <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;margin-bottom:16px">
+            <sc-for list="{{ periods }}" as="p" hint-placeholder-count="4">
+              <div onClick="{{ p.select }}" style="flex-shrink:0;padding:8px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ p.bg }};color:{{ p.color }};border:1px solid {{ p.borderColor }}">{{ p.label }}</div>
+            </sc-for>
+          </div>
+
+          <div style="display:flex;gap:10px;margin-bottom:20px">
+            <div style="flex:1;background:{{ c.negativeSoft }};border-radius:16px;padding:14px 16px">
+              <div style="font-size:11.5px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:{{ c.negative }}">Gastos</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:19px;margin-top:4px;color:{{ c.textPrimary }}">{{ totalGastosMesDisplay }}</div>
+            </div>
+            <div style="flex:1;background:{{ c.accentSoft }};border-radius:16px;padding:14px 16px">
+              <div style="font-size:11.5px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:{{ c.accent }}">Ingresos</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:19px;margin-top:4px;color:{{ c.textPrimary }}">{{ totalIngresosMesDisplay }}</div>
+            </div>
+          </div>
+
+          <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:18px;padding:16px;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+              <div style="font-size:12px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:{{ c.textTertiary }}">Gastos por categoría</div>
+              <div style="display:flex;background:{{ c.surfaceHigh }};border-radius:10px;padding:3px;gap:2px">
+                <sc-for list="{{ chartTypes }}" as="ct" hint-placeholder-count="3">
+                  <div onClick="{{ ct.select }}" style="padding:6px 9px;border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;background:{{ ct.bg }};color:{{ ct.color }}">{{ ct.label }}</div>
+                </sc-for>
+              </div>
+            </div>
+
+            <sc-if value="{{ isPie }}" hint-placeholder-val="{{ true }}">
+              <div style="display:flex;align-items:center;gap:18px">
+                <div style="position:relative;width:120px;height:120px;flex-shrink:0">
+                  <svg viewBox="0 0 120 120" style="width:100%;height:100%;transform:rotate(-90deg)">
+                    <circle cx="60" cy="60" r="46" fill="none" stroke="{{ c.surfaceHigh }}" stroke-width="15"></circle>
+                    <sc-for list="{{ donutSegments }}" as="seg" hint-placeholder-count="5">
+                      <circle cx="60" cy="60" r="46" fill="none" stroke="{{ seg.color }}" stroke-width="15" stroke-dasharray="{{ seg.dasharray }}" stroke-dashoffset="{{ seg.dashoffset }}"></circle>
+                    </sc-for>
+                  </svg>
+                  <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center">
+                    <div style="font-size:9.5px;font-weight:600;color:{{ c.textTertiary }};text-transform:uppercase;letter-spacing:0.3px">Total</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-weight:600;font-size:13px;color:{{ c.textPrimary }}">{{ donutTotalDisplay }}</div>
+                  </div>
+                </div>
+                <div style="flex:1;display:flex;flex-direction:column;gap:8px;min-width:0">
+                  <sc-for list="{{ pieLegend }}" as="l" hint-placeholder-count="5">
+                    <div onClick="{{ l.select }}" style="display:flex;align-items:center;gap:7px;cursor:pointer;opacity:{{ l.dim }}">
+                      <div style="width:8px;height:8px;border-radius:2px;background:{{ l.color }};flex-shrink:0"></div>
+                      <div style="flex:1;font-size:12px;font-weight:600;color:{{ c.textPrimary }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ l.name }}</div>
+                      <div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:600;color:{{ c.textSecondary }};flex-shrink:0">{{ l.amountDisplay }}</div>
+                    </div>
+                  </sc-for>
+                </div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ isBar }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex;gap:14px;margin-bottom:12px">
+                <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:2px;background:{{ c.negative }}"></div><div style="font-size:11.5px;color:{{ c.textSecondary }}">Gastos</div></div>
+                <div style="display:flex;align-items:center;gap:6px"><div style="width:9px;height:9px;border-radius:2px;background:{{ c.accent }}"></div><div style="font-size:11.5px;color:{{ c.textSecondary }}">Ingresos</div></div>
+              </div>
+              <svg viewBox="0 0 300 132" style="width:100%;height:148px">
+                <sc-for list="{{ barGridLines }}" as="gl" hint-placeholder-count="3">
+                  <line x1="30" x2="300" y1="{{ gl.y }}" y2="{{ gl.y }}" stroke="{{ c.border }}" stroke-width="1" stroke-dasharray="3,3"></line>
+                  <text x="0" y="{{ gl.y }}" fill="{{ c.textTertiary }}" font-size="9" dominant-baseline="middle">{{ gl.label }}</text>
+                </sc-for>
+                <sc-for list="{{ barItems }}" as="bi" hint-placeholder-count="6">
+                  <rect x="{{ bi.ax }}" y="{{ bi.ay }}" width="12" height="{{ bi.ah }}" rx="2" fill="{{ c.negative }}"></rect>
+                  <rect x="{{ bi.bx }}" y="{{ bi.by }}" width="12" height="{{ bi.bh }}" rx="2" fill="{{ c.accent }}"></rect>
+                  <text x="{{ bi.cx }}" y="128" fill="{{ c.textTertiary }}" font-size="9.5" text-anchor="middle">{{ bi.label }}</text>
+                </sc-for>
+              </svg>
+            </sc-if>
+
+            <sc-if value="{{ isLine }}" hint-placeholder-val="{{ false }}">
+              <svg viewBox="0 0 300 132" style="width:100%;height:148px">
+                <sc-for list="{{ movLineGridLines }}" as="gl" hint-placeholder-count="3">
+                  <line x1="30" x2="300" y1="{{ gl.y }}" y2="{{ gl.y }}" stroke="{{ c.border }}" stroke-width="1" stroke-dasharray="3,3"></line>
+                  <text x="0" y="{{ gl.y }}" fill="{{ c.textTertiary }}" font-size="9" dominant-baseline="middle">{{ gl.label }}</text>
+                </sc-for>
+                <path d="{{ movLineArea }}" fill="{{ c.accentSoft }}" stroke="none"></path>
+                <path d="{{ movLinePath }}" fill="none" stroke="{{ c.accent }}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"></path>
+                <sc-for list="{{ movLinePts }}" as="pt" hint-placeholder-count="6">
+                  <circle cx="{{ pt.x }}" cy="{{ pt.y }}" r="3" fill="{{ c.accent }}"></circle>
+                  <text x="{{ pt.x }}" y="128" fill="{{ c.textTertiary }}" font-size="9.5" text-anchor="middle">{{ pt.day }} ago</text>
+                </sc-for>
+              </svg>
+              <div style="font-size:11px;color:{{ c.textTertiary }};text-align:center;margin-top:2px">Gasto acumulado en el mes, día a día</div>
+            </sc-if>
+          </div>
+
+          <sc-if value="{{ categoryFilter }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+              <div style="font-size:12.5px;color:{{ c.textSecondary }}">Filtrando por</div>
+              <div style="display:flex;align-items:center;gap:6px;background:{{ c.accentSoft }};color:{{ c.accent }};border-radius:100px;padding:5px 10px 5px 12px;font-size:12.5px;font-weight:700">{{ categoryFilter }} <span onClick="{{ clearFilter }}" style="cursor:pointer;font-weight:800">×</span></div>
+            </div>
+          </sc-if>
+
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }};margin:4px 2px 8px">{{ movListTitle }}</div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ visibleMovs }}" as="m" hint-placeholder-count="6">
+              <dc-import name="MovRow" mov="{{ m }}" c="{{ c }}" style="display:block" hint-size="100%,56px"></dc-import>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== INVERSIONES ===================== -->
+        <sc-if value="{{ isInversiones }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Inversiones">
+          <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:28px;color:{{ c.textPrimary }};margin-bottom:16px">INVERSIONES</div>
+
+          <div style="background:{{ c.surfaceHigh }};border-radius:22px;padding:20px;margin-bottom:16px">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+              <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }}">Valor del portafolio</div>
+              <div style="display:flex;background:{{ c.surface }};border-radius:9px;padding:3px;gap:2px">
+                <div onClick="{{ setCurArs }}" style="padding:5px 10px;border-radius:7px;font-size:11.5px;font-weight:700;cursor:pointer;background:{{ curArsBg }};color:{{ curArsColor }}">$</div>
+                <div onClick="{{ setCurUsd }}" style="padding:5px 10px;border-radius:7px;font-size:11.5px;font-weight:700;cursor:pointer;background:{{ curUsdBg }};color:{{ curUsdColor }}">US$</div>
+              </div>
+            </div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:36px;color:{{ c.textPrimary }}">{{ portfolioDisplay }}</div>
+            <div style="display:flex;gap:8px;margin-top:12px">
+              <div onClick="{{ setPerMes }}" style="padding:7px 13px;border-radius:100px;font-size:12.5px;font-weight:600;cursor:pointer;background:{{ perMesBg }};color:{{ perMesColor }}">Este mes</div>
+              <div onClick="{{ setPerAnio }}" style="padding:7px 13px;border-radius:100px;font-size:12.5px;font-weight:600;cursor:pointer;background:{{ perAnioBg }};color:{{ perAnioColor }}">Este año</div>
+            </div>
+          </div>
+
+          <div style="font-size:11.5px;color:{{ c.textTertiary }};line-height:1.5;margin:0 2px 16px">Rendimiento anual estimado según tasas informadas por cada fondo/activo. Es una proyección, no una garantía de resultado.</div>
+
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <sc-for list="{{ positions }}" as="p" hint-placeholder-count="4">
+              <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:18px;padding:16px">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between">
+                  <div>
+                    <div style="font-size:14.5px;font-weight:700;color:{{ c.textPrimary }}">{{ p.name }}</div>
+                    <div style="font-size:12.5px;color:{{ c.textTertiary }};margin-top:2px">{{ p.account }}</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:600;color:{{ c.textPrimary }}">{{ p.valueDisplay }}</div>
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;margin-top:2px;color:{{ c.accent }}">+{{ p.gainPct }}% · +{{ p.gainDisplay }}</div>
+                  </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:12px;padding-top:12px;border-top:1px solid {{ c.border }}">
+                  <div style="font-size:12px;color:{{ c.textSecondary }}">Rendimiento anual estimado</div>
+                  <div style="font-size:12px;font-weight:700;color:{{ c.accent }}">~{{ p.tna }}% TNA</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== CUENTAS ===================== -->
+        <sc-if value="{{ isCuentas }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Cuentas">
+          <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:28px;color:{{ c.textPrimary }};margin-bottom:16px">CUENTAS</div>
+
+          <div style="display:flex;gap:10px;margin-bottom:20px">
+            <div style="flex:1;background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 16px">
+              <div style="font-size:11px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:{{ c.textTertiary }}">Total ARS</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:17px;margin-top:4px;color:{{ c.textPrimary }}">{{ totalARSDisplay }}</div>
+            </div>
+            <div style="flex:1;background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 16px">
+              <div style="font-size:11px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:{{ c.textTertiary }}">Total USD</div>
+              <div style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:17px;margin-top:4px;color:{{ c.textPrimary }}">{{ totalUSDDisplay }}</div>
+            </div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ institutions }}" as="inst" hint-placeholder-count="3">
+              <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:18px;overflow:hidden">
+                <div onClick="{{ inst.toggle }}" style="display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer">
+                  <div style="width:34px;height:34px;border-radius:10px;background:{{ c.surfaceHigh }};display:flex;align-items:center;justify-content:center;flex-shrink:0">{{ icons.building }}</div>
+                  <div style="flex:1">
+                    <div style="font-size:15px;font-weight:700;color:{{ c.textPrimary }}">{{ inst.name }}</div>
+                    <div style="font-size:12px;color:{{ c.textTertiary }}">{{ inst.type }}</div>
+                  </div>
+                  <div style="text-align:right">
+                    <div style="font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;color:{{ c.textPrimary }}">{{ inst.totalARSDisplay }}</div>
+                    <sc-if value="{{ inst.totalUSD }}" hint-placeholder-val="{{ false }}"><div style="font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:{{ c.textTertiary }}">{{ inst.totalUSDDisplay }}</div></sc-if>
+                  </div>
+                  <div style="transform:{{ inst.chevronTransform }};transition:transform .15s">{{ icons.chevron }}</div>
+                </div>
+                <sc-if value="{{ inst.expanded }}" hint-placeholder-val="{{ false }}">
+                  <div style="border-top:1px solid {{ c.border }}">
+                    <sc-for list="{{ inst.accounts }}" as="acc" hint-placeholder-count="2">
+                      <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 16px 12px 60px;border-bottom:1px solid {{ c.border }}">
+                        <div>
+                          <div style="font-size:14px;font-weight:500;color:{{ c.textPrimary }}">{{ acc.name }}</div>
+                          <sc-if value="{{ acc.tag }}" hint-placeholder-val="{{ false }}"><div style="font-size:11px;color:{{ c.textTertiary }};margin-top:1px">{{ acc.tag }}</div></sc-if>
+                        </div>
+                        <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;color:{{ c.textPrimary }}">{{ acc.display }}</div>
+                      </div>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== CONFIGURACION ===================== -->
+        <sc-if value="{{ isConfig }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Configuración">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <div onClick="{{ goInicio }}" style="cursor:pointer">{{ icons.back }}</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:26px;color:{{ c.textPrimary }}">CONFIGURACIÓN</div>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }};margin:4px 2px 8px">Apariencia</div>
+          <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 16px;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div style="font-size:14.5px;font-weight:500;color:{{ c.textPrimary }}">Modo</div>
+              <div style="display:flex;background:{{ c.surfaceHigh }};border-radius:10px;padding:3px;gap:2px">
+                <div onClick="{{ setLight }}" style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:{{ lightBg }};color:{{ lightColor }}">Claro</div>
+                <div onClick="{{ setDark }}" style="padding:7px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;background:{{ darkBg }};color:{{ darkColor }}">Oscuro</div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }};margin:4px 2px 8px">Privacidad</div>
+          <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;padding:14px 16px;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between">
+              <div>
+                <div style="font-size:14.5px;font-weight:500;color:{{ c.textPrimary }}">Ocultar saldos</div>
+                <div style="font-size:12px;color:{{ c.textTertiary }};margin-top:1px">Reemplaza los montos por asteriscos</div>
+              </div>
+              <div onClick="{{ toggleHide }}" style="width:46px;height:27px;border-radius:100px;background:{{ hideSwitchBg }};position:relative;cursor:pointer;flex-shrink:0">
+                <div style="width:21px;height:21px;border-radius:50%;background:#fff;position:absolute;top:3px;left:{{ hideSwitchLeft }};transition:left .15s"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }};margin:4px 2px 8px">General</div>
+          <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:16px;overflow:hidden;margin-bottom:20px">
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid {{ c.border }}">
+              <div style="font-size:14.5px;font-weight:500;color:{{ c.textPrimary }}">Moneda principal</div>
+              <div style="font-size:14px;font-weight:600;color:{{ c.textTertiary }}">ARS</div>
+            </div>
+            <div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px">
+              <div style="font-size:14.5px;font-weight:500;color:{{ c.textPrimary }}">Notificaciones de vencimientos</div>
+              <div onClick="{{ toggleNotif }}" style="width:46px;height:27px;border-radius:100px;background:{{ notifSwitchBg }};position:relative;cursor:pointer;flex-shrink:0">
+                <div style="width:21px;height:21px;border-radius:50%;background:#fff;position:absolute;top:3px;left:{{ notifSwitchLeft }};transition:left .15s"></div>
+              </div>
+            </div>
+          </div>
+
+          <div style="text-align:center;font-size:14px;font-weight:600;color:{{ c.negative }};padding:14px;cursor:pointer">Cerrar sesión</div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== METAS ===================== -->
+        <sc-if value="{{ isMetas }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Metas">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <div onClick="{{ goInicio }}" style="cursor:pointer">{{ icons.back }}</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:26px;color:{{ c.textPrimary }}">METAS</div>
+          </div>
+          <div style="background:{{ c.surfaceHigh }};border-radius:22px;padding:20px;margin-bottom:20px">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }}">A apartar este mes (USD)</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:32px;margin-top:4px;color:{{ c.textPrimary }}">{{ metaHeroDisplay }}/mes</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:12px">
+            <sc-for list="{{ metas }}" as="g" hint-placeholder-count="2">
+              <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:18px;padding:16px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+                  <div style="display:flex;align-items:center;gap:8px">
+                    <div style="font-size:15px;font-weight:700;color:{{ c.textPrimary }}">{{ g.name }}</div>
+                    <div style="font-size:10.5px;font-weight:700;color:{{ c.textTertiary }};background:{{ c.surfaceHigh }};padding:2px 8px;border-radius:100px">{{ g.tag }}</div>
+                  </div>
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;color:{{ c.textPrimary }}">{{ g.monthlyDisplay }}/mes</div>
+                </div>
+                <div style="height:6px;border-radius:100px;background:{{ c.surfaceHigh }};overflow:hidden;margin-bottom:8px">
+                  <div style="height:100%;border-radius:100px;background:{{ c.accent }};width:{{ g.pct }}%"></div>
+                </div>
+                <div style="font-size:12px;color:{{ c.textTertiary }}">{{ g.savedDisplay }} de {{ g.goalDisplay }} · {{ g.left }}</div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== CUOTAS ===================== -->
+        <sc-if value="{{ isCuotas }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Cuotas">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+            <div onClick="{{ goInicio }}" style="cursor:pointer">{{ icons.back }}</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:26px;color:{{ c.textPrimary }}">CUOTAS PENDIENTES</div>
+          </div>
+          <div style="font-size:13px;color:{{ c.textTertiary }};margin:0 2px 18px 38px">7 cuotas sin pagar</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <div style="font-size:12px;font-weight:600;letter-spacing:0.6px;text-transform:uppercase;color:{{ c.textTertiary }}">Visa · Septiembre 2026 · vence el 7</div>
+            <div style="font-size:12.5px;font-weight:700;color:{{ c.accent }};background:{{ c.accentSoft }};padding:6px 12px;border-radius:100px;cursor:pointer">Pagar todas</div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <sc-for list="{{ cuotas }}" as="q" hint-placeholder-count="6">
+              <div style="background:{{ c.surface }};border:1px solid {{ c.border }};border-radius:14px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between">
+                <div>
+                  <div style="font-size:14px;font-weight:600;color:{{ c.textPrimary }}">{{ q.name }}</div>
+                  <div style="font-size:12px;color:{{ c.textTertiary }};margin-top:1px">Cuota {{ q.cuota }} · vence 07/09</div>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px">
+                  <div style="font-family:'IBM Plex Mono',monospace;font-size:13.5px;font-weight:600;color:{{ c.textPrimary }}">{{ q.display }}</div>
+                  <div style="font-size:11.5px;font-weight:700;color:#fff;background:{{ c.textPrimary }};padding:6px 12px;border-radius:100px">Pagada</div>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== NUEVO GASTO ===================== -->
+        <sc-if value="{{ isNuevoGasto }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Nuevo gasto">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
+            <div onClick="{{ goInicio }}" style="cursor:pointer">{{ icons.back }}</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:24px;color:{{ c.textPrimary }}">NUEVO GASTO</div>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Monto</div>
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <div style="padding:12px 18px;border-radius:12px;font-size:14px;font-weight:700;background:{{ c.accent }};color:{{ c.accentText }}">$</div>
+            <div style="padding:12px 18px;border-radius:12px;font-size:14px;font-weight:700;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textSecondary }}">US$</div>
+            <div style="flex:1;padding:12px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textTertiary }};font-family:'IBM Plex Mono',monospace;font-size:14px">0</div>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">¿Con qué cuenta pagás?</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between">Cocos fondos {{ icons.chevronDown }}</div>
+          <div style="font-size:11.5px;color:{{ c.textTertiary }};margin-bottom:18px">Débito / transferencia — el saldo se descuenta ahora</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Comercio (opcional)</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textTertiary }};font-size:14.5px;margin-bottom:18px">Ej: Carrefour, YPF, Rappi</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Categoría</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:18px;display:flex;justify-content:space-between">Sin categoría {{ icons.chevronDown }}</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Fecha</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:24px">11/08/2026</div>
+
+          <div style="padding:15px;border-radius:14px;background:{{ c.textPrimary }};color:{{ c.bg }};text-align:center;font-size:15px;font-weight:700">Guardar gasto</div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== NUEVO INGRESO ===================== -->
+        <sc-if value="{{ isNuevoIngreso }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Nuevo ingreso">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
+            <div onClick="{{ goInicio }}" style="cursor:pointer">{{ icons.back }}</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:24px;color:{{ c.textPrimary }}">REGISTRAR INGRESO</div>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Tipo de ingreso</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between">Sueldo {{ icons.chevronDown }}</div>
+          <div style="font-size:11.5px;color:{{ c.accent }};margin-bottom:18px">Se abrirá la pantalla de distribución para repartir el ingreso</div>
+
+          <div style="display:flex;gap:10px;margin-bottom:18px">
+            <div style="flex:2">
+              <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Monto</div>
+              <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textTertiary }};font-family:'IBM Plex Mono',monospace;font-size:14px">0</div>
+            </div>
+            <div style="flex:1">
+              <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Moneda</div>
+              <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;display:flex;justify-content:space-between">ARS {{ icons.chevronDown }}</div>
+            </div>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Cuenta destino (opcional)</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:6px;display:flex;justify-content:space-between">Sin cuenta específica {{ icons.chevronDown }}</div>
+          <div style="font-size:11.5px;color:{{ c.textTertiary }};margin-bottom:18px">Cuenta donde aterrizó el ingreso</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Fecha</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:18px">11/08/2026</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Nota (opcional)</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textTertiary }};font-size:14.5px;margin-bottom:24px">Ej: Sueldo julio 2026</div>
+
+          <div style="padding:15px;border-radius:14px;background:{{ c.accent }};color:{{ c.accentText }};text-align:center;font-size:15px;font-weight:700;margin-bottom:10px">Registrar y distribuir →</div>
+          <div style="padding:15px;border-radius:14px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textSecondary }};text-align:center;font-size:15px;font-weight:700">Solo registrar</div>
+        </div>
+        </sc-if>
+
+        <!-- ===================== TRANSFERENCIA ===================== -->
+        <sc-if value="{{ isTransferencia }}" hint-placeholder-val="{{ false }}">
+        <div style="padding:20px 20px 100px" data-screen-label="Transferencia">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:22px">
+            <div onClick="{{ goInicio }}" style="cursor:pointer">{{ icons.back }}</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:26px;color:{{ c.textPrimary }}">TRANSFERENCIA</div>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Cuenta origen</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:18px;display:flex;justify-content:space-between">BBVA (ARS) — $ 121 {{ icons.chevronDown }}</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Cuenta destino</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:18px;display:flex;justify-content:space-between">Cocos Capital (ARS) — $ 278.183 {{ icons.chevronDown }}</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Monto (ARS)</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textTertiary }};font-family:'IBM Plex Mono',monospace;font-size:14px;margin-bottom:18px">0</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Fecha</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textPrimary }};font-size:14.5px;font-weight:600;margin-bottom:18px">11/08/2026</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Nota (opcional)</div>
+          <div style="padding:13px 16px;border-radius:12px;background:{{ c.surface }};border:1px solid {{ c.border }};color:{{ c.textTertiary }};font-size:14.5px;margin-bottom:24px">Ej: Paso de banco a inversiones</div>
+
+          <div style="padding:15px;border-radius:14px;background:{{ c.accent }};color:{{ c.accentText }};text-align:center;font-size:15px;font-weight:700">Confirmar transferencia</div>
+        </div>
+        </sc-if>
+
+      </div>
+
+      <!-- ===================== BOTTOM NAV ===================== -->
+      <div style="flex-shrink:0;background:{{ c.navBg }};border-top:1px solid {{ c.border }};display:flex;align-items:center;justify-content:space-around;padding:10px 8px 26px">
+        <div onClick="{{ goInicio }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;width:56px">
+          {{ navHomeIcon }}
+          <div style="font-size:10px;font-weight:700;color:{{ navHomeColor }}">Inicio</div>
+        </div>
+        <div onClick="{{ goMovimientos }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;width:56px">
+          {{ navMovIcon }}
+          <div style="font-size:10px;font-weight:700;color:{{ navMovColor }}">Movs.</div>
+        </div>
+        <div onClick="{{ toggleNuevoMenu }}" style="width:52px;height:52px;border-radius:50%;background:{{ c.accent }};display:flex;align-items:center;justify-content:center;cursor:pointer;margin-top:-24px;box-shadow:0 6px 16px {{ c.accentSoft }}">
+          {{ nuevoIcon }}
+        </div>
+        <div onClick="{{ goInversiones }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;width:56px">
+          {{ navInvIcon }}
+          <div style="font-size:10px;font-weight:700;color:{{ navInvColor }}">Invers.</div>
+        </div>
+        <div onClick="{{ goCuentas }}" style="display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;width:56px">
+          {{ navCuentasIcon }}
+          <div style="font-size:10px;font-weight:700;color:{{ navCuentasColor }}">Cuentas</div>
+        </div>
+      </div>
+
+      <!-- ===================== NUEVO MENU SHEET ===================== -->
+      <sc-if value="{{ nuevoMenuOpen }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ toggleNuevoMenu }}" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:20"></div>
+        <div style="position:absolute;left:0;right:0;bottom:0;background:{{ c.surface }};border-radius:22px 22px 0 0;padding:10px 16px 34px;z-index:21">
+          <div style="width:36px;height:4px;border-radius:100px;background:{{ c.border }};margin:0 auto 14px"></div>
+          <div onClick="{{ goNuevoGasto }}" style="display:flex;align-items:center;gap:14px;padding:14px 8px;cursor:pointer;border-bottom:1px solid {{ c.border }}">
+            <div style="width:38px;height:38px;border-radius:11px;background:{{ c.negativeSoft }};display:flex;align-items:center;justify-content:center">{{ icons.card }}</div>
+            <div style="font-size:15px;font-weight:600;color:{{ c.textPrimary }}">Nuevo gasto</div>
+          </div>
+          <div onClick="{{ goNuevoIngreso }}" style="display:flex;align-items:center;gap:14px;padding:14px 8px;cursor:pointer;border-bottom:1px solid {{ c.border }}">
+            <div style="width:38px;height:38px;border-radius:11px;background:{{ c.accentSoft }};display:flex;align-items:center;justify-content:center">{{ icons.transferAccent }}</div>
+            <div style="font-size:15px;font-weight:600;color:{{ c.textPrimary }}">Nuevo ingreso</div>
+          </div>
+          <div onClick="{{ goTransferencia }}" style="display:flex;align-items:center;gap:14px;padding:14px 8px;cursor:pointer">
+            <div style="width:38px;height:38px;border-radius:11px;background:{{ c.surfaceHigh }};display:flex;align-items:center;justify-content:center">{{ icons.swap }}</div>
+            <div style="font-size:15px;font-weight:600;color:{{ c.textPrimary }}">Transferencia</div>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ===================== FILTER SHEET ===================== -->
+      <sc-if value="{{ filterSheetOpen }}" hint-placeholder-val="{{ false }}">
+        <div onClick="{{ toggleFilterSheet }}" style="position:absolute;inset:0;background:rgba(0,0,0,0.45);z-index:20"></div>
+        <div style="position:absolute;left:0;right:0;bottom:0;background:{{ c.surface }};border-radius:22px 22px 0 0;padding:20px 20px 34px;z-index:21;max-height:70%;overflow-y:auto">
+          <div style="width:36px;height:4px;border-radius:100px;background:{{ c.border }};margin:0 auto 18px"></div>
+          <div style="font-family:'Big Shoulders Display',sans-serif;font-weight:800;font-size:20px;color:{{ c.textPrimary }};margin-bottom:16px">FILTROS</div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Categoría</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">
+            <sc-for list="{{ catFilterChips }}" as="fc" hint-placeholder-count="5">
+              <div onClick="{{ fc.toggle }}" style="padding:8px 14px;border-radius:100px;font-size:13px;font-weight:600;cursor:pointer;background:{{ fc.bg }};color:{{ fc.color }}">{{ fc.name }}</div>
+            </sc-for>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Rango de fechas</div>
+          <div style="display:flex;gap:8px;margin-bottom:18px">
+            <div style="flex:1;padding:12px 14px;border-radius:12px;background:{{ c.surfaceHigh }};color:{{ c.textTertiary }};font-size:13.5px">Desde</div>
+            <div style="flex:1;padding:12px 14px;border-radius:12px;background:{{ c.surfaceHigh }};color:{{ c.textTertiary }};font-size:13.5px">Hasta</div>
+          </div>
+
+          <div style="font-size:12.5px;font-weight:600;color:{{ c.textSecondary }};margin-bottom:8px">Rango de monto</div>
+          <input type="range" style="width:100%;margin-bottom:20px;accent-color:{{ c.accent }}"></input>
+
+          <div onClick="{{ toggleFilterSheet }}" style="padding:15px;border-radius:14px;background:{{ c.accent }};color:{{ c.accentText }};text-align:center;font-size:15px;font-weight:700">Aplicar filtros</div>
+        </div>
+      </sc-if>
+
+    </div>
+  </x-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  state = {
+    screen: 'inicio',
+    dark: true,
+    hideBalances: false,
+    chartType: 'pie',
+    resumenView: 'gastos',
+    categoryFilter: null,
+    curArs: true,
+    perMes: true,
+    notif: true,
+    filterSheetOpen: false,
+    nuevoMenuOpen: false,
+    expanded: { bbva: true, mp: false, cocos: false },
+    catToggle: {}
+  };
+
+  go(screen) { this.setState({ screen, nuevoMenuOpen: false }); }
+
+  colors(dark) {
+    return dark ? {
+      bg: 'oklch(0.17 0.012 250)', surface: 'oklch(0.223 0.014 250)', surfaceHigh: 'oklch(0.275 0.017 250)',
+      border: 'oklch(0.33 0.017 250)', textPrimary: 'oklch(0.96 0.005 250)', textSecondary: 'oklch(0.72 0.014 250)',
+      textTertiary: 'oklch(0.55 0.014 250)', accent: 'oklch(0.78 0.13 175)', accentSoft: 'oklch(0.30 0.06 175)',
+      accentText: 'oklch(0.14 0.02 175)', negative: 'oklch(0.72 0.15 25)', negativeSoft: 'oklch(0.30 0.07 25)',
+      navBg: 'oklch(0.20 0.013 250)'
+    } : {
+      bg: 'oklch(0.985 0.004 175)', surface: 'oklch(0.998 0.002 175)', surfaceHigh: 'oklch(0.955 0.007 175)',
+      border: 'oklch(0.90 0.007 175)', textPrimary: 'oklch(0.22 0.02 175)', textSecondary: 'oklch(0.46 0.02 175)',
+      textTertiary: 'oklch(0.58 0.015 175)', accent: 'oklch(0.50 0.11 175)', accentSoft: 'oklch(0.93 0.045 175)',
+      accentText: '#ffffff', negative: 'oklch(0.55 0.16 25)', negativeSoft: 'oklch(0.94 0.05 25)',
+      navBg: '#ffffff'
+    };
+  }
+
+  catColor(cat, dark) {
+    const hues = { 'Transporte': 250, 'Supermercado': 95, 'Delivery y Restaurantes': 30, 'Salud y Farmacia': 340, 'Psicología': 285, 'Servicios': 175 };
+    const h = hues[cat] ?? 200;
+    return dark ? `oklch(0.66 0.15 ${h})` : `oklch(0.54 0.15 ${h})`;
+  }
+
+  Icon(paths, opts = {}) {
+    const { size = 20, stroke = 'currentColor', fill = 'none', sw = 1.8 } = opts;
+    return React.createElement('svg', { width: size, height: size, viewBox: '0 0 24 24', fill, stroke, strokeWidth: sw, strokeLinecap: 'round', strokeLinejoin: 'round' }, paths);
+  }
+
+  icons(c) {
+    const E = React.createElement;
+    const home = (active) => this.Icon([
+      E('path', { key: 1, d: 'M4 11 L12 4 L20 11' }),
+      E('path', { key: 2, d: 'M6 10 V20 H18 V10' })
+    ], { stroke: active ? c.accent : c.textTertiary, fill: active ? c.accentSoft : 'none' });
+    const list = (active) => this.Icon([
+      E('rect', { key: 1, x: 4, y: 5, width: 4, height: 4, rx: 1 }),
+      E('line', { key: 2, x1: 11, y1: 7, x2: 20, y2: 7 }),
+      E('rect', { key: 3, x: 4, y: 15, width: 4, height: 4, rx: 1 }),
+      E('line', { key: 4, x1: 11, y1: 17, x2: 20, y2: 17 })
+    ], { stroke: active ? c.accent : c.textTertiary });
+    const trending = (active) => this.Icon([
+      E('polyline', { key: 1, points: '4,17 10,10 14,14 20,6' }),
+      E('circle', { key: 2, cx: 20, cy: 6, r: 1.6, fill: active ? c.accent : c.textTertiary })
+    ], { stroke: active ? c.accent : c.textTertiary });
+    const building = (active) => this.Icon([
+      E('rect', { key: 1, x: 5, y: 4, width: 14, height: 16, rx: 1 }),
+      E('line', { key: 2, x1: 9, y1: 8, x2: 9, y2: 8 }),
+      E('line', { key: 3, x1: 9, y1: 12, x2: 9, y2: 12 }),
+      E('line', { key: 4, x1: 15, y1: 8, x2: 15, y2: 8 }),
+      E('line', { key: 5, x1: 15, y1: 12, x2: 15, y2: 12 }),
+      E('line', { key: 6, x1: 9, y1: 20, x2: 9, y2: 16 }),
+      E('line', { key: 7, x1: 15, y1: 20, x2: 15, y2: 16 })
+    ], { stroke: active ? c.accent : c.textTertiary, sw: 2.1 });
+    return {
+      home: home(false), homeActive: home(true),
+      list: list(false), listActive: list(true),
+      trending: trending(false), trendingActive: trending(true),
+      building: building(false), buildingActive: building(true),
+      plus: this.Icon([E('line', { key: 1, x1: 12, y1: 6, x2: 12, y2: 18 }), E('line', { key: 2, x1: 6, y1: 12, x2: 18, y2: 12 })], { stroke: c.accentText, sw: 2.4 }),
+      close: this.Icon([E('line', { key: 1, x1: 6, y1: 6, x2: 18, y2: 18 }), E('line', { key: 2, x1: 18, y1: 6, x2: 6, y2: 18 })], { stroke: c.accentText, sw: 2.4 }),
+      eye: this.Icon([E('path', { key: 1, d: 'M2 12 C5 6 19 6 22 12 C19 18 5 18 2 12 Z' }), E('circle', { key: 2, cx: 12, cy: 12, r: 2.6 })], { stroke: c.textSecondary, sw: 1.9 }),
+      eyeOff: this.Icon([E('path', { key: 1, d: 'M2 12 C5 6 19 6 22 12 C19 18 5 18 2 12 Z' }), E('line', { key: 2, x1: 4, y1: 20, x2: 20, y2: 4 })], { stroke: c.textSecondary, sw: 1.9 }),
+      gear: this.Icon([E('circle', { key: 1, cx: 12, cy: 12, r: 3.2 }), E('line', { key: 2, x1: 12, y1: 3, x2: 12, y2: 6 }), E('line', { key: 3, x1: 12, y1: 18, x2: 12, y2: 21 }), E('line', { key: 4, x1: 3, y1: 12, x2: 6, y2: 12 }), E('line', { key: 5, x1: 18, y1: 12, x2: 21, y2: 12 }), E('line', { key: 6, x1: 5.6, y1: 5.6, x2: 7.8, y2: 7.8 }), E('line', { key: 7, x1: 16.2, y1: 16.2, x2: 18.4, y2: 18.4 }), E('line', { key: 8, x1: 5.6, y1: 18.4, x2: 7.8, y2: 16.2 }), E('line', { key: 9, x1: 16.2, y1: 7.8, x2: 18.4, y2: 5.6 })], { stroke: c.textSecondary }),
+      chevron: this.Icon([E('polyline', { key: 1, points: '9,6 15,12 9,18' })], { stroke: c.textTertiary }),
+      chevronDown: this.Icon([E('polyline', { key: 1, points: '6,9 12,15 18,9' })], { stroke: c.textTertiary, size: 16 }),
+      back: this.Icon([E('polyline', { key: 1, points: '15,6 9,12 15,18' })], { stroke: c.textPrimary, size: 22 }),
+      transfer: this.Icon([E('polyline', { key: 1, points: '7,8 3,8 3,4' }), E('path', { key: 2, d: 'M3 8 C9 8 15 16 21 16' }), E('polyline', { key: 3, points: '17,20 21,16 17,12' })], { stroke: c.accentText, sw: 2 }),
+      transferAccent: this.Icon([E('polyline', { key: 1, points: '7,8 3,8 3,4' }), E('path', { key: 2, d: 'M3 8 C9 8 15 16 21 16' }), E('polyline', { key: 3, points: '17,20 21,16 17,12' })], { stroke: c.accent, sw: 2 }),
+      swap: this.Icon([E('polyline', { key: 1, points: '17,4 21,8 17,12' }), E('line', { key: 2, x1: 3, y1: 8, x2: 21, y2: 8 }), E('polyline', { key: 3, points: '7,20 3,16 7,12' }), E('line', { key: 4, x1: 3, y1: 16, x2: 21, y2: 16 })], { stroke: c.textSecondary, sw: 1.8 }),
+      card: this.Icon([E('rect', { key: 1, x: 3, y: 6, width: 18, height: 13, rx: 2 }), E('line', { key: 2, x1: 3, y1: 10, x2: 21, y2: 10 })], { stroke: c.negative }),
+      card2: this.Icon([E('rect', { key: 1, x: 3, y: 6, width: 18, height: 13, rx: 2 }), E('line', { key: 2, x1: 3, y1: 10, x2: 21, y2: 10 })], { stroke: c.textSecondary }),
+      target: this.Icon([E('circle', { key: 1, cx: 12, cy: 12, r: 8 }), E('circle', { key: 2, cx: 12, cy: 12, r: 4 }), E('circle', { key: 3, cx: 12, cy: 12, r: 0.6, fill: c.textPrimary })], { stroke: c.textSecondary }),
+      filter: this.Icon([E('line', { key: 1, x1: 4, y1: 7, x2: 20, y2: 7 }), E('line', { key: 2, x1: 4, y1: 12, x2: 20, y2: 12 }), E('line', { key: 3, x1: 4, y1: 17, x2: 20, y2: 17 }), E('circle', { key: 4, cx: 9, cy: 7, r: 1.8, fill: c.surface }), E('circle', { key: 5, cx: 15, cy: 12, r: 1.8, fill: c.surface }), E('circle', { key: 6, cx: 9, cy: 17, r: 1.8, fill: c.surface })], { stroke: c.textSecondary, sw: 1.6 })
+    };
+  }
+
+  catIcon(cat, color) {
+    const E = React.createElement;
+    const map = {
+      'Transporte': [E('rect', { key: 1, x: 4, y: 10, width: 16, height: 6, rx: 2 }), E('circle', { key: 2, cx: 8, cy: 17, r: 1.6, fill: color }), E('circle', { key: 3, cx: 16, cy: 17, r: 1.6, fill: color })],
+      'Supermercado': [E('polygon', { key: 1, points: '6,9 18,9 16,19 8,19' }), E('line', { key: 2, x1: 9, y1: 9, x2: 10, y2: 5 }), E('line', { key: 3, x1: 15, y1: 9, x2: 14, y2: 5 })],
+      'Delivery y Restaurantes': [E('circle', { key: 1, cx: 12, cy: 12, r: 7 }), E('circle', { key: 2, cx: 12, cy: 12, r: 2.4, fill: color })],
+      'Salud y Farmacia': [E('rect', { key: 1, x: 10, y: 4, width: 4, height: 16, rx: 1 }), E('rect', { key: 2, x: 4, y: 10, width: 16, height: 4, rx: 1 })],
+      'Psicología': [E('circle', { key: 1, cx: 10, cy: 11, r: 6.5 }), E('circle', { key: 2, cx: 18, cy: 6, r: 2 })],
+      'Servicios': [E('line', { key: 1, x1: 6, y1: 18, x2: 6, y2: 15 }), E('line', { key: 2, x1: 12, y1: 18, x2: 12, y2: 11 }), E('line', { key: 3, x1: 18, y1: 18, x2: 18, y2: 7 })]
+    };
+    return this.Icon(map[cat] || map['Servicios'], { stroke: color, size: 18 });
+  }
+
+  data() {
+    const institutionsBase = [
+      { id: 'bbva', name: 'BBVA', type: 'Banco', accounts: [
+        { name: 'Pesos', currency: 'ARS', amount: 121 },
+        { name: 'Dólares', currency: 'USD', amount: 2032 },
+        { name: 'Visa', currency: 'ARS', amount: 0, tag: 'Deuda' },
+        { name: 'Mastercard', currency: 'ARS', amount: 0, tag: 'Deuda' }
+      ]},
+      { id: 'mp', name: 'Mercado Pago', type: 'Billetera', accounts: [
+        { name: 'Dólares', currency: 'USD', amount: 11 },
+        { name: 'Mercado Pago pesos', currency: 'ARS', amount: 10166, tag: 'FCI' },
+        { name: 'Reservas', currency: 'ARS', amount: 1803609, tag: 'FCI' }
+      ]},
+      { id: 'cocos', name: 'Cocos Capital', type: 'Broker', accounts: [
+        { name: 'Cocos fondos', currency: 'ARS', amount: 278183 },
+        { name: 'Pesos', currency: 'ARS', amount: 600000 }
+      ]}
+    ];
+    const movs = [
+      { id: 1, name: 'Bar de Moes', date: '9 ago', account: 'Mercado pago pesos', category: 'Delivery y Restaurantes', amount: -2000, currency: 'ARS' },
+      { id: 2, name: 'Delivery', date: '7 ago', account: 'Mercado pago pesos', category: 'Delivery y Restaurantes', amount: -2000, currency: 'ARS' },
+      { id: 3, name: 'Arba', date: '6 ago', account: 'Visa', category: 'Transporte', amount: -64734, currency: 'ARS' },
+      { id: 4, name: 'Bar de Moes', date: '6 ago', account: 'Mercado pago pesos', category: 'Delivery y Restaurantes', amount: -2000, currency: 'ARS' },
+      { id: 5, name: 'Psicóloga', date: '6 ago', account: 'Mercado pago pesos', category: 'Psicología', amount: -36000, currency: 'ARS' },
+      { id: 6, name: 'Carrefour', date: '5 ago', account: 'Visa', category: 'Supermercado', amount: -45320, currency: 'ARS' },
+      { id: 7, name: 'Farmacity', date: '4 ago', account: 'Mercado pago pesos', category: 'Salud y Farmacia', amount: -18900, currency: 'ARS' },
+      { id: 8, name: 'Anthropic Claude', date: '3 ago', account: 'Dólares', category: 'Servicios', amount: -20, currency: 'USD' }
+    ];
+    const positions = [
+      { name: 'Mercado Fondo · Clase A', account: 'Reservas', valueARS: 1803609, valueUSD: 1372, tna: 38 },
+      { name: 'Mercado Fondo · Clase A', account: 'Mercado Pago pesos', valueARS: 10066, valueUSD: 7.6, tna: 38 },
+      { name: 'Cocos Ahorro · Clase C', account: 'Cocos fondos', valueARS: 288183, valueUSD: 219, tna: 35 },
+      { name: 'AAPL · CEDEAR', account: 'Cocos Capital', valueARS: 448000, valueUSD: 340, tna: 12.4 }
+    ];
+    const metas = [
+      { name: 'Celular', tag: 'Bien', monthly: 650, goal: 1300, pct: 0, left: '2 meses restantes' },
+      { name: 'Auto', tag: 'Bien', monthly: 482, goal: 11557, pct: 0, left: '2 años restantes' }
+    ];
+    const cuotas = [
+      { name: 'Regalo mamá', cuota: '2/3', amount: 10000, currency: 'ARS' },
+      { name: 'BBVA', cuota: '1/1', amount: 25533, currency: 'ARS' },
+      { name: 'Apple', cuota: '1/1', amount: 5, currency: 'USD' },
+      { name: 'Anthropic Claude', cuota: '1/1', amount: 20, currency: 'USD' },
+      { name: 'Ñoquis', cuota: '1/1', amount: 19800, currency: 'ARS' },
+      { name: 'Riadigos', cuota: '1/1', amount: 42923, currency: 'ARS' },
+      { name: 'Arba', cuota: '1/1', amount: 64734, currency: 'ARS' }
+    ];
+    return { institutionsBase, movs, positions, metas, cuotas };
+  }
+
+  toggle(obj, key) { const n = { ...obj }; n[key] = !n[key]; return n; }
+
+  buildBarChart(labels, valsA, valsB, fmtShort) {
+    const max = Math.max(...valsA, ...valsB, 1);
+    const gridLines = [0, 0.5, 1].map(f => ({ y: 110 - f * 100, label: fmtShort(max * f) }));
+    const groupW = 270 / labels.length;
+    const bars = labels.map((label, i) => {
+      const cx = 30 + i * groupW + groupW / 2;
+      const ah = valsA[i] / max * 100, bh = valsB[i] / max * 100;
+      return { label, cx, ax: cx - 14, bx: cx + 2, ay: 110 - ah, by: 110 - bh, ah, bh };
+    });
+    return { bars, gridLines };
+  }
+
+  buildLineChart(labels, vals, fmtShort) {
+    const max = Math.max(...vals, 1);
+    const top = 10, bottom = 110, left = 30, right = 300;
+    const gridLines = [0, 0.5, 1].map(f => ({ y: bottom - f * (bottom - top), label: fmtShort(max * f) }));
+    const n = vals.length;
+    const pts = vals.map((v, i) => ({ x: left + (n > 1 ? i / (n - 1) * (right - left) : 0), y: bottom - (v / max) * (bottom - top), day: labels[i] }));
+    const path = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p.x.toFixed(1) + ',' + p.y.toFixed(1)).join(' ');
+    const area = path + ` L${pts[pts.length - 1].x.toFixed(1)},${bottom} L${pts[0].x.toFixed(1)},${bottom} Z`;
+    return { pts, path, area, gridLines };
+  }
+
+  renderVals() {
+    const dark = this.state.dark;
+    const c = this.colors(dark);
+    const hide = this.state.hideBalances;
+    const fmtARS = (n) => hide ? '$ ••••••' : '$ ' + Math.round(n).toLocaleString('es-AR');
+    const fmtUSD = (n) => hide ? 'US$ •••' : 'US$ ' + Math.round(n).toLocaleString('es-AR');
+    const fmtShortARS = (n) => hide ? '••••' : (n >= 1000 ? '$' + Math.round(n / 1000) + 'k' : '$' + Math.round(n));
+    const { institutionsBase, movs, positions, metas, cuotas } = this.data();
+    const icons = this.icons(c);
+
+    const totalARS = institutionsBase.flatMap(i => i.accounts).filter(a => a.currency === 'ARS').reduce((s, a) => s + a.amount, 0);
+    const totalUSD = institutionsBase.flatMap(i => i.accounts).filter(a => a.currency === 'USD').reduce((s, a) => s + a.amount, 0);
+    const totalARSDisplay = fmtARS(totalARS);
+    const totalUSDDisplay = fmtUSD(totalUSD);
+    const sueldoDisplay = fmtARS(5191379);
+    const visaDisplay = fmtARS(497650);
+
+    const institutions = institutionsBase.map(inst => {
+      const totalARSi = inst.accounts.filter(a => a.currency === 'ARS' && !a.tag).reduce((s, a) => s + a.amount, 0);
+      const totalUSDi = inst.accounts.filter(a => a.currency === 'USD').reduce((s, a) => s + a.amount, 0);
+      const expanded = !!this.state.expanded[inst.id];
+      return {
+        ...inst, expanded, chevronTransform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+        toggle: () => this.setState(s => ({ expanded: this.toggle(s.expanded, inst.id) })),
+        totalARS: totalARSi, totalUSD: totalUSDi,
+        totalARSDisplay: fmtARS(totalARSi), totalUSDDisplay: fmtUSD(totalUSDi),
+        accounts: inst.accounts.map(a => ({ ...a, display: a.currency === 'ARS' ? fmtARS(a.amount) : fmtUSD(a.amount) }))
+      };
+    });
+
+    const catFilter = this.state.categoryFilter;
+    const movsWithMeta = movs.map(m => ({ ...m, catColor: this.catColor(m.category, dark), icon: this.catIcon(m.category, this.catColor(m.category, dark)), display: (m.currency === 'ARS' ? fmtARS(Math.abs(m.amount)) : fmtUSD(Math.abs(m.amount))) }));
+    const visibleMovs = catFilter ? movsWithMeta.filter(m => m.category === catFilter) : movsWithMeta;
+    const recentMovs = movsWithMeta.slice(0, 3);
+    const movListTitle = catFilter || 'Todos los movimientos';
+
+    const arsMovs = movs.filter(m => m.currency === 'ARS');
+    const catTotals = {};
+    arsMovs.forEach(m => { catTotals[m.category] = (catTotals[m.category] || 0) + Math.abs(m.amount); });
+    const catList = Object.keys(catTotals);
+    const catCount = catList.length;
+    const totalCat = catList.reduce((s, k) => s + catTotals[k], 0);
+    const R = 46, CIRC = 2 * Math.PI * R;
+    let cum = 0;
+    const donutSegments = catList.map(k => {
+      const pct = totalCat ? catTotals[k] / totalCat * 100 : 0;
+      const dash = pct / 100 * CIRC;
+      const seg = { color: this.catColor(k, dark), dasharray: `${dash.toFixed(2)} ${(CIRC - dash).toFixed(2)}`, dashoffset: -(cum / 100 * CIRC).toFixed(2) };
+      cum += pct;
+      return seg;
+    });
+    const donutTotalDisplay = fmtARS(totalCat);
+    const pieLegend = catList.map(k => ({
+      name: k, color: this.catColor(k, dark), pct: totalCat ? Math.round(catTotals[k] / totalCat * 100) : 0,
+      amountDisplay: fmtARS(catTotals[k]),
+      dim: (catFilter && catFilter !== k) ? 0.4 : 1,
+      select: () => this.setState({ categoryFilter: catFilter === k ? null : k })
+    }));
+
+    const totalGastosMes = arsMovs.reduce((s, m) => s + Math.abs(m.amount), 0);
+    const totalIngresosMes = 0;
+    const totalGastosMesDisplay = fmtARS(totalGastosMes);
+    const totalIngresosMesDisplay = fmtARS(totalIngresosMes);
+
+    const monthLabels = ['Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago'];
+    const monthGastos = [210000, 195000, 220000, 180000, 205000, totalGastosMes];
+    const monthIngresos = [230000, 230000, 230000, 230000, 230000, 5000];
+    const { bars: barItems, gridLines: barGridLines } = this.buildBarChart(monthLabels, monthGastos, monthIngresos, fmtShortARS);
+    const avgMonthlyDisplay = fmtARS(monthGastos.reduce((a, b) => a + b, 0) / monthGastos.length);
+    const deltaPct = monthGastos[4] ? Math.round(Math.abs(monthGastos[5] - monthGastos[4]) / monthGastos[4] * 100) : 0;
+    const momComparisonText = monthGastos[5] >= monthGastos[4] ? `${deltaPct}% más que en julio` : `${deltaPct}% menos que en julio`;
+
+    const dayBuckets = {};
+    arsMovs.forEach(m => { const d = parseInt(m.date); dayBuckets[d] = (dayBuckets[d] || 0) + Math.abs(m.amount); });
+    const uniqueDays = Object.keys(dayBuckets).map(Number).sort((a, b) => a - b);
+    let run2 = 0;
+    const cumVals = uniqueDays.map(d => { run2 += dayBuckets[d]; return run2; });
+    const { pts: movLinePts, path: movLinePath, area: movLineArea, gridLines: movLineGridLines } = this.buildLineChart(uniqueDays, cumVals, fmtShortARS);
+
+    const portfolioARS = positions.reduce((s, p) => s + p.valueARS, 0);
+    const portfolioUSD = positions.reduce((s, p) => s + p.valueUSD, 0);
+    const trendFactors = [0.90, 0.93, 0.95, 0.97, 0.99, 1.0];
+    const portfolioTrend = trendFactors.map(f => portfolioARS * f);
+    const { pts: invLinePts, path: invLinePath, area: invLineArea, gridLines: invLineGridLines } = this.buildLineChart(monthLabels, portfolioTrend, fmtShortARS);
+    const invGrowthPct = (((portfolioTrend[5] - portfolioTrend[0]) / portfolioTrend[0]) * 100).toFixed(1);
+
+    const chartType = this.state.chartType;
+    const ctBg = (k) => chartType === k ? c.accent : 'transparent';
+    const ctColor = (k) => chartType === k ? c.accentText : c.textSecondary;
+    const chartTypes = [
+      { key: 'pie', label: 'Torta', bg: ctBg('pie'), color: ctColor('pie'), select: () => this.setState({ chartType: 'pie' }) },
+      { key: 'bar', label: 'Barras', bg: ctBg('bar'), color: ctColor('bar'), select: () => this.setState({ chartType: 'bar' }) },
+      { key: 'line', label: 'Línea', bg: ctBg('line'), color: ctColor('line'), select: () => this.setState({ chartType: 'line' }) }
+    ];
+
+    const resumenView = this.state.resumenView;
+    const rtBg = (k) => resumenView === k ? c.accent : 'transparent';
+    const rtColor = (k) => resumenView === k ? c.accentText : c.textSecondary;
+    const resumenTabs = [
+      { key: 'gastos', label: 'Gastos', bg: rtBg('gastos'), color: rtColor('gastos'), select: () => this.setState({ resumenView: 'gastos' }) },
+      { key: 'comparativa', label: 'Ingresos/Gastos', bg: rtBg('comparativa'), color: rtColor('comparativa'), select: () => this.setState({ resumenView: 'comparativa' }) },
+      { key: 'inversiones', label: 'Inversiones', bg: rtBg('inversiones'), color: rtColor('inversiones'), select: () => this.setState({ resumenView: 'inversiones' }) }
+    ];
+
+    const periods = ['Esta semana', 'Este mes', 'Mes pasado', 'Rango personalizado'].map((label, i) => ({
+      label, bg: i === 1 ? c.accent : c.surface, color: i === 1 ? c.accentText : c.textSecondary, borderColor: i === 1 ? c.accent : c.border, select: () => {}
+    }));
+
+    const curArs = this.state.curArs;
+    const portfolioDisplay = curArs ? fmtARS(portfolioARS) : fmtUSD(portfolioUSD);
+    const curArsBg = curArs ? c.accent : 'transparent', curArsColor = curArs ? c.accentText : c.textSecondary;
+    const curUsdBg = !curArs ? c.accent : 'transparent', curUsdColor = !curArs ? c.accentText : c.textSecondary;
+
+    const perMes = this.state.perMes;
+    const perMesBg = perMes ? c.accent : c.surface, perMesColor = perMes ? c.accentText : c.textSecondary;
+    const perAnioBg = !perMes ? c.accent : c.surface, perAnioColor = !perMes ? c.accentText : c.textSecondary;
+
+    const positionsOut = positions.map(p => {
+      const rate = perMes ? p.tna / 12 : p.tna;
+      const gainARS = Math.round(p.valueARS * rate / 100);
+      const gainUSD = p.valueUSD * rate / 100;
+      return { ...p, gainPct: rate.toFixed(1), valueDisplay: curArs ? fmtARS(p.valueARS) : fmtUSD(p.valueUSD), gainDisplay: curArs ? fmtARS(gainARS) : fmtUSD(gainUSD) };
+    });
+
+    const metaHeroDisplay = fmtUSD(1132);
+    const metasOut = metas.map(g => ({ ...g, monthlyDisplay: fmtUSD(g.monthly), goalDisplay: fmtUSD(g.goal), savedDisplay: fmtUSD(0) }));
+    const cuotasOut = cuotas.map(q => ({ ...q, display: q.currency === 'ARS' ? fmtARS(q.amount) : fmtUSD(q.amount) }));
+
+    const catFilterChips = catList.map(k => {
+      const on = !!this.state.catToggle[k];
+      return { name: k, bg: on ? c.accent : c.surfaceHigh, color: on ? c.accentText : c.textSecondary, toggle: () => this.setState(s => ({ catToggle: this.toggle(s.catToggle, k) })) };
+    });
+
+    const lightBg = !dark ? c.accent : 'transparent', lightColor = !dark ? c.accentText : c.textSecondary;
+    const darkBg = dark ? c.accent : 'transparent', darkColor = dark ? c.accentText : c.textSecondary;
+    const hideSwitchBg = hide ? c.accent : c.border, hideSwitchLeft = hide ? '22px' : '3px';
+    const notif = this.state.notif;
+    const notifSwitchBg = notif ? c.accent : c.border, notifSwitchLeft = notif ? '22px' : '3px';
+
+    const screen = this.state.screen;
+    const isInicio = screen === 'inicio', isMovimientos = screen === 'movimientos', isInversiones = screen === 'inversiones', isCuentas = screen === 'cuentas';
+    const navHomeIcon = isInicio ? icons.homeActive : icons.home, navHomeColor = isInicio ? c.accent : c.textTertiary;
+    const navMovIcon = isMovimientos ? icons.listActive : icons.list, navMovColor = isMovimientos ? c.accent : c.textTertiary;
+    const navInvIcon = isInversiones ? icons.trendingActive : icons.trending, navInvColor = isInversiones ? c.accent : c.textTertiary;
+    const navCuentasIcon = isCuentas ? icons.buildingActive : icons.building, navCuentasColor = isCuentas ? c.accent : c.textTertiary;
+    const eyeIcon = hide ? icons.eyeOff : icons.eye;
+    const nuevoMenuOpen = this.state.nuevoMenuOpen;
+    const nuevoIcon = nuevoMenuOpen ? icons.close : icons.plus;
+
+    return {
+      dark, c, icons, eyeIcon, nuevoIcon,
+      hideBalances: hide, toggleHide: () => this.setState(s => ({ hideBalances: !s.hideBalances })),
+      totalARS, totalUSD, totalARSDisplay, totalUSDDisplay, sueldoDisplay, visaDisplay, institutions,
+      recentMovs, visibleMovs, categoryFilter: catFilter, movListTitle, clearFilter: () => this.setState({ categoryFilter: null }),
+      donutSegments, donutTotalDisplay, catCount, pieLegend, isPie: chartType === 'pie', isBar: chartType === 'bar', isLine: chartType === 'line',
+      barItems, barGridLines, movLinePts, movLinePath, movLineArea, movLineGridLines, chartTypes, periods,
+      avgMonthlyDisplay, momComparisonText,
+      invLinePts, invLinePath, invLineArea, invLineGridLines, invGrowthPct,
+      resumenTabs, resumenIsGastos: resumenView === 'gastos', resumenIsComparativa: resumenView === 'comparativa', resumenIsInversiones: resumenView === 'inversiones',
+      totalGastosMesDisplay, totalIngresosMesDisplay,
+      curArs, curArsBg, curArsColor, curUsdBg, curUsdColor, setCurArs: () => this.setState({ curArs: true }), setCurUsd: () => this.setState({ curArs: false }),
+      perMes, perMesBg, perMesColor, perAnioBg, perAnioColor, setPerMes: () => this.setState({ perMes: true }), setPerAnio: () => this.setState({ perMes: false }),
+      portfolioDisplay, positions: positionsOut,
+      metaHeroDisplay, metas: metasOut, cuotas: cuotasOut,
+      notif, toggleNotif: () => this.setState(s => ({ notif: !s.notif })), notifSwitchBg, notifSwitchLeft,
+      hideSwitchBg, hideSwitchLeft,
+      lightBg, lightColor, darkBg, darkColor,
+      setLight: () => this.setState({ dark: false }), setDark: () => this.setState({ dark: true }),
+      filterSheetOpen: this.state.filterSheetOpen, toggleFilterSheet: () => this.setState(s => ({ filterSheetOpen: !s.filterSheetOpen })),
+      nuevoMenuOpen, toggleNuevoMenu: () => this.setState(s => ({ nuevoMenuOpen: !s.nuevoMenuOpen })),
+      catFilterChips,
+      isInicio, isMovimientos, isInversiones, isCuentas,
+      isConfig: screen === 'config', isMetas: screen === 'metas', isCuotas: screen === 'cuotas',
+      isNuevoGasto: screen === 'nuevo-gasto', isNuevoIngreso: screen === 'nuevo-ingreso', isTransferencia: screen === 'transferencia',
+      navHomeIcon, navHomeColor, navMovIcon, navMovColor, navInvIcon, navInvColor, navCuentasIcon, navCuentasColor,
+      goInicio: () => this.go('inicio'), goMovimientos: () => this.go('movimientos'), goInversiones: () => this.go('inversiones'),
+      goCuentas: () => this.go('cuentas'), goConfig: () => this.go('config'), goMetas: () => this.go('metas'),
+      goCuotas: () => this.go('cuotas'), goDistribute: () => this.go('nuevo-ingreso'),
+      goNuevoGasto: () => this.go('nuevo-gasto'), goNuevoIngreso: () => this.go('nuevo-ingreso'), goTransferencia: () => this.go('transferencia')
+    };
+  }
+}
+
+</script>
+</body>
+</html>
