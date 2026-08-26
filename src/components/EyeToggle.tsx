@@ -15,7 +15,7 @@ export default function EyeToggle({ className }: { className?: string }) {
       aria-label={hide ? "Mostrar saldos" : "Ocultar saldos"}
       className={
         className ??
-        "w-9 h-9 rounded-xl bg-fz-surface border border-fz-border flex items-center justify-center text-fz-text-secondary"
+        "w-11 h-11 rounded-2xl bg-fz-surface border border-fz-border flex items-center justify-center text-fz-text-secondary"
       }
     >
       {hide ? <EyeOff size={18} /> : <Eye size={18} />}

@@ -8,7 +8,7 @@ import { formatInputAmount } from "@/lib/format";
 import AmountInput from "@/components/AmountInput";
 import { createExpense } from "@/app/(main)/gastos/actions";
 import { createClient } from "@/lib/supabase/client";
-import type { Account, Category, Currency, PaymentMethod } from "@/types";
+import type { Account, Category, Currency, PaymentMethod, ShareGroupWithMembers } from "@/types";
 
 const NEW_CATEGORY_ICONS = ["🏷️", "🛒", "🚌", "🏠", "💊", "⛽", "🍕", "💡", "🎬", "📱", "💼", "🎁"];
 const NEW_CATEGORY_VALUE = "__new__";
@@ -18,6 +18,7 @@ interface Props {
   categories: Category[];
   merchants?: string[];
   redirectTo?: string;
+  shareGroups?: ShareGroupWithMembers[];
 }
 
 // Agrupa cuentas hoja por la institución raíz (camina parent_id hasta el tope).
@@ -63,6 +64,7 @@ export default function ExpenseForm({
   categories,
   merchants = [],
   redirectTo = "/gastos",
+  shareGroups = [],
 }: Props) {
   const router = useRouter();
   const today = new Date().toISOString().split("T")[0];
@@ -99,6 +101,7 @@ export default function ExpenseForm({
   // guarda como fila — es implícita (amount del gasto − Σ participantes).
   const [isShared, setIsShared] = useState(false);
   const [splitCount, setSplitCount] = useState(2);
+  const [selectedGroupId, setSelectedGroupId] = useState("");
   const [participants, setParticipants] = useState<{ name: string; amount: string }[]>([
     { name: "", amount: "" },
   ]);
@@ -109,9 +112,21 @@ export default function ExpenseForm({
     return (Math.round((totalNum / count) * 100) / 100).toString();
   }
 
+  function applyGroup(groupId: string) {
+    setSelectedGroupId(groupId);
+    if (!groupId) return;
+    const group = shareGroups.find((g) => g.id === groupId);
+    if (!group || group.members.length === 0) return;
+    const n = group.members.length + 1; // + vos
+    const share = equalShare(n);
+    setSplitCount(n);
+    setParticipants(group.members.map((m) => ({ name: m.name, amount: share })));
+  }
+
   function handleSplitCountChange(raw: string) {
     const n = Math.max(2, parseInt(raw) || 2);
     setSplitCount(n);
+    setSelectedGroupId("");
     const share = equalShare(n);
     setParticipants((prev) =>
       Array.from({ length: n - 1 }, (_, i) => prev[i] ?? { name: "", amount: share })
@@ -591,7 +606,7 @@ export default function ExpenseForm({
         />
       </div>
 
-      {/* TAREA 8: gastos compartidos */}
+      {/* TAREA 8: gastos compartidos (+ grupos Sesión grupos familiares) */}
       <div className="border-t border-gray-100 pt-4">
         <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
           <input
@@ -601,6 +616,7 @@ export default function ExpenseForm({
               setIsShared(e.target.checked);
               if (e.target.checked) {
                 setSplitCount(2);
+                setSelectedGroupId("");
                 setParticipants([{ name: "", amount: equalShare(2) }]);
               }
             }}
@@ -611,6 +627,42 @@ export default function ExpenseForm({
 
         {isShared && (
           <div className="mt-2 space-y-3 bg-gray-50 rounded-xl p-3">
+            {shareGroups.length > 0 ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Usar un grupo
+                </label>
+                <select
+                  value={selectedGroupId}
+                  onChange={(e) => applyGroup(e.target.value)}
+                  className="w-full min-h-[44px] border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900"
+                >
+                  <option value="">Elegir grupo o cargar a mano…</option>
+                  {shareGroups.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {(g.icon ? `${g.icon} ` : "") + g.name} ({g.members.length + 1}{" "}
+                      personas c/vos)
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  Gestioná grupos en{" "}
+                  <Link href="/grupos" className="underline text-gray-600">
+                    /grupos
+                  </Link>
+                  .
+                </p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-400">
+                Tip: creá &quot;Familiares&quot; o &quot;Amigos&quot; en{" "}
+                <Link href="/grupos" className="underline text-gray-600">
+                  Grupos
+                </Link>{" "}
+                para no tipear nombres cada vez.
+              </p>
+            )}
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 ¿Entre cuántas personas? (incluyéndote)
@@ -649,8 +701,8 @@ export default function ExpenseForm({
               ))}
             </div>
             <p className="text-[11px] text-gray-400">
-              Vos pagás el total ahora; acá registrás cuánto te debe cada persona. Podés
-              cambiar los montos si no fue un reparto exactamente igual.
+              Vos pagás el total ahora (también si es en cuotas); acá registrás cuánto te
+              debe cada persona. Podés cambiar los montos si no fue un reparto igual.
             </p>
           </div>
         )}

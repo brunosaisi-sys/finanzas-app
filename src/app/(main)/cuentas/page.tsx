@@ -48,8 +48,10 @@ export default async function CuentasPage() {
 
   if (accounts.length === 0) {
     return (
-      <div className="p-4 max-w-lg mx-auto">
-        <h1 className="text-2xl font-semibold text-gray-900 pt-2 mb-6">Cuentas</h1>
+      <div className="p-4 max-w-lg mx-auto pb-24 bg-fz-bg min-h-screen">
+        <h1 className="font-display font-extrabold text-2xl text-fz-text uppercase tracking-wide pt-2 mb-6">
+          Cuentas
+        </h1>
         <AccountsOnboarding />
       </div>
     );
@@ -222,19 +224,21 @@ export default async function CuentasPage() {
   }));
 
   return (
-    <div className="p-4 max-w-lg mx-auto space-y-6">
-      <div className="flex items-center justify-between pt-2">
-        <h1 className="text-2xl font-semibold text-gray-900">Cuentas</h1>
-        <div className="flex items-center gap-2">
+    <div className="p-4 max-w-lg mx-auto space-y-6 bg-fz-bg min-h-screen">
+      <div className="flex items-center justify-between pt-2 gap-3">
+        <h1 className="font-display font-extrabold text-2xl text-fz-text uppercase tracking-wide">
+          Cuentas
+        </h1>
+        <div className="flex items-center gap-2 shrink-0">
           <Link
             href="/cuentas/transferencia"
-            className="text-xs font-medium text-gray-500 border border-gray-200 rounded-full px-3 py-1.5 hover:border-gray-400 transition-colors"
+            className="text-xs font-medium text-fz-text-secondary border border-fz-border rounded-full px-3 py-2 min-h-[44px] inline-flex items-center"
           >
             Transferencia
           </Link>
           <Link
             href="/cuentas/nueva"
-            className="text-sm font-medium text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-full px-4 py-2 transition-colors"
+            className="text-sm font-medium text-fz-accent-text bg-fz-accent rounded-full px-4 py-2 min-h-[44px] inline-flex items-center"
           >
             + Agregar
           </Link>

@@ -185,6 +185,26 @@ export interface SavingsContribution {
 
 export type IncomeType = "sueldo" | "freelance" | "otro";
 
+/** Grupo reutilizable de personas para gastos compartidos (Familiares, Amigos…). */
+export interface ShareGroup {
+  id: string;
+  user_id: string;
+  name: string;
+  icon: string | null;
+  created_at: string;
+}
+
+export interface ShareGroupMember {
+  id: string;
+  group_id: string;
+  name: string;
+  created_at: string;
+}
+
+export interface ShareGroupWithMembers extends ShareGroup {
+  members: ShareGroupMember[];
+}
+
 export interface Income {
   id: string;
   user_id: string;

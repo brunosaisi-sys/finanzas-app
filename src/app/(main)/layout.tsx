@@ -7,7 +7,7 @@ export default function MainLayout({
 }) {
   return (
     <>
-      <main className="pb-20">{children}</main>
+      <main className="pb-28">{children}</main>
       <BottomNav />
     </>
   );

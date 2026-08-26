@@ -1,32 +1,66 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Home, Receipt, Landmark, TrendingUp, Plus, X, ArrowLeftRight, Wallet } from "lucide-react";
+import {
+  Home,
+  Receipt,
+  Landmark,
+  TrendingUp,
+  Plus,
+  X,
+  ArrowLeftRight,
+  Wallet,
+  CreditCard,
+  Target,
+  Users,
+  HandCoins,
+} from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
-// Sesión J.1.15, TAREA 7a: emoji reemplazados por lucide-react — el set de
-// iconos elegido para todo el "chrome" de la app (nunca para contenido elegido
-// por el usuario, como el ícono de una categoría). Ver "Sistema de diseño" en
-// CLAUDE.md. Sesión J.1.16, TAREA 5: se mantiene lucide-react (no se migra a
-// los SVG custom del prototipo de Claude Design) — decisión documentada en
-// CLAUDE.md, sección "Sistema de diseño".
-// Sesión J.1.17, TAREA 5: Inversiones reemplaza a Metas en la barra — el
-// usuario pidió que Inversiones sea un tab de primer nivel. Metas (/objetivos)
-// no se elimina, se reubica como acceso rápido en Inicio (ver CLAUDE.md,
-// checkpoint de sesión, para el motivo de esa elección de lugar).
 const NAV_ITEMS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/", label: "Inicio", icon: Home },
-  { href: "/movimientos", label: "Movimientos", icon: Receipt },
+  { href: "/movimientos", label: "Movs", icon: Receipt },
   { href: "/cuentas", label: "Cuentas", icon: Landmark },
-  { href: "/inversiones", label: "Inversiones", icon: TrendingUp },
+  { href: "/inversiones", label: "Invertir", icon: TrendingUp },
 ];
 
-const QUICK_ACTIONS: { href: string; label: string; icon: LucideIcon }[] = [
-  { href: "/gastos/nuevo", label: "Nuevo gasto", icon: Receipt },
-  { href: "/ingresos/nuevo", label: "Nuevo ingreso", icon: Wallet },
-  { href: "/cuentas/transferencia", label: "Transferencia", icon: ArrowLeftRight },
+const PRIMARY_ACTIONS: {
+  href: string;
+  label: string;
+  hint: string;
+  icon: LucideIcon;
+  tone: "accent" | "neutral";
+}[] = [
+  {
+    href: "/gastos/nuevo",
+    label: "Nuevo gasto",
+    hint: "Efectivo, débito o cuotas",
+    icon: Receipt,
+    tone: "accent",
+  },
+  {
+    href: "/ingresos/nuevo",
+    label: "Nuevo ingreso",
+    hint: "Sueldo, freelance u otro",
+    icon: Wallet,
+    tone: "neutral",
+  },
+  {
+    href: "/cuentas/transferencia",
+    label: "Transferencia",
+    hint: "Mover plata entre cuentas",
+    icon: ArrowLeftRight,
+    tone: "neutral",
+  },
+];
+
+const SECONDARY_ACTIONS: { href: string; label: string; icon: LucideIcon }[] = [
+  { href: "/cuotas", label: "Cuotas", icon: CreditCard },
+  { href: "/objetivos", label: "Metas", icon: Target },
+  { href: "/grupos", label: "Grupos", icon: Users },
+  { href: "/compartidos", label: "Deudas", icon: HandCoins },
 ];
 
 export default function BottomNav() {
@@ -44,66 +78,114 @@ export default function BottomNav() {
     router.push(href);
   }
 
+  useEffect(() => {
+    setOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
   return (
     <>
-      {/* Overlay */}
       {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40"
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* Bottom sheet */}
-      {open && (
-        <div className="fixed bottom-16 left-0 right-0 z-50 flex justify-center px-4">
-          <div className="w-full max-w-lg bg-fz-surface rounded-2xl shadow-xl overflow-hidden">
-            {QUICK_ACTIONS.map((action, i) => (
+        <div className="fixed inset-0 z-[60] flex flex-col justify-end">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Cerrar menú"
+            onClick={() => setOpen(false)}
+          />
+          <div className="relative z-10 mx-auto w-full max-w-lg rounded-t-[28px] bg-fz-surface px-4 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-[0_-12px_40px_rgba(0,0,0,0.18)]">
+            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-fz-border" />
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="font-display text-xl font-extrabold uppercase tracking-wide text-fz-text">
+                  Nuevo
+                </p>
+                <p className="text-xs text-fz-text-tertiary">Elegí qué querés cargar</p>
+              </div>
               <button
-                key={action.href}
-                onClick={() => handleAction(action.href)}
-                className={`w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-fz-surface-high transition-colors ${
-                  i > 0 ? "border-t border-fz-border" : ""
-                }`}
+                type="button"
+                onClick={() => setOpen(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-fz-surface-high text-fz-text-secondary"
+                aria-label="Cerrar"
               >
-                <span className="w-9 h-9 rounded-full bg-fz-accent-soft flex items-center justify-center shrink-0">
-                  <action.icon size={18} className="text-fz-accent" />
-                </span>
-                <span className="text-sm font-medium text-fz-text">{action.label}</span>
+                <X size={18} />
               </button>
-            ))}
+            </div>
+
+            <div className="space-y-2">
+              {PRIMARY_ACTIONS.map((action) => (
+                <button
+                  key={action.href}
+                  type="button"
+                  onClick={() => handleAction(action.href)}
+                  className="flex min-h-[56px] w-full items-center gap-3 rounded-2xl bg-fz-surface-high px-4 py-3 text-left"
+                >
+                  <span
+                    className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${
+                      action.tone === "accent"
+                        ? "bg-fz-accent text-fz-accent-text"
+                        : "bg-fz-surface text-fz-accent"
+                    }`}
+                  >
+                    <action.icon size={20} />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold text-fz-text">
+                      {action.label}
+                    </span>
+                    <span className="block text-xs text-fz-text-tertiary">{action.hint}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <p className="mt-5 mb-2 text-[11px] font-semibold uppercase tracking-wide text-fz-text-tertiary">
+              Ir a
+            </p>
+            <div className="grid grid-cols-4 gap-2">
+              {SECONDARY_ACTIONS.map((action) => (
+                <button
+                  key={action.href}
+                  type="button"
+                  onClick={() => handleAction(action.href)}
+                  className="flex min-h-[72px] flex-col items-center justify-center gap-1.5 rounded-2xl bg-fz-surface-high px-1 py-3"
+                >
+                  <action.icon size={18} className="text-fz-accent" />
+                  <span className="text-[11px] font-medium text-fz-text">{action.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Nav bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-fz-nav-bg border-t border-fz-border z-50 safe-area-pb">
-        <div className="flex items-stretch max-w-lg mx-auto">
-          {NAV_ITEMS.slice(0, 2).map((item) => (
-            <NavItem key={item.href} item={item} active={isActive(item.href)} />
-          ))}
+      <nav className="pointer-events-none fixed inset-x-0 bottom-0 z-50 px-3 pb-[max(0.6rem,env(safe-area-inset-bottom))]">
+        <div className="pointer-events-auto mx-auto flex max-w-lg items-end gap-2">
+          <div className="flex min-h-[64px] flex-1 items-stretch rounded-[22px] border border-fz-border bg-fz-nav-bg shadow-[0_8px_28px_rgba(0,0,0,0.12)]">
+            {NAV_ITEMS.map((item) => (
+              <NavItem key={item.href} item={item} active={isActive(item.href)} />
+            ))}
+          </div>
 
-          {/* Botón central + — único elemento que usa el acento a pleno color,
-              a propósito: es la acción primaria de toda la app (TAREA 7b,
-              "acento usado con moderación", no en cada elemento). */}
           <button
+            type="button"
             onClick={() => setOpen((v) => !v)}
-            className="flex-1 flex flex-col items-center justify-center py-2"
-            aria-label="Acciones rápidas"
+            className={`mb-1 flex h-14 w-14 shrink-0 items-center justify-center rounded-full shadow-lg transition-colors ${
+              open ? "bg-fz-text text-fz-bg" : "bg-fz-accent text-fz-accent-text"
+            }`}
+            aria-label={open ? "Cerrar acciones rápidas" : "Acciones rápidas"}
+            aria-expanded={open}
           >
-            <span
-              className={`w-11 h-11 flex items-center justify-center rounded-full shadow-md -mt-4 transition-colors ${
-                open ? "bg-fz-text-tertiary text-fz-bg" : "bg-fz-accent text-fz-accent-text"
-              }`}
-            >
-              {open ? <X size={22} /> : <Plus size={22} />}
-            </span>
-            <span className="text-[10px] text-fz-text-tertiary mt-1">Nuevo</span>
+            {open ? <X size={24} /> : <Plus size={26} strokeWidth={2.25} />}
           </button>
-
-          {NAV_ITEMS.slice(2).map((item) => (
-            <NavItem key={item.href} item={item} active={isActive(item.href)} />
-          ))}
         </div>
       </nav>
     </>
@@ -120,11 +202,17 @@ function NavItem({
   return (
     <Link
       href={item.href}
-      className={`flex-1 flex flex-col items-center justify-center py-3 text-[10px] transition-colors ${
-        active ? "text-fz-accent font-semibold" : "text-fz-text-tertiary"
+      className={`flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 px-1 py-2 text-[11px] transition-colors ${
+        active ? "font-semibold text-fz-accent" : "text-fz-text-tertiary"
       }`}
     >
-      <item.icon size={20} className="mb-0.5" strokeWidth={active ? 2.5 : 2} />
+      <span
+        className={`flex h-8 w-8 items-center justify-center rounded-xl ${
+          active ? "bg-fz-accent-soft" : ""
+        }`}
+      >
+        <item.icon size={20} strokeWidth={active ? 2.5 : 2} />
+      </span>
       {item.label}
     </Link>
   );

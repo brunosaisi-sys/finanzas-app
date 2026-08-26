@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import ExpenseForm from "@/components/ExpenseForm";
+import { fetchShareGroupsWithMembers } from "@/lib/queries/shareGroups";
 import type { Account, Category } from "@/types";
 
 export default async function NuevoGastoPage() {
@@ -11,7 +12,7 @@ export default async function NuevoGastoPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: accounts }, { data: categories }, { data: merchantRows }] =
+  const [{ data: accounts }, { data: categories }, { data: merchantRows }, shareGroups] =
     await Promise.all([
       supabase.from("accounts").select("*").order("name"),
       supabase.from("categories").select("*").order("name"),
@@ -20,6 +21,7 @@ export default async function NuevoGastoPage() {
         .select("merchant")
         .not("merchant", "is", null)
         .order("merchant"),
+      fetchShareGroupsWithMembers(),
     ]);
 
   const merchants = [
@@ -40,6 +42,7 @@ export default async function NuevoGastoPage() {
         accounts={(accounts ?? []) as Account[]}
         categories={(categories ?? []) as Category[]}
         merchants={merchants}
+        shareGroups={shareGroups}
         redirectTo="/gastos"
       />
     </div>

@@ -242,22 +242,25 @@ export default async function DashboardPage() {
     .reduce((sum, e) => sum + Number(e.amount), 0);
 
   const monthName = now.toLocaleDateString("es-AR", { month: "long" });
+  const hour = now.getHours();
+  const greeting =
+    hour < 12 ? "Buenos días" : hour < 19 ? "Buenas tardes" : "Buenas noches";
 
   return (
     <div className="p-4 max-w-lg mx-auto space-y-6 pb-24 bg-fz-bg min-h-screen -mt-[1px]">
       {/* Header */}
       <div className="flex items-center justify-between pt-2">
         <div>
-          <h1 className="font-display font-extrabold text-[30px] leading-none text-fz-text uppercase tracking-wide">
+          <p className="text-[13px] font-medium text-fz-text-tertiary">{greeting}</p>
+          <h1 className="font-display font-extrabold text-[30px] leading-none text-fz-text uppercase tracking-wide mt-0.5">
             Finanzas
           </h1>
-          <p className="text-[13px] text-fz-text-tertiary mt-1">{user.email}</p>
         </div>
         <div className="flex items-center gap-2">
           <EyeToggle />
           <Link
             href="/configuracion"
-            className="w-9 h-9 rounded-xl bg-fz-surface border border-fz-border flex items-center justify-center text-fz-text-secondary"
+            className="w-11 h-11 rounded-2xl bg-fz-surface border border-fz-border flex items-center justify-center text-fz-text-secondary"
             aria-label="Configuración"
           >
             <Settings size={18} />
@@ -537,18 +540,27 @@ export default async function DashboardPage() {
 
       {/* Accesos rápidos */}
       <section>
+        <h2 className="text-xs font-medium text-fz-text-tertiary uppercase tracking-wide mb-2">
+          Accesos
+        </h2>
         <div className="grid grid-cols-3 gap-2">
-          <Link href="/cuotas" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
-            <CreditCard size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
-            <p className="text-xs font-medium text-fz-text">Cuotas</p>
+          <Link href="/cuotas" className="bg-fz-surface border border-fz-border rounded-2xl px-3 py-4 text-center hover:bg-fz-surface-high transition-colors">
+            <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-fz-accent-soft">
+              <CreditCard size={18} className="text-fz-accent" />
+            </span>
+            <p className="text-xs font-semibold text-fz-text">Cuotas</p>
           </Link>
-          <Link href="/bienes" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
-            <HomeIcon size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
-            <p className="text-xs font-medium text-fz-text">Bienes</p>
+          <Link href="/bienes" className="bg-fz-surface border border-fz-border rounded-2xl px-3 py-4 text-center hover:bg-fz-surface-high transition-colors">
+            <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-fz-accent-soft">
+              <HomeIcon size={18} className="text-fz-accent" />
+            </span>
+            <p className="text-xs font-semibold text-fz-text">Bienes</p>
           </Link>
-          <Link href="/objetivos" className="bg-fz-surface border border-fz-border rounded-xl px-3 py-3.5 text-center hover:bg-fz-surface-high transition-colors">
-            <Target size={20} className="mx-auto mb-1.5 text-fz-text-secondary" />
-            <p className="text-xs font-medium text-fz-text">Metas</p>
+          <Link href="/objetivos" className="bg-fz-surface border border-fz-border rounded-2xl px-3 py-4 text-center hover:bg-fz-surface-high transition-colors">
+            <span className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-xl bg-fz-accent-soft">
+              <Target size={18} className="text-fz-accent" />
+            </span>
+            <p className="text-xs font-semibold text-fz-text">Metas</p>
           </Link>
         </div>
       </section>
@@ -593,7 +605,8 @@ export default async function DashboardPage() {
                 month: "short",
               });
               return (
-                <div
+                <Link
+                  href={`/gastos/${expense.id}/editar`}
                   key={expense.id}
                   className={`flex items-center justify-between px-4 py-3 ${
                     i > 0 ? "border-t border-fz-border" : ""
@@ -615,7 +628,7 @@ export default async function DashboardPage() {
                   <p className="text-sm font-semibold text-fz-text tabular-nums font-mono ml-3 shrink-0">
                     <Money>{formatCurrency(Number(expense.amount), expense.currency)}</Money>
                   </p>
-                </div>
+                </Link>
               );
             })}
           </div>

@@ -1,10 +1,10 @@
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
 import ExpenseForm from "@/components/ExpenseForm";
+import { fetchShareGroupsWithMembers } from "@/lib/queries/shareGroups";
 import type { Account, Category } from "@/types";
 
 // Ruta optimizada para el Action Button de iPhone (iOS Shortcuts).
-// Carga directa del formulario sin navegación extra.
 export default async function NuevoGastoDirectoPage() {
   const supabase = await createClient();
   const {
@@ -12,9 +12,10 @@ export default async function NuevoGastoDirectoPage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [{ data: accounts }, { data: categories }] = await Promise.all([
+  const [{ data: accounts }, { data: categories }, shareGroups] = await Promise.all([
     supabase.from("accounts").select("*").order("name"),
     supabase.from("categories").select("*").order("name"),
+    fetchShareGroupsWithMembers(),
   ]);
 
   return (
@@ -23,6 +24,7 @@ export default async function NuevoGastoDirectoPage() {
       <ExpenseForm
         accounts={(accounts ?? []) as Account[]}
         categories={(categories ?? []) as Category[]}
+        shareGroups={shareGroups}
         redirectTo="/"
       />
     </div>
